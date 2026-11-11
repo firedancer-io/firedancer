@@ -202,6 +202,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.bundle.relayer_url                         );
   CFG_POP      ( bool,   tiles.bundle.advertise_tpu                       );
   CFG_POP      ( cstr,   tiles.bundle.strategy                            );
+  CFG_POP      ( cstr,   tiles.bundle.builder_slot_end                    );
   CFG_POP      ( cstr,   tiles.bundle.tls_domain_name                     );
   CFG_POP      ( cstr,   tiles.bundle.tip_distribution_program_addr       );
   CFG_POP      ( cstr,   tiles.bundle.tip_payment_program_addr            );

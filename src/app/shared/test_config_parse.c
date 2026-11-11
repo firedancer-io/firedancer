@@ -176,6 +176,7 @@ main( int     argc,
                                 "relayer_url = \"%s\"\n"
                                 "advertise_tpu = true\n"
                                 "strategy = \"mrev\"\n"
+                                "builder_slot_end = \"txns\"\n"
                                 "[tiles.shred]\n"
                                 "additional_shred_destinations_retransmit = [\"%s\"]\n"
                                 "additional_shred_destinations_leader = [\"%s\"]\n",
@@ -193,6 +194,7 @@ main( int     argc,
   FD_TEST( !strcmp( config->tiles.bundle.relayer_url, endpoint ) );
   FD_TEST( config->tiles.bundle.advertise_tpu );
   FD_TEST( !strcmp( config->tiles.bundle.strategy, "mrev" ) );
+  FD_TEST( !strcmp( config->tiles.bundle.builder_slot_end, "txns" ) );
   FD_TEST( config->tiles.shred.additional_shred_destinations_retransmit_cnt==1UL &&
            !strcmp( config->tiles.shred.additional_shred_destinations_retransmit[ 0 ], endpoint+8UL ) );
   FD_TEST( config->tiles.shred.additional_shred_destinations_leader_cnt==1UL &&

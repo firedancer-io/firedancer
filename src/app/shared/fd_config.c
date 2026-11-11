@@ -433,6 +433,10 @@ fd_config_fill( fd_config_t * config,
   else if( FD_LIKELY( !strcmp( config->tiles.bundle.strategy, "mrev" ) ) ) config->tiles.bundle.strategy_enum = FD_BUNDLE_STRATEGY_MREV;
   else FD_LOG_ERR(( "[tiles.bundle.strategy] %s not recognized", config->tiles.bundle.strategy ));
 
+  if(      FD_LIKELY( !strcmp( config->tiles.bundle.builder_slot_end, "builder" ) ) ) config->tiles.bundle.builder_slot_end_enum = FD_BUNDLE_SLOT_END_BUILDER;
+  else if( FD_LIKELY( !strcmp( config->tiles.bundle.builder_slot_end, "txns"    ) ) ) config->tiles.bundle.builder_slot_end_enum = FD_BUNDLE_SLOT_END_TXNS;
+  else FD_LOG_ERR(( "[tiles.bundle.builder_slot_end] %s not recognized", config->tiles.bundle.builder_slot_end ));
+
   fd_config_fill_net( config );
   fd_config_fillf( config );
 

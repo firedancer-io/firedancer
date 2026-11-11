@@ -73,6 +73,11 @@ fd_bundle_tile_add_server( fd_topo_tile_t * tile,
 #define FD_BUNDLE_STRATEGY_FBA  (2)
 #define FD_BUNDLE_STRATEGY_MREV (3)
 
+/* What pack does at the end of a leader slot while the block builder is
+   active ([tiles.bundle.builder_slot_end]) */
+#define FD_BUNDLE_SLOT_END_BUILDER (0) /* keep packing only the block builder's bundles */
+#define FD_BUNDLE_SLOT_END_TXNS    (1) /* pack other transactions, unless leader for the next slot */
+
 struct fd_bundle_block_engine_update {
   char name[ 16 ];
   char url[ FD_URL_MAX ];

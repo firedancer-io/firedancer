@@ -14,6 +14,7 @@
 #include "../pack/fd_pack.h"
 #include "../pack/fd_pack_cost.h"
 #include "../pack/fd_pack_pacing.h"
+#include "../bundle/fd_bundle_tile.h"
 #include "../fd_clock_tile.h"
 
 #include <string.h>
@@ -55,6 +56,14 @@ FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 
 /* 1.6 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1600000UL;
+
+/* While the block builder is active, only its bundles are packed, in
+   the order they arrive, until the last 50ms of the leader slot or until
+   fewer than 5M CUs are left.  Then [tiles.bundle.builder_slot_end]
+   applies.  If it sends nothing for the slot by the slot's midpoint,
+   the rest of the slot is packed as without it. */
+#define BUILDER_SLOT_END_NS  (50000000L)
+#define BUILDER_SLOT_END_CUS (5000000UL)
 
 #define EFFECTIVE_TXN_PER_MICROBLOCK 1UL
 
@@ -330,6 +339,12 @@ typedef struct {
   fd_pack_out_ctx_t execle_out[ FD_PACK_MAX_EXECLE_TILES ];
   fd_pack_out_ctx_t poh_out;
   fd_pack_out_ctx_t bundle_out; /* out_idx ULONG_MAX if there is no bundle tile */
+  ulong const *     builder_active; /* nonzero while the bundle tile's block builder is active, NULL if none */
+  int               builder_slot_end;      /* FD_BUNDLE_SLOT_END_* */
+  long              builder_slot_end_tick; /* when the end of the leader slot starts */
+  long              builder_midpoint_tick; /* the leader slot's midpoint */
+  int               builder_seen;          /* the block builder sent something for the leader slot */
+  int               leader_next_slot;      /* we are also leader for the slot after the leader slot */
 
   /* Leader state published to the bundle tile, kept here since
      _became_leader may be overwritten by an overrun frag mid slot */
@@ -439,6 +454,13 @@ remove_ib( fd_pack_ctx_t * ctx ) {
   ctx->crank->ib_inserted = 0;
 }
 
+
+/* builder_mode returns 1 while the block builder is active */
+
+static inline int
+builder_mode( fd_pack_ctx_t const * ctx ) {
+  return ctx->builder_active && fd_fseq_query( ctx->builder_active );
+}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -872,6 +894,14 @@ after_credit( fd_pack_ctx_t *     ctx,
         break;
       }
     }
+    if( FD_UNLIKELY( builder_mode( ctx ) && (ctx->builder_seen | (now<ctx->builder_midpoint_tick)) ) ) {
+      int slot_end = (now>=ctx->builder_slot_end_tick) |
+                     (fd_pack_current_block_cost( ctx->pack )+BUILDER_SLOT_END_CUS>ctx->limits.slot_max_cost);
+      int mode     = fd_int_if( slot_end, ctx->builder_slot_end, FD_BUNDLE_SLOT_END_BUILDER );
+      /* One bundle at a time on execle 0 keeps the block builder's order */
+      if(      mode==FD_BUNDLE_SLOT_END_BUILDER ) flags = fd_int_if( i==0, FD_PACK_SCHEDULE_BUNDLE|FD_PACK_SCHEDULE_IN_ORDER, 0 );
+      else if( ctx->leader_next_slot            ) flags = 0;
+    }
 
     fd_pack_out_ctx_t * execle_out = &ctx->execle_out[ i ];
     fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( execle_out->mem, execle_out->chunk );
@@ -1050,14 +1080,18 @@ during_frag( fd_pack_ctx_t * ctx,
     ulong bundle_id = txnm->block_engine.bundle_id;
     if( FD_UNLIKELY( bundle_id ) ) {
       ctx->is_bundle = 1;
+      ctx->builder_seen |= txnm->block_engine.slot==ctx->leader_slot;
       if( FD_LIKELY( bundle_id!=ctx->current_bundle->id ) ) {
         if( FD_UNLIKELY( ctx->current_bundle->bundle ) ) {
           FD_MCNT_INC( PACK, TXN_DROPPED_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
           fd_pack_insert_bundle_cancel( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt );
         }
         ctx->current_bundle->id                   = bundle_id;
-        ctx->current_bundle->txn_cnt              = txnm->block_engine.bundle_txn_cnt;
-        ctx->current_bundle->min_blockhash_height = ULONG_MAX;
+        /* Other bundles would break the block builder's order */
+        ctx->current_bundle->txn_cnt              = fd_ulong_if( !txnm->block_engine.slot && builder_mode( ctx ), 0UL, txnm->block_engine.bundle_txn_cnt );
+        /* The block builder's bundles are forgotten at the end of the
+           leader slot: they expire when the next one starts */
+        ctx->current_bundle->min_blockhash_height = fd_ulong_if( !!txnm->block_engine.slot, fd_ulong_sat_sub( ctx->block_height, TRANSACTION_LIFETIME_SLOTS ), ULONG_MAX );
         ctx->current_bundle->txn_received         = 0UL;
 
         if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) {
@@ -1095,6 +1129,10 @@ during_frag( fd_pack_ctx_t * ctx,
     ctx->cur_spot->txnp->payload_sz  = (ushort)payload_sz;
     ctx->cur_spot->txnp->source_ipv4 = source_ipv4;
     ctx->cur_spot->txnp->source_tpu  = source_tpu;
+    /* The block builder's transactions outside a bundle land even if
+       they fail */
+    ctx->cur_spot->txnp->flags       = fd_uint_if( txnm->block_engine.slot && !txnm->block_engine.atomic && txnm->block_engine.bundle_txn_cnt==1UL,
+                                                   FD_TXN_P_FLAGS_NO_REVERT, 0U );
 
     break;
   }
@@ -1207,6 +1245,10 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->leader_slot_end_tick          = end_ticks;
     ctx->auction_final_start_tick      = fd_long_if( ctx->leader_slot%4UL==3UL,
                                                      end_ticks-(long)(tick_per_ns*(double)FD_PACK_AUCTION_FINAL_NS), LONG_MAX );
+    ctx->builder_slot_end_tick         = end_ticks-(long)(tick_per_ns*(double)BUILDER_SLOT_END_NS);
+    ctx->builder_midpoint_tick         = ctx->leader_slot_start_tick + (end_ticks-ctx->leader_slot_start_tick)/2L;
+    ctx->builder_seen                  = 0;
+    ctx->leader_next_slot              = ctx->_became_leader->leader_next_slot;
     ctx->auction_last_attempt_tick     = now_ticks - ctx->auction_interval_tick;
     ctx->auction_next_tick             = now_ticks;
     fd_pack_limits_t limits[ 1 ];
@@ -1425,12 +1467,15 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->cur_spot                      = NULL;
   ctx->is_bundle                     = 0;
   ctx->strategy                      = tile->pack.schedule_strategy;
+  ctx->builder_slot_end              = tile->pack.builder_slot_end;
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->block_height                  = 0UL;
   ctx->auction_last_attempt_tick     = 0L;
   ctx->auction_next_tick             = LONG_MAX;
   ctx->auction_final_start_tick      = LONG_MAX;
+  ctx->builder_slot_end_tick         = LONG_MAX;
+  ctx->builder_midpoint_tick         = LONG_MAX;
   ctx->leader_bank_idx               = ULONG_MAX;
   ctx->leader_bank_seq               = ULONG_MAX;
   ctx->pack_idx                      = 0UL;
@@ -1506,6 +1551,8 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->bundle_out.wmark  = fd_dcache_compact_wmark ( ctx->bundle_out.mem, bundle_out_link->dcache, bundle_out_link->mtu );
     ctx->bundle_out.chunk  = ctx->bundle_out.chunk0;
   }
+  ulong active_obj_id = fd_pod_query_ulong( topo->props, "bundle_active", ULONG_MAX );
+  ctx->builder_active = active_obj_id!=ULONG_MAX ? fd_fseq_join( fd_topo_obj_laddr( topo, active_obj_id ) ) : NULL;
 
   /* Initialize metrics storage */
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );

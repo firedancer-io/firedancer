@@ -390,6 +390,7 @@ struct fd_topo_tile {
       ulong bench_max_shreds_per_block; /* [development.bench], floors the leader's per-slot shred limit */
       int   use_consumed_cus;
       int   schedule_strategy;
+      int   builder_slot_end; /* FD_BUNDLE_SLOT_END_* */
       struct {
         int   enabled;
         uchar tip_distribution_program_addr[ 32 ];

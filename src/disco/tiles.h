@@ -58,6 +58,9 @@ struct fd_became_leader {
   /* The block height of the slot for which we are becoming leader. */
   ulong block_height;
 
+  /* 1 if we are also leader for the slot after it, 0 otherwise. */
+  int leader_next_slot;
+
   /* Consensus-critical cost limits for the slot we are becoming leader.
      These are typically unchanging, but may change after a feature
      activation. */

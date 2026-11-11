@@ -1883,6 +1883,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->pack.bench_max_shreds_per_block    = config->development.bench.max_shreds_per_block;
     tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
     tile->pack.schedule_strategy             = config->tiles.pack.schedule_strategy_enum;
+    tile->pack.builder_slot_end              = config->tiles.bundle.builder_slot_end_enum;
     tile->pack.acct_blocklist_cnt            = config->tiles.pack.account_blocklist_cnt;
 
     for( ulong i=0UL; i<tile->pack.acct_blocklist_cnt; i++ ) {

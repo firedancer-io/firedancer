@@ -1758,6 +1758,9 @@ try_become_leader( fd_replay_tile_t *  ctx,
 
   msg->epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, ctx->next_leader_slot, NULL );
 
+  fd_pubkey_t const * next_slot_leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, ctx->next_leader_slot+1UL );
+  msg->leader_next_slot = next_slot_leader && fd_pubkey_eq( next_slot_leader, ctx->identity_pubkey );
+
   fd_cost_tracker_t const * cost_tracker = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
 
   msg->limits.slot_max_cost                     = cost_tracker->block_cost_limit;

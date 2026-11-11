@@ -415,6 +415,8 @@ struct fd_config {
       int  advertise_tpu;
       char strategy[ 8 ];
       int  strategy_enum;
+      char builder_slot_end[ 8 ];
+      int  builder_slot_end_enum;
       char tls_domain_name[ FD_SNI_BUF_MAX ];
       char tip_distribution_program_addr[ FD_BASE58_ENCODED_32_SZ ];
       char tip_payment_program_addr[ FD_BASE58_ENCODED_32_SZ ];

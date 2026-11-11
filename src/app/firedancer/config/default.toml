@@ -1718,6 +1718,17 @@ telemetry = true
         #            revenue-prioritizing selection
         strategy = "fba"
 
+        # What pack does at the end of a leader slot while the block
+        # builder is active.  Until the last 50ms of the slot, or until
+        # fewer than 5M CUs are left, pack packs only the block
+        # builder's bundles, in the order they arrive.  After that, one
+        # of:
+        #
+        #   "builder" - Keep packing only the block builder's bundles
+        #   "txns"    - Pack the other transactions we received, unless
+        #               we are leader for the next slot
+        builder_slot_end = "builder"
+
         # The domain name of the TLS certificate to use when verifying
         # the peer.  If none is provided, the domain from the URL above
         # will be used by default.
