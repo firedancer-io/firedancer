@@ -7,6 +7,8 @@
 #include "../keyguard/fd_keyguard.h"
 #include "../waker/fd_waker.h"
 #include "../fd_txn_m.h"
+#include "../pack/fd_pack.h"
+#include "../../flamenco/runtime/fd_runtime_err.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
 #include "../../ballet/base58/fd_base58.h"
@@ -42,7 +44,8 @@
    status returns its FD_BUNDLE_STATE_*, deadline when it next needs a
    step (absent any fd event), and reset clears it.  leader_update, if
    any, queues the session's notice of a leader state update from pack,
-   and returns 1 if it queued one. */
+   and returns 1 if it queued one.  report, if any, reports the result
+   of a bundle whose block builder wants it. */
 
 struct fd_bundle_request {
   ulong        id; /* FD_BUNDLE_CLIENT_REQ_* */
@@ -64,6 +67,7 @@ struct fd_bundle_protocol {
   long (* deadline     )( fd_bundle_conn_t const * conn, long now );
   void (* reset        )( fd_bundle_conn_t * conn );
   int  (* leader_update)( fd_bundle_conn_t * conn, int new_slot );
+  void (* report       )( fd_bundle_conn_t * conn, fd_bundle_result_t const * res );
 };
 
 typedef struct fd_bundle_protocol fd_bundle_protocol_t;
@@ -77,8 +81,9 @@ static int  fd_bundle_client_bam_status   ( fd_bundle_conn_t const * conn );
 static long fd_bundle_client_bam_deadline ( fd_bundle_conn_t const * conn, long now );
 static void fd_bundle_client_bam_reset    ( fd_bundle_conn_t *       conn );
 
-static int fd_bundle_client_harmonic_leader_update( fd_bundle_conn_t * conn, int new_slot );
-static int fd_bundle_client_bam_leader_update     ( fd_bundle_conn_t * conn, int new_slot );
+static int  fd_bundle_client_harmonic_leader_update( fd_bundle_conn_t * conn, int new_slot );
+static int  fd_bundle_client_bam_leader_update     ( fd_bundle_conn_t * conn, int new_slot );
+static void fd_bundle_client_bam_report            ( fd_bundle_conn_t * conn, fd_bundle_result_t const * res );
 
 #define BLOCK_ENGINE "/block_engine.BlockEngineValidator/"
 #define SESSION( kind ) .step     = fd_bundle_client_##kind##_step,     \
@@ -113,6 +118,7 @@ static fd_bundle_protocol_t const fd_bundle_protocols[] = {
     .login_cutoff_slots = FD_BUNDLE_BAM_LOGIN_CUTOFF_SLOTS,
     SESSION( bam ),
     .leader_update      = fd_bundle_client_bam_leader_update,
+    .report             = fd_bundle_client_bam_report,
   },
   [ FD_BUNDLE_PROTOCOL_RELAYER ] = {
     .name               = "relayer",
@@ -700,6 +706,59 @@ fd_bundle_client_bam_send( fd_bundle_conn_t * conn,
   return fd_grpc_client_stream_send_msg( conn->grpc_client, conn->bam.stream, fd_pb_encoder_out( enc ), fd_pb_encoder_out_sz( enc ) );
 }
 
+/* fd_bundle_client_bam_txn_err returns the
+   bam_types.TransactionErrorReason of FD_RUNTIME_TXN_ERR_* err.  Codes
+   in [-37,-2] are Agave TransactionError indices negated and minus one,
+   as BAM's are indices. */
+
+static uint
+fd_bundle_client_bam_txn_err( int err ) {
+  if( FD_LIKELY( err>=FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION && err<=FD_RUNTIME_TXN_ERR_ACCOUNT_LOADED_TWICE ) ) return (uint)( -1-err );
+  if( err>=FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE && err<=FD_RUNTIME_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED ) return 7U; /* BLOCKHASH_NOT_FOUND */
+  return 38U; /* COMMIT_CANCELLED */
+}
+
+/* fd_bundle_client_bam_report sends the result of a batch on the
+   scheduler stream, if it can. */
+
+static void
+fd_bundle_client_bam_report( fd_bundle_conn_t *         conn,
+                             fd_bundle_result_t const * res ) {
+  if( FD_UNLIKELY( !conn->bam.stream || fd_grpc_client_stream_send_is_blocked( conn->grpc_client ) ) ) return;
+
+  /* The transaction that kept the batch out of the block, rather than
+     one that failed with it (BUNDLE_PEER) */
+  ulong failed = ULONG_MAX;
+  for( ulong j=0UL; j<res->txn_cnt; j++ ) {
+    if( !(res->landed & (1U<<j)) && ( failed==ULONG_MAX || res->txn_err[ failed ]==FD_RUNTIME_TXN_ERR_BUNDLE_PEER ) ) failed = j;
+  }
+
+  uchar           msg[ 256 ];
+  fd_pb_encoder_t enc[1];
+  fd_bundle_client_bam_msg_open( enc, msg, sizeof(msg), 3U );       /* multiple_atomic_txn_batch_result */
+  FD_TEST( fd_pb_submsg_open( enc, 1U ) );                         /* results */
+  FD_TEST( fd_pb_push_uint32( enc, 1U, (uint)res->seq ) );         /* seq_id */
+  if( failed==ULONG_MAX ) {
+    FD_TEST( fd_pb_submsg_open( enc, 2U ) );                       /* committed */
+    for( ulong j=0UL; j<res->txn_cnt; j++ ) {
+      FD_TEST( fd_pb_submsg_open( enc, 1U ) );                     /* transaction_results */
+      FD_TEST( fd_pb_push_uint32( enc, 1U, res->cus[ j ] ) );      /* cus_consumed */
+      FD_TEST( fd_pb_push_bool  ( enc, 4U, !res->txn_err[ j ] ) ); /* execution_success */
+      FD_TEST( fd_pb_submsg_close( enc ) );
+    }
+  } else {
+    FD_TEST( fd_pb_submsg_open( enc, 3U ) );                       /* not_committed */
+    FD_TEST( fd_pb_submsg_open( enc, 1U ) );                       /* transaction_error */
+    FD_TEST( fd_pb_push_uint32( enc, 1U, (uint)failed ) );         /* index */
+    FD_TEST( fd_pb_push_uint32( enc, 2U, fd_bundle_client_bam_txn_err( res->txn_err[ failed ] ) ) ); /* reason */
+    FD_TEST( fd_pb_submsg_close( enc ) );
+  }
+  FD_TEST( fd_pb_submsg_close( enc ) );
+  FD_TEST( fd_pb_submsg_close( enc ) );
+  fd_bundle_client_bam_send( conn, enc );
+  conn->ctx->next_step_deadline = 0L;
+}
+
 /* fd_bundle_conn_may_request returns 1 if conn can start a request now:
    its gRPC client is not blocked and it is not backing off. */
 
@@ -1157,6 +1216,45 @@ fd_bundle_client_bundle_push( fd_bundle_tile_t * ctx,
   ctx->bundle.txn[ idx ].source_ipv4 = source_ipv4;
 }
 
+/* fd_bundle_client_result_add tracks the result of the bundle just
+   published, if its block builder wants it. */
+
+static void
+fd_bundle_client_result_add( fd_bundle_tile_t * ctx,
+                             ulong              txn_cnt ) {
+  if( !ctx->bundle.want_result ) return;
+  fd_bundle_result_t * res = &ctx->results[ ctx->result_cnt++ & (FD_BUNDLE_RESULT_MAX-1UL) ];
+  *res = (fd_bundle_result_t){ .seq=ctx->bundle.seq, .txn_cnt=(uchar)txn_cnt };
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    /* The first signature follows its 1 byte count */
+    uchar const * payload = ctx->bundle.txn[ i ].data;
+    res->sig[ i ] = ctx->bundle.txn[ i ].data_sz>=9UL ? FD_LOAD( ulong, payload+1UL ) : 0UL;
+  }
+}
+
+void
+fd_bundle_client_txn_executed( fd_bundle_tile_t * ctx,
+                               ulong              sig,
+                               uint               flags,
+                               uint               cus ) {
+  for( ulong i=0UL; i<FD_BUNDLE_RESULT_MAX; i++ ) {
+    fd_bundle_result_t * res = &ctx->results[ i ];
+    for( ulong j=0UL; j<res->txn_cnt; j++ ) {
+      if( res->sig[ j ]!=sig ) continue;
+      res->txn_err[ j ] = -(int)( flags>>24 );
+      res->cus    [ j ] = cus;
+      res->executed    |= (uchar)( 1U<<j );
+      res->landed      |= (uchar)( fd_uint_if( !!(flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS), 1U<<j, 0U ) );
+      if( res->executed==(1U<<res->txn_cnt)-1U ) {
+        fd_bundle_conn_t * builder = fd_bundle_client_builder( ctx );
+        if( builder && fd_bundle_conn_protocol( builder )->report ) fd_bundle_conn_protocol( builder )->report( builder, res );
+        res->txn_cnt = 0;
+      }
+      return;
+    }
+  }
+}
+
 /* bundle_close publishes the bundle with its slot and seq (see
    fd_txn_m_t). */
 
@@ -1181,6 +1279,7 @@ fd_bundle_client_bundle_close( fd_bundle_tile_t * ctx,
   for( ulong i=0UL; i<n; i++ ) {
     fd_bundle_tile_publish_txn( ctx, ctx->bundle.txn[ i ].data, ctx->bundle.txn[ i ].data_sz, ctx->bundle.txn[ i ].source_ipv4, n );
   }
+  fd_bundle_client_result_add( ctx, n );
   ctx->metrics.bundle_received_cnt++;
 }
 

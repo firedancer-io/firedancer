@@ -4,6 +4,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../../ballet/pb/fd_pb_tokenize.h"
+#include "../../flamenco/runtime/fd_runtime_err.h"
 #include "../../util/tmpl/fd_unit_test.c"
 
 #include <sys/socket.h>
@@ -1766,6 +1767,120 @@ FD_UNIT_TEST( bam_client_batches ) {
   test_rx_bam_batches( state, batches, 1UL );
   FD_TEST( published_txn_cnt( env )==4UL && state->metrics.backpressure_drop_cnt==2UL );
 
+  test_bundle_env_destroy( env );
+}
+
+/* Hands the client a BAM batch of cnt 65 byte transactions, whose
+   signatures are the byte seq_id*16+j repeated */
+
+static void
+test_rx_bam_sig_batch( fd_bundle_tile_t * state,
+                       uint               seq_id,
+                       ulong              cnt,
+                       int                revert ) {
+  static uchar    buf[ 4096 ];
+  fd_pb_encoder_t enc[1];
+  test_bam_resp_open( enc, buf, sizeof(buf), 2U ); /* multiple_atomic_txn_batch */
+  FD_TEST( fd_pb_submsg_open( enc, 3U ) );         /* batches */
+  FD_TEST( fd_pb_push_uint32( enc, 1U, seq_id ) ); /* seq_id */
+  FD_TEST( fd_pb_push_uint64( enc, 2U, 600UL ) );  /* max_schedule_slot */
+  for( ulong j=0UL; j<cnt; j++ ) {
+    uchar data[ 65 ];
+    data[ 0 ] = 1;
+    fd_memset( data+1, (int)( seq_id*16U+j ), 64UL );
+    FD_TEST( fd_pb_submsg_open( enc, 3U ) );             /* packets */
+    FD_TEST( fd_pb_push_bytes ( enc, 1U, data, 65UL ) ); /* data */
+    FD_TEST( fd_pb_submsg_open( enc, 2U ) );             /* meta */
+    FD_TEST( fd_pb_submsg_open( enc, 2U ) );             /* flags */
+    FD_TEST( fd_pb_push_bool  ( enc, 2U, revert ) );     /* revert_on_error */
+    FD_TEST( fd_pb_submsg_close( enc ) );
+    FD_TEST( fd_pb_submsg_close( enc ) );
+    FD_TEST( fd_pb_submsg_close( enc ) );
+  }
+  FD_TEST( fd_pb_submsg_close( enc ) );
+  test_rx_bam_resp( state, enc );
+}
+
+static ulong
+test_sig( uint  seq_id,
+          ulong j ) {
+  uchar sig[ 8 ];
+  fd_memset( sig, (int)( seq_id*16U+j ), 8UL );
+  return FD_LOAD( ulong, sig );
+}
+
+/* Verify that BAM hears the outcome of each batch once it executed:
+   committed with the CUs it consumed and whether it succeeded, or not
+   committed with the transaction that failed it */
+
+FD_UNIT_TEST( bam_client_results ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn_empty( env );
+  fd_bundle_tile_t * const state = env->state;
+  test_bundle_env_mock_h2_hs( state );
+  state->conn->protocol            = FD_BUNDLE_PROTOCOL_BAM;
+  state->conn->keepalive->interval = 0L; /* keep HTTP/2 PINGs off the wire */
+  uchar signature[ 64 ];
+  fd_memset( signature, 0x11, sizeof(signature) );
+  test_sign_t sign[1];
+  test_sign_create( sign, state, signature );
+
+  uchar               buf[ 512 ];
+  uchar               body[ 256 ];
+  int                 charge_busy = 0;
+  fd_grpc_resp_hdrs_t ok          = { .h2_status = 200, .grpc_status = FD_GRPC_STATUS_OK };
+  fd_pb_encoder_t     enc[1];
+
+  /* Log in, and drain the auth proof and first heartbeat */
+  fd_bundle_client_step( state, &charge_busy );
+  wire_rx( env );
+  fd_pb_encoder_init( enc, buf, sizeof(buf) );
+  FD_TEST( fd_pb_push_cstr( enc, 1U, "challenge" ) ); /* challenge_to_sign */
+  fd_bundle_client_grpc_rx_msg( state->conn, buf, fd_pb_encoder_out_sz( enc ), FD_BUNDLE_CLIENT_REQ_Bam_GetAuthChallenge );
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bam_GetAuthChallenge, &ok );
+  fd_bundle_client_step( state, &charge_busy );
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->bam.stream );
+  ulong const stream_id = state->conn->bam.stream->s.stream_id;
+  wire_rx( env );
+  state->conn->builder.avail = 1;
+  state->conn->builder.next  = LONG_MAX; /* no config polls */
+
+  /* An atomic batch, and batches of one without revert protection */
+  test_rx_bam_sig_batch( state, 1U, 2UL, 1 );
+  test_rx_bam_sig_batch( state, 2U, 1UL, 0 );
+  test_rx_bam_sig_batch( state, 3U, 1UL, 0 );
+
+  fd_bundle_client_txn_executed( state, test_sig( 1U, 0UL ), FD_TXN_P_FLAGS_BUNDLE|FD_TXN_P_FLAGS_EXECUTE_SUCCESS, 100U );
+  fd_bundle_client_txn_executed( state, test_sig( 9U, 0UL ), FD_TXN_P_FLAGS_BUNDLE|FD_TXN_P_FLAGS_EXECUTE_SUCCESS, 100U ); /* not tracked */
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( !fd_h2_rbuf_used_sz( wire_rx( env ) ) );
+
+  fd_bundle_client_txn_executed( state, test_sig( 1U, 1UL ), FD_TXN_P_FLAGS_BUNDLE|FD_TXN_P_FLAGS_EXECUTE_SUCCESS, 200U );
+  fd_bundle_client_step( state, &charge_busy );
+  fd_pb_inbuf_t res = test_pb_submsg( test_bam_msg( wire_rx( env ), stream_id, 3U, body ), 1U ); /* multiple_atomic_txn_batch_result.results */
+  FD_TEST( test_pb_varint( res, 1U )==1UL );                                         /* seq_id */
+  FD_TEST( test_pb_varint( test_pb_submsg( test_pb_submsg( res, 2U ), 1U ), 1U )==100UL ); /* committed.transaction_results.cus_consumed */
+
+  fd_bundle_client_txn_executed( state, test_sig( 2U, 0UL ), FD_TXN_P_FLAGS_NO_REVERT|((uint)-FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE<<24), 0U );
+  fd_bundle_client_step( state, &charge_busy );
+  res = test_pb_submsg( test_bam_msg( wire_rx( env ), stream_id, 3U, body ), 1U );  /* multiple_atomic_txn_batch_result.results */
+  FD_TEST( test_pb_varint( res, 1U )==2UL );                                         /* seq_id */
+  fd_pb_inbuf_t txn_error = test_pb_submsg( test_pb_submsg( res, 3U ), 1U );         /* not_committed.transaction_error */
+  FD_TEST( test_pb_varint( txn_error, 1U )==0UL );                                   /* index */
+  FD_TEST( test_pb_varint( txn_error, 2U )==4UL );                                   /* reason: INSUFFICIENT_FUNDS_FOR_FEE */
+
+  /* Lands despite failing */
+  fd_bundle_client_txn_executed( state, test_sig( 3U, 0UL ), FD_TXN_P_FLAGS_NO_REVERT|FD_TXN_P_FLAGS_EXECUTE_SUCCESS|((uint)-FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR<<24), 300U );
+  fd_bundle_client_step( state, &charge_busy );
+  res = test_pb_submsg( test_bam_msg( wire_rx( env ), stream_id, 3U, body ), 1U );  /* multiple_atomic_txn_batch_result.results */
+  FD_TEST( test_pb_varint( res, 1U )==3UL );                                         /* seq_id */
+  fd_pb_inbuf_t txn_res = test_pb_submsg( test_pb_submsg( res, 2U ), 1U );           /* committed.transaction_results */
+  FD_TEST( test_pb_varint( txn_res, 1U )==300UL );                                   /* cus_consumed */
+  FD_TEST( test_pb_varint( txn_res, 4U )==0UL );                                     /* execution_success */
+
+  test_sign_destroy( sign );
   test_bundle_env_destroy( env );
 }
 

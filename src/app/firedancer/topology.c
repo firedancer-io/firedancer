@@ -957,6 +957,7 @@ fd_topo_initialize( config_t * config ) {
       /**/               fd_topob_tile_out( topo, "pack",   0UL,                        "pack_bundle",    0UL                                                );
       /**/               fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "pack_bundle",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
       /**/               fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "replay_slot",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+      FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "execle_poh",     i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
 
       fd_topo_obj_t * active_obj = fd_topob_obj( topo, "fseq", "pack_bundle" );
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bundle", 0UL ) ], active_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

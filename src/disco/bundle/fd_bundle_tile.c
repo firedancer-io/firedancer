@@ -2,6 +2,7 @@
 #include "fd_bundle_tile_private.h"
 #include "fd_bundle_tile.h"
 #include "../fd_txn_m.h"
+#include "../pack/fd_pack.h"
 #include "../metrics/fd_metrics.h"
 #include "../topo/fd_topo.h"
 #include "../keyguard/fd_keyload.h"
@@ -27,6 +28,7 @@
 
 #define IN_KIND_REPLAY_OUT  (1)
 #define IN_KIND_PACK_LEADER (2)
+#define IN_KIND_EXECLE      (3)
 
 #define STEM_BURST (5UL)
 
@@ -235,6 +237,21 @@ during_frag( fd_bundle_tile_t * ctx,
     return;
   }
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE ) ) {
+    ctx->execle_txn_staged.sig = 0UL;
+    if( FD_UNLIKELY( chunk<ctx->execle_in[ in_idx ].chunk0 || chunk>ctx->execle_in[ in_idx ].wmark ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->execle_in[ in_idx ].chunk0, ctx->execle_in[ in_idx ].wmark ));
+    if( FD_LIKELY( sz<sizeof(fd_txn_p_t) ) ) return;
+    /* Read the first signature at its fixed offset, as a frag being
+       overwritten may hold a garbage descriptor */
+    fd_txn_p_t const * txn = fd_chunk_to_laddr_const( ctx->execle_in[ in_idx ].mem, chunk );
+    if( FD_LIKELY( !(txn->flags & (FD_TXN_P_FLAGS_BUNDLE|FD_TXN_P_FLAGS_NO_REVERT)) ) ) return;
+    ctx->execle_txn_staged.sig   = FD_LOAD( ulong, txn->payload+1UL );
+    ctx->execle_txn_staged.flags = txn->flags;
+    ctx->execle_txn_staged.cus   = txn->execle_cu.actual_consumed_cus;
+    return;
+  }
+
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
     if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER && sig!=REPLAY_SIG_NEXT_LEADER ) ) return;
     ulong want_sz = sig==REPLAY_SIG_BECAME_LEADER ? sizeof(fd_became_leader_t) : sizeof(fd_replay_next_leader_t);
@@ -268,6 +285,11 @@ after_frag( fd_bundle_tile_t *  ctx,
     int new_slot = ctx->leader_state_staged->slot!=ctx->leader_state->slot;
     *ctx->leader_state = *ctx->leader_state_staged;
     if( FD_UNLIKELY( fd_bundle_client_leader_state_update( ctx, new_slot ) ) ) ctx->next_step_deadline = 0L;
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECLE ) ) {
+    if( ctx->execle_txn_staged.sig ) fd_bundle_client_txn_executed( ctx, ctx->execle_txn_staged.sig, ctx->execle_txn_staged.flags, ctx->execle_txn_staged.cus );
     return;
   }
 
@@ -675,6 +697,12 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->pack_in.mem    = link_wksp->wksp;
       ctx->pack_in.chunk0 = fd_dcache_compact_chunk0( ctx->pack_in.mem, link->dcache );
       ctx->pack_in.wmark  = fd_dcache_compact_wmark ( ctx->pack_in.mem, link->dcache, link->mtu );
+    } else if( !strcmp( link->name, "execle_poh" ) ) {
+      ctx->in_kind[ polled_in_idx ] = IN_KIND_EXECLE;
+      fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+      ctx->execle_in[ polled_in_idx ].mem    = link_wksp->wksp;
+      ctx->execle_in[ polled_in_idx ].chunk0 = fd_dcache_compact_chunk0( link_wksp->wksp, link->dcache );
+      ctx->execle_in[ polled_in_idx ].wmark  = fd_dcache_compact_wmark ( link_wksp->wksp, link->dcache, link->mtu );
     }
     polled_in_idx++;
   }

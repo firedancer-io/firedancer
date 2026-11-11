@@ -67,6 +67,24 @@ struct fd_bundle_builder {
 
 typedef struct fd_bundle_builder fd_bundle_builder_t;
 
+/* fd_bundle_result_t tracks a published bundle whose block builder
+   wants its result (want_result), matched to its executed transactions
+   by the first 8 bytes of their signatures. */
+
+#define FD_BUNDLE_RESULT_MAX (256UL) /* power of 2 */
+
+struct fd_bundle_result {
+  ulong seq;                                            /* fd_txn_m_t block_engine.seq */
+  ulong sig    [ FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ];
+  uint  cus    [ FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ]; /* consumed CUs */
+  int   txn_err[ FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE ]; /* FD_RUNTIME_TXN_ERR_*, 0 if it succeeded */
+  uchar txn_cnt;                                        /* 0 if unused */
+  uchar executed;                                       /* bit i set once transaction i executed */
+  uchar landed;                                         /* bit i set if transaction i landed in the block */
+};
+
+typedef struct fd_bundle_result fd_bundle_result_t;
+
 /* Streams a Jito protocol session subscribes to */
 
 #define FD_BUNDLE_SUB_PACKETS (0) /* SubscribePackets */
@@ -234,6 +252,11 @@ struct fd_bundle_tile {
      crowd out the builder's ordered bundles. */
   ulong cr_reserve; /* credits the message being decoded must leave */
 
+  /* Bundle results awaiting execution, results[ i%FD_BUNDLE_RESULT_MAX ]
+     for the i-th tracked.  A full ring overwrites the oldest. */
+  fd_bundle_result_t results[ FD_BUNDLE_RESULT_MAX ];
+  ulong              result_cnt;
+
   /* App metrics */
   fd_bundle_metrics_t metrics;
 
@@ -280,6 +303,16 @@ struct fd_bundle_tile {
     ulong       chunk0;
     ulong       wmark;
   } pack_in;
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+  } execle_in[ 64 ]; /* by in_idx */
+  struct {
+    ulong sig;
+    uint  flags;
+    uint  cus;
+  } execle_txn_staged; /* executed bundle transaction, sig 0 for none */
 };
 
 /* Define 'request_ctx' IDs to identify different types of gRPC calls */
@@ -460,6 +493,17 @@ fd_bundle_conn_send_ping( fd_bundle_conn_t * conn );
 int
 fd_bundle_client_leader_state_update( fd_bundle_tile_t * ctx,
                                       int                new_slot );
+
+/* fd_bundle_client_txn_executed is called for every executed bundle
+   transaction, with the first 8 bytes of its signature, its fd_txn_p_t
+   flags and its consumed CUs.  Once all of a tracked bundle executed,
+   its result is reported to the block builder. */
+
+void
+fd_bundle_client_txn_executed( fd_bundle_tile_t * ctx,
+                               ulong              sig,
+                               uint               flags,
+                               uint               cus );
 
 FD_PROTOTYPES_END
 
