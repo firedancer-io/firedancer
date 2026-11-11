@@ -135,8 +135,19 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     }
   }
 
+  /* The callee program must be one of the transaction accounts.  Agave
+     checks this before the privilege checks below.
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L466-L472 */
+  ulong program_idx_in_txn = fd_runtime_find_index_of_account( instr_ctx->txn_out, callee_program_id_pubkey );
+  if( FD_UNLIKELY( program_idx_in_txn==ULONG_MAX ) ) {
+    FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
+    fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+  }
+
   /* Check the normalized account permissions for privilege escalation.
-     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L369-L419 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L340-L377 */
   for( ulong i = 0; i < deduplicated_instruction_accounts_cnt; i++ ) {
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
 
@@ -185,13 +196,12 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     }
   }
 
-  /* Obtain the program account index and return a MissingAccount error if not found.
-    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L421-L436 */
+  /* The callee program must also be one of the caller instruction
+     accounts.
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L379-L392 */
   ushort caller_map[ MAX_TX_ACCOUNT_LOCKS ];
   fd_exec_instr_ctx_instr_account_map( instr_ctx, caller_map );
-  ulong program_idx_in_txn = fd_runtime_find_index_of_account( instr_ctx->txn_out, callee_program_id_pubkey );
-  ulong program_idx        = program_idx_in_txn!=ULONG_MAX && caller_map[ program_idx_in_txn ]!=USHORT_MAX ? caller_map[ program_idx_in_txn ] : ULONG_MAX;
-  if( FD_UNLIKELY( program_idx==ULONG_MAX ) ) {
+  if( FD_UNLIKELY( caller_map[ program_idx_in_txn ]==USHORT_MAX ) ) {
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
     FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
