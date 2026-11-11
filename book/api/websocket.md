@@ -2838,7 +2838,9 @@ Every successful response includes `available_start_ns` and
 `available_end_ns`. These are method-specific half-open lookup bounds,
 `[available_start_ns, available_end_ns)`, reflecting the data available
 in the server's database. Both are `null` when the server is missing
-data needed for a non-empty response.
+data needed for a non-empty response. Where noted, `available_end_ns`
+is also a completeness edge: data before it will not change, so a
+client can stop re-requesting a window that ends at or before it.
 
 Historical lookups use insertion-time indices, then filter by event
 time. Rows are inserted at or shortly after their timestamp, so a
@@ -3363,7 +3365,7 @@ request window, ordered by slot.
 | field              | type           | description |
 |--------------------|----------------|-------------|
 | available_start_ns | `string\|null` | Inclusive beginning of retained cached slot intervals |
-| available_end_ns   | `string\|null` | Exclusive end of retained cached slot intervals |
+| available_end_ns   | `string\|null` | Exclusive end of retained cached slot intervals: the end of the newest rooted slot. Slots are written when they root, so this is also the completeness edge |
 | reference_slot     | `number\|null` | First slot in the response |
 | reference_ts       | `string\|null` | Minimum start timestamp across returned rows |
 | slot_delta         | `number[]`     | Per row, `slot - reference_slot` |
@@ -3487,7 +3489,7 @@ the first timestamp. Both are `null` when the arrays are empty.
 |--------------------|---------------------|-------------|
 | granularity        | `string`            | Echoes `vote` or `vote_batch` |
 | available_start_ns | `string\|null`      | Inclusive beginning of retained votes (vote batches for `vote_batch`) |
-| available_end_ns   | `string\|null`      | Exclusive end of retained votes (vote batches for `vote_batch`) |
+| available_end_ns   | `string\|null`      | Exclusive end of retained votes (vote batches for `vote_batch`), and the completeness edge: at most 200ms before now for votes, 1s for vote batches (which change until they flush) |
 | reference_slot     | `number\|null`      | Lowest slot in the response |
 | reference_ts       | `string\|null`      | First timestamp in the response |
 | slot_delta         | `number[]`          | Per row, `slot - reference_slot` |
@@ -3673,7 +3675,7 @@ connection is closed if either limit is exceeded.
 | granularity        | `string`       | Echoes the requested granularity |
 | reference_ts_ns    | `string`       | Start of the first aligned response bucket |
 | available_start_ns | `string\|null` | Inclusive start of the retained calendar-day aggregates |
-| available_end_ns   | `string\|null` | Exclusive end of the retained calendar-day aggregates |
+| available_end_ns   | `string\|null` | Exclusive end of the retained calendar-day aggregates, and the completeness edge: at most 200ms before now, and for `query_agg_slots` no later than the end of the newest rooted slot (slot counts are written when slots root) |
 
 Each array has one entry per aligned bucket. Bucket `i` covers
 `[reference_ts_ns + i*duration, reference_ts_ns + (i+1)*duration)`.

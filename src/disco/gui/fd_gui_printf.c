@@ -4696,6 +4696,41 @@ fd_gui_timeline_event_bounds( fd_gui_t * gui ) {
   }
 }
 
+/* fd_gui_timeline_written_end returns the exclusive end of the time
+   the gui has finished writing aggregates for, capped at end: data
+   before it will not change.  Slot, skip and mine counts are written
+   when slots root, so for query_agg_slots it is also no later than the
+   end of the newest rooted slot.  Everything is written within
+   FD_GUI_TIMELINE_WRITTEN_LAG_NS of its timestamp. */
+
+static long
+fd_gui_timeline_written_end( fd_gui_t *   gui,
+                             char const * key,
+                             long         end ) {
+  if( !strcmp( key, "query_agg_slots" ) ) {
+    long first, last;
+    fd_gui_timeline_slot_hull( gui, &first, &last );
+    if( FD_LIKELY( first<last ) ) end = fd_long_min( end, last );
+  }
+  long now = gui->chunk.now;
+  if( FD_UNLIKELY( now<=0L ) ) return end; /* no clock yet */
+  return fd_long_min( end, fd_long_sat_sub( now, FD_GUI_TIMELINE_WRITTEN_LAG_NS ) );
+}
+
+static void
+fd_gui_timeline_avail( fd_gui_t * gui,
+                       int        avail,
+                       long       start,
+                       long       end ) {
+  if( FD_LIKELY( avail && start<end ) ) {
+    jsonp_long_as_str( gui->http, "available_start_ns", start );
+    jsonp_long_as_str( gui->http, "available_end_ns", end );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+}
+
 int
 fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
                                     long       start,
@@ -5043,14 +5078,10 @@ fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
   jsonp_open_object( gui->http, "value" );
   jsonp_string( gui->http, "granularity", granularity );
   jsonp_long_as_str( gui->http, "reference_ts_ns", reference );
-  long avail_start, avail_end;
-  if( FD_LIKELY( fd_gui_timeline_day_bounds( gui, &avail_start, &avail_end ) ) ) {
-    jsonp_long_as_str( gui->http, "available_start_ns", avail_start );
-    jsonp_long_as_str( gui->http, "available_end_ns", avail_end );
-  } else {
-    jsonp_null( gui->http, "available_start_ns" );
-    jsonp_null( gui->http, "available_end_ns" );
-  }
+  long avail_start = 0L, avail_end = 0L;
+  int  avail = fd_gui_timeline_day_bounds( gui, &avail_start, &avail_end );
+  if( FD_LIKELY( avail ) ) avail_end = fd_gui_timeline_written_end( gui, key, avail_end );
+  fd_gui_timeline_avail( gui, avail, avail_start, avail_end );
 #define AGG_ARRAY(name,field,string) do { \
   jsonp_open_array( gui->http, name ); \
   for( ulong i=0UL; i<count; i++ ) { \
@@ -5171,6 +5202,7 @@ fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
   if( FD_LIKELY( avail ) ) {
     avail_start = (long)(lo_day*(ulong)FD_GUI_TIMELINE_DAY_NS);
     avail_end   = (long)((hi_day+1UL)*(ulong)FD_GUI_TIMELINE_DAY_NS); /* records only exist for representable days */
+    avail_end   = fd_gui_timeline_written_end( gui, "query_agg_cpu", avail_end );
   }
 
   jsonp_open_envelope( gui->http, "timeline", "query_agg_cpu" );
@@ -5178,13 +5210,7 @@ fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
   jsonp_open_object( gui->http, "value" );
   jsonp_string( gui->http, "granularity", granularity );
   jsonp_long_as_str( gui->http, "reference_ts_ns", reference );
-  if( FD_LIKELY( avail ) ) {
-    jsonp_long_as_str( gui->http, "available_start_ns", avail_start );
-    jsonp_long_as_str( gui->http, "available_end_ns", avail_end );
-  } else {
-    jsonp_null( gui->http, "available_start_ns" );
-    jsonp_null( gui->http, "available_end_ns" );
-  }
+  fd_gui_timeline_avail( gui, avail, avail_start, avail_end );
   jsonp_open_array( gui->http, "utilization" );
   for( ulong t=0UL; t<tile_cnt; t++ ) {
     /* Each requested tile is merged from its own day records; a missing
@@ -5281,14 +5307,10 @@ fd_gui_printf_timeline_query_agg_tile_states( fd_gui_t *   gui,
   jsonp_open_object( gui->http, "value" );
   jsonp_string( gui->http, "granularity", granularity );
   jsonp_long_as_str( gui->http, "reference_ts_ns", reference );
-  if( FD_LIKELY( avail ) ) {
-    /* records only exist for representable days */
-    jsonp_long_as_str( gui->http, "available_start_ns", (long)(lo_day*(ulong)FD_GUI_TIMELINE_DAY_NS) );
-    jsonp_long_as_str( gui->http, "available_end_ns", (long)((hi_day+1UL)*(ulong)FD_GUI_TIMELINE_DAY_NS) );
-  } else {
-    jsonp_null( gui->http, "available_start_ns" );
-    jsonp_null( gui->http, "available_end_ns" );
-  }
+  /* records only exist for representable days */
+  long avail_start = avail ? (long)(lo_day*(ulong)FD_GUI_TIMELINE_DAY_NS) : 0L;
+  long avail_end   = avail ? fd_gui_timeline_written_end( gui, "query_agg_tile_states", (long)((hi_day+1UL)*(ulong)FD_GUI_TIMELINE_DAY_NS) ) : 0L;
+  fd_gui_timeline_avail( gui, avail, avail_start, avail_end );
   jsonp_open_array( gui->http, "tiles" );
   for( ulong t=0UL; t<tile_cnt; t++ ) {
     ulong ordinal = fd_gui_tile_ordinal( gui, tiles[ t ] );

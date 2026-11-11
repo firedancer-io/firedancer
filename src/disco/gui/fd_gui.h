@@ -203,6 +203,13 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
    much before, for clock skew).  Queries find a row only if it was
    inserted within this long after its timestamp. */
 #define FD_GUI_TIMELINE_SCAN_MARGIN_NS        (1000000000L)
+
+/* Rows and aggregates are written within FD_GUI_TIMELINE_WRITTEN_LAG_NS
+   of their timestamp (except slot data, written at root).  Responses
+   report available_end_ns no later than now minus this, so a client
+   can treat data before available_end_ns as complete. */
+
+#define FD_GUI_TIMELINE_WRITTEN_LAG_NS        (200000000L)
 #define FD_GUI_HTTP_MIN_SEND_BUFFER_SZ        (256UL<<20)
 
 #define FD_GUI_TIMELINE_STORED_GRANULARITY_CNT (9UL)

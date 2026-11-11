@@ -435,7 +435,14 @@ fd_gui_event_bounds( fd_gui_t * gui,
     int have = first!=LONG_MAX;
     *lo = have ? fd_long_max( 0L, fd_long_sat_sub( first, FD_GUI_TIMELINE_SCAN_MARGIN_NS ) ) : LONG_MAX;
     *hi = have ? fd_long_min( LONG_MAX-1L, fd_long_sat_add( last, FD_GUI_TIMELINE_SCAN_MARGIN_NS+1L ) ) : LONG_MIN;
-    return have;
+    /* The end is where the votes are complete, not the scan reach.
+       Votes are recorded as they arrive, within
+       FD_GUI_TIMELINE_WRITTEN_LAG_NS of their timestamp.  A vote batch
+       can still change until it flushes, at most
+       FD_GUI_VOTE_BATCH_AGE_NS after its first vote. */
+    long lag = dbi==FD_GUI_HIST_VOTE_BATCH ? FD_GUI_VOTE_BATCH_AGE_NS+FD_GUI_TIMELINE_WRITTEN_LAG_NS : FD_GUI_TIMELINE_WRITTEN_LAG_NS;
+    if( FD_LIKELY( have && gui->chunk.now>0L ) ) *hi = fd_long_min( *hi, fd_long_sat_sub( gui->chunk.now, lag ) );
+    return have && *lo<*hi;
   }
   long first;
   long last;

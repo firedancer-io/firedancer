@@ -1902,6 +1902,13 @@ test_timeline_live_events( test_store_t * s ) {
   FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "repair" ), 0 ) )==48UL );
   FD_TEST( test_json_string_eq( timeline_value( json, "available_start_ns" ), "0" ) );
   FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "86400000000000" ) );
+  /* With a clock, it ends FD_GUI_TIMELINE_WRITTEN_LAG_NS before now:
+     aggregates are complete before it, not to the end of the day. */
+  gui->chunk.now = ts + sec_ns( 1UL );
+  FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_shreds", "250ms", 3UL, ts, 1UL, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), "10800000000" ) );
+  gui->chunk.now = 0L;
 
   /* Slot aggregates come from the same day record as the shreds. */
   FD_TEST( !fd_gui_printf_timeline_query_agg( gui, "query_agg_slots", "250ms", 3UL, ts, 1UL, 7UL ) );
@@ -4603,6 +4610,21 @@ test_votes( fd_gui_t * gui ) {
   FD_TEST( test_json_string_eq( test_json_index( timeline_value( json, "event_ts_delta" ), 2 ), "6" ) );
   FD_TEST( test_json_kind( timeline_value( json, "available_start_ns" ) )!=FD_JTOK_NULL );
   FD_TEST( test_json_string_eq( timeline_value( json, "granularity" ), "vote" ) );
+
+  /* available_end_ns is where the votes are complete: no later than
+     FD_GUI_TIMELINE_WRITTEN_LAG_NS before now (vote batches can change
+     for FD_GUI_VOTE_BATCH_AGE_NS longer), not the lookup reach. */
+  char ns[ 32 ];
+  gui->chunk.now = base + 1200000000L; /* rows were inserted at base+0.5 s, so the lookup reaches base+1.5 s */
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, base, base+30L, 0, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( fd_cstr_printf_check( ns, sizeof(ns), NULL, "%ld", base+1200000000L-FD_GUI_TIMELINE_WRITTEN_LAG_NS ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), ns ) );
+  FD_TEST( !fd_gui_printf_timeline_query_votes( gui, base, base+30L, 1, 7UL ) );
+  json = timeline_response( gui );
+  FD_TEST( fd_cstr_printf_check( ns, sizeof(ns), NULL, "%ld", base+1200000000L-FD_GUI_VOTE_BATCH_AGE_NS-FD_GUI_TIMELINE_WRITTEN_LAG_NS ) );
+  FD_TEST( test_json_string_eq( timeline_value( json, "available_end_ns" ), ns ) );
+  gui->chunk.now = 0L;
 
   /* A window before anything happened, and bad arguments. */
   FD_TEST( !fd_gui_printf_timeline_query_votes( gui, base-sec_ns( 2UL ), base-sec_ns( 1UL ), 0, 7UL ) );
