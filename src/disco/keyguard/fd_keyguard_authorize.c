@@ -436,7 +436,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     return 1;
 
   case FD_KEYGUARD_ROLE_BUNDLE:
-    if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_BUNDLE ) ) {
+    if( FD_UNLIKELY( payload_mask!=FD_KEYGUARD_PAYLOAD_BUNDLE && payload_mask!=FD_KEYGUARD_PAYLOAD_BAM ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for bundle (mask=%#lx)", payload_mask ));
       return 0;
     }

@@ -521,6 +521,16 @@ test_pack_leader_state( void ) {
   FD_TEST( ctx->leader_state->slot==501UL );
   FD_TEST( ctx->conn->leader_pending );
 
+  /* BAM forwards every leader state, including updates for the same
+     slot */
+  ctx->conn->protocol       = FD_BUNDLE_PROTOCOL_BAM;
+  ctx->conn->leader_pending = 0;
+  ctx->next_step_deadline   = LONG_MAX;
+  state.tick                = 21UL;
+  inject_pack_leader_state( ctx, in_idx, &state );
+  FD_TEST( ctx->leader_state->tick==21UL );
+  FD_TEST( ctx->conn->leader_pending && ctx->next_step_deadline==0L );
+
   free( wksp );
 }
 

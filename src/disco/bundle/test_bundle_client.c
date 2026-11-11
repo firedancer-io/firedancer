@@ -1,5 +1,6 @@
 #include "test_bundle_common.c"
 #include "fd_bundle_tile.h"
+#include "../keyguard/fd_keyguard.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../../ballet/pb/fd_pb_tokenize.h"
@@ -463,7 +464,7 @@ FD_UNIT_TEST( bundle_keyswitch ) {
   FD_TEST( state->halt_signing );
   FD_TEST( fd_keyswitch_state_query( state->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
   FD_TEST( !state->conn->defer_reset );
-  FD_TEST( state->conn->auther.pubkey[0]==0x01 );
+  FD_TEST( state->conn->auther.pubkey[0]==0x01 && state->identity_pubkey[0]==0x01 );
 
   state->sleep_check_ns = 1L;
   fd_keyswitch_state( state->keyswitch, FD_KEYSWITCH_STATE_UNHALT_PENDING );
@@ -472,7 +473,7 @@ FD_UNIT_TEST( bundle_keyswitch ) {
   FD_TEST( state->conn->defer_reset );
   FD_TEST( state->sleep_check_ns==0L );
   FD_TEST( fd_keyswitch_state_query( state->keyswitch )==FD_KEYSWITCH_STATE_COMPLETED );
-  FD_TEST( state->conn->auther.pubkey[0]==0x01 );
+  FD_TEST( state->conn->auther.pubkey[0]==0x01 && state->identity_pubkey[0]==0x01 );
 
   test_bundle_env_destroy( env );
   fd_wksp_free_laddr( keyswitch_mem );
@@ -1330,6 +1331,513 @@ FD_UNIT_TEST( bundle_client_harmonic_subscribe_bundles ) {
   test_bundle_env_destroy( env );
 }
 
+/* A mock sign tile behind the tile's keyguard client.  The response to
+   the first signing request is published up front, so signing returns
+   at once. */
+
+#define TEST_SIGN_DEPTH (16UL)
+
+typedef struct {
+  fd_frag_meta_t * req_mcache;
+  uchar *          req_dcache;
+  fd_frag_meta_t * resp_mcache;
+  uchar *          resp_dcache;
+} test_sign_t;
+
+static void *
+test_alloc( ulong align,
+            ulong sz ) {
+  void * mem = fd_wksp_alloc_laddr( wksp, align, sz, 1UL );
+  FD_TEST( mem );
+  return mem;
+}
+
+static void
+test_sign_create( test_sign_t *      sign,
+                  fd_bundle_tile_t * ctx,
+                  uchar const        signature[ 64 ] ) {
+  ulong const req_data_sz  = fd_dcache_req_data_sz( FD_KEYGUARD_BAM_AUTH_MTU, TEST_SIGN_DEPTH, 1UL, 1 );
+  ulong const resp_data_sz = fd_dcache_req_data_sz( 64UL,                     TEST_SIGN_DEPTH, 1UL, 1 );
+  sign->req_mcache  = fd_mcache_join( fd_mcache_new( test_alloc( fd_mcache_align(), fd_mcache_footprint( TEST_SIGN_DEPTH, 0UL ) ), TEST_SIGN_DEPTH, 0UL, 0UL ) );
+  sign->resp_mcache = fd_mcache_join( fd_mcache_new( test_alloc( fd_mcache_align(), fd_mcache_footprint( TEST_SIGN_DEPTH, 0UL ) ), TEST_SIGN_DEPTH, 0UL, 0UL ) );
+  sign->req_dcache  = fd_dcache_join( fd_dcache_new( test_alloc( fd_dcache_align(), fd_dcache_footprint( req_data_sz,  0UL ) ), req_data_sz,  0UL ) );
+  sign->resp_dcache = fd_dcache_join( fd_dcache_new( test_alloc( fd_dcache_align(), fd_dcache_footprint( resp_data_sz, 0UL ) ), resp_data_sz, 0UL ) );
+  FD_TEST( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client, sign->req_mcache, sign->req_dcache, sign->resp_mcache, sign->resp_dcache,
+                                                            FD_KEYGUARD_BAM_AUTH_MTU, 64UL, NULL, 0UL, ULONG_MAX ) ) );
+
+  ulong chunk = fd_dcache_compact_chunk0( wksp, sign->resp_dcache );
+  fd_memcpy( fd_chunk_to_laddr( wksp, chunk ), signature, 64UL );
+  fd_mcache_publish( sign->resp_mcache, TEST_SIGN_DEPTH, 0UL, 0UL, chunk, 64UL, 0UL, 0UL, 0UL );
+}
+
+static void
+test_sign_destroy( test_sign_t * sign ) {
+  fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( sign->req_mcache  ) ) );
+  fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( sign->resp_mcache ) ) );
+  fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( sign->req_dcache  ) ) );
+  fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( sign->resp_dcache ) ) );
+}
+
+/* test_bam_resp_open starts encoding into buf a SchedulerResponse
+   whose v0 holds resp field field_id.  test_rx_bam_resp finishes it and
+   hands it to the client. */
+
+static void
+test_bam_resp_open( fd_pb_encoder_t * enc,
+                    uchar *           buf,
+                    ulong             buf_sz,
+                    uint              field_id ) {
+  fd_pb_encoder_init( enc, buf, buf_sz );
+  FD_TEST( fd_pb_submsg_open( enc, 1U       ) ); /* v0 */
+  FD_TEST( fd_pb_submsg_open( enc, field_id ) ); /* resp */
+}
+
+static void
+test_rx_bam_resp( fd_bundle_tile_t * state,
+                  fd_pb_encoder_t *  enc ) {
+  FD_TEST( fd_pb_submsg_close( enc ) );
+  FD_TEST( fd_pb_submsg_close( enc ) );
+  fd_bundle_client_grpc_rx_msg( state->conn, fd_pb_encoder_out( enc ), fd_pb_encoder_out_sz( enc ), FD_BUNDLE_CLIENT_REQ_Bam_InitSchedulerStream );
+}
+
+static void
+test_rx_bam_heartbeat( fd_bundle_tile_t * state ) {
+  uchar           buf[ 64 ];
+  fd_pb_encoder_t enc[1];
+  test_bam_resp_open( enc, buf, sizeof(buf), 1U ); /* heart_beat */
+  test_rx_bam_resp( state, enc );
+}
+
+/* test_bam_msg pops a SchedulerMessage off the wire into body, checks
+   that its v0 holds msg field field_id, and returns that msg */
+
+static fd_pb_inbuf_t
+test_bam_msg( fd_h2_rbuf_t * wire,
+              ulong          stream_id,
+              uint           field_id,
+              uchar          body[ 256 ] ) {
+  ulong         sz  = expect_msg( wire, stream_id, 0U, body );
+  fd_pb_inbuf_t v0  = test_pb_submsg( test_pb_msg( body, sz ), 1U ); /* v0 */
+  fd_pb_tlv_t   tlv[1];
+  fd_pb_inbuf_t msg[1];
+  FD_TEST( fd_pb_tlv_read( &v0, tlv ) && tlv->field_id==field_id && fd_pb_tlv_submsg( &v0, tlv, msg ) );
+  return *msg;
+}
+
+/* test_push_bam_config adds a bam_config with the given TPU sockets to
+   the ConfigResponse in enc */
+
+static void
+test_push_bam_config( fd_pb_encoder_t * enc,
+                      char const *      ip,
+                      uint              port,
+                      char const *      fwd_ip,
+                      uint              fwd_port ) {
+  char const * ips  [ 2 ] = { ip,   fwd_ip   };
+  uint         ports[ 2 ] = { port, fwd_port };
+  FD_TEST( fd_pb_submsg_open( enc, 2U ) ); /* bam_config */
+  for( uint i=0U; i<2U; i++ ) {
+    FD_TEST( fd_pb_submsg_open( enc, 3U+i ) );           /* tpu_sock, tpu_fwd_sock */
+    FD_TEST( fd_pb_push_cstr  ( enc, 1U, ips  [ i ] ) ); /* ip */
+    FD_TEST( fd_pb_push_uint32( enc, 2U, ports[ i ] ) ); /* port */
+    FD_TEST( fd_pb_submsg_close( enc ) );
+  }
+  FD_TEST( fd_pb_submsg_close( enc ) );
+}
+
+/* Verify the BAM session: the client logs in with a signed challenge as
+   the first message of the scheduler stream, sends heartbeats, answers
+   pings, and polls the builder config once the node accepted the
+   stream */
+
+FD_UNIT_TEST( bam_client_session ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn_empty( env );
+  fd_bundle_tile_t * const state  = env->state;
+  fd_grpc_client_t * const client = state->conn->grpc_client;
+  test_bundle_env_mock_h2_hs( state );
+  state->conn->protocol            = FD_BUNDLE_PROTOCOL_BAM;
+  state->conn->keepalive->interval = 0L; /* keep HTTP/2 PINGs off the wire */
+  for( ulong i=0UL; i<32UL; i++ ) state->identity_pubkey[ i ] = (uchar)( i+1UL );
+
+  uchar signature[ 64 ];
+  fd_memset( signature, 0x11, sizeof(signature) );
+  test_sign_t sign[1];
+  test_sign_create( sign, state, signature );
+
+  uchar               buf[ 512 ];
+  uchar               body[ 256 ];
+  int                 charge_busy = 0;
+  fd_grpc_resp_hdrs_t ok          = { .h2_status = 200, .grpc_status = FD_GRPC_STATUS_OK };
+  fd_pb_inbuf_t       msg;
+  fd_pb_encoder_t     enc[1];
+
+  /* Request a challenge */
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->bam.challenge_wait );
+  FD_TEST( !expect_request( wire_rx( env ), client->stream_ids[ client->stream_cnt-1UL ], "/bam_api.BamNodeApi/GetAuthChallenge", body ) );
+
+  fd_pb_encoder_init( enc, buf, sizeof(buf) );
+  FD_TEST( fd_pb_push_cstr( enc, 1U, "challenge-abc" ) ); /* challenge_to_sign */
+  fd_bundle_client_grpc_rx_msg( state->conn, buf, fd_pb_encoder_out_sz( enc ), FD_BUNDLE_CLIENT_REQ_Bam_GetAuthChallenge );
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bam_GetAuthChallenge, &ok );
+  FD_TEST( !state->conn->bam.challenge_wait && !strcmp( state->conn->bam.challenge, "challenge-abc" ) );
+
+  /* Sign the labeled challenge and open the stream with the proof */
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->bam.stream && !state->conn->bam.challenge[ 0 ] );
+  fd_frag_meta_t const * req = sign->req_mcache + fd_mcache_line_idx( 0UL, TEST_SIGN_DEPTH );
+  FD_TEST( req->sig==FD_KEYGUARD_SIGN_TYPE_ED25519 && req->sz==FD_KEYGUARD_BAM_AUTH_LABEL_SZ+13UL );
+  FD_TEST( fd_memeq( fd_chunk_to_laddr( wksp, req->chunk ), FD_KEYGUARD_BAM_AUTH_LABEL "\0challenge-abc", req->sz ) );
+
+  ulong const    stream_id = state->conn->bam.stream->s.stream_id;
+  fd_h2_rbuf_t * wire      = wire_rx( env );
+  expect_request_hdr( wire, stream_id, "/bam_api.BamNodeApi/InitSchedulerStream" );
+  msg = test_bam_msg( wire, stream_id, 4U, body ); /* auth_proof */
+  char b58[ FD_BASE58_ENCODED_64_SZ ];
+  char str[ 128 ];
+  FD_TEST( !strcmp( test_pb_cstr( msg, 1U, str, sizeof(str) ), "challenge-abc" ) );                                         /* challenge_to_sign */
+  FD_TEST( !strcmp( test_pb_cstr( msg, 2U, str, sizeof(str) ), fd_base58_encode_32( state->identity_pubkey, NULL, b58 ) ) ); /* validator_pubkey */
+  FD_TEST( !strcmp( test_pb_cstr( msg, 3U, str, sizeof(str) ), fd_base58_encode_64( signature,            NULL, b58 ) ) ); /* signature */
+
+  /* A heartbeat follows right away, then nothing until the node accepts
+     the stream */
+  g_clock += (long)1e9;
+  fd_bundle_client_step( state, &charge_busy );
+  msg = test_bam_msg( wire_rx( env ), stream_id, 1U, body );   /* heart_beat */
+  FD_TEST( test_pb_varint( msg, 1U )==(ulong)g_clock/1000UL ); /* time_sent_microseconds */
+  FD_TEST( state->conn->bam.heartbeat_next==g_clock+(long)5e9 );
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( !fd_h2_rbuf_used_sz( wire_rx( env ) ) );
+  FD_TEST( fd_bundle_client_status( state )==FD_BUNDLE_STATE_CONNECTING );
+
+  /* The node accepts the stream with a ping, answered with a pong */
+  test_bam_resp_open( enc, buf, sizeof(buf), 3U ); /* ping */
+  FD_TEST( fd_pb_push_uint32( enc, 1U, 7U ) );     /* id */
+  test_rx_bam_resp( state, enc );
+  FD_TEST( state->conn->bam.stream_accepted && state->conn->bam.pong_pending );
+  fd_bundle_client_step( state, &charge_busy );
+  msg = test_bam_msg( wire_rx( env ), stream_id, 5U, body ); /* pong */
+  FD_TEST( test_pb_varint( msg, 1U )==7UL );                 /* id */
+  FD_TEST( !state->conn->bam.pong_pending );
+
+  /* Pack's leader state is forwarded, and dropped once its slot ends */
+  *state->leader_state = (fd_pack_leader_state_t){ .slot=500UL, .slot_end_ns=g_clock+(long)4e8, .tick=3UL, .cus_remaining=1000UL };
+  FD_TEST( fd_bundle_client_leader_state_update( state, 1 ) && state->conn->leader_pending );
+  fd_bundle_client_step( state, &charge_busy );
+  msg = test_bam_msg( wire_rx( env ), stream_id, 2U, body ); /* leader_state */
+  FD_TEST( test_pb_varint( msg, 1U )==500UL );               /* slot */
+  FD_TEST( test_pb_varint( msg, 2U )==3UL );                 /* tick */
+  FD_TEST( test_pb_varint( msg, 3U )==1000UL );              /* slot_cu_budget_remaining */
+  FD_TEST( !state->conn->leader_pending );
+  FD_TEST( fd_bundle_client_leader_state_update( state, 0 ) );
+  state->leader_state->slot_end_ns = g_clock;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( !state->conn->leader_pending && !fd_h2_rbuf_used_sz( wire_rx( env ) ) );
+
+  /* Then the builder config is polled, and a builder completes the
+     login */
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->builder.wait );
+  FD_TEST( !expect_request( wire_rx( env ), client->stream_ids[ client->stream_cnt-1UL ], "/bam_api.BamNodeApi/GetBuilderConfig", body ) );
+
+  uchar builder[ 32 ];
+  fd_memset( builder, 0x22, sizeof(builder) );
+  char builder_b58[ FD_BASE58_ENCODED_32_SZ ];
+  fd_pb_encoder_init( enc, buf, sizeof(buf) );
+  FD_TEST( fd_pb_submsg_open( enc, 1U ) );                                                    /* block_engine_config */
+  FD_TEST( fd_pb_push_cstr  ( enc, 1U, fd_base58_encode_32( builder, NULL, builder_b58 ) ) ); /* builder_pubkey */
+  FD_TEST( fd_pb_push_uint32( enc, 2U, 5U ) );                                                /* builder_commission */
+  FD_TEST( fd_pb_submsg_close( enc ) );
+  test_push_bam_config( enc, "1.2.3.4", 8000U, "1.2.3.4", 8001U );
+  fd_bundle_client_grpc_rx_msg( state->conn, buf, fd_pb_encoder_out_sz( enc ), FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig );
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig, &ok );
+  FD_TEST( !state->conn->builder.wait && state->conn->builder.avail );
+  FD_TEST( state->conn->builder.commission==5U && fd_memeq( state->conn->builder.pubkey, builder, sizeof(builder) ) );
+  FD_TEST( fd_bundle_client_status( state )==FD_BUNDLE_STATE_CONNECTING );
+
+  static fd_bundle_tpu_t const tpu = { .ip4 = FD_IP4_ADDR( 1, 2, 3, 4 ), .port = 8000, .fwd_ip4 = FD_IP4_ADDR( 1, 2, 3, 4 ), .fwd_port = 8001 };
+  FD_TEST( fd_memeq( &state->conn->tpu, &tpu, sizeof(tpu) ) );
+
+  /* A heartbeat from the node makes the session healthy, and its TPU is
+     advertised */
+  void * keyswitch_mem = fd_wksp_alloc_laddr( wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
+  state->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  fd_bundle_tile_housekeeping( state );
+  FD_TEST( !state->tpu_dirty );
+  test_rx_bam_heartbeat( state );
+  FD_TEST( state->conn->bam.heartbeat_seen && state->conn->bam.heartbeat_rx==g_clock );
+  FD_TEST( fd_bundle_client_status( state )==FD_BUNDLE_STATE_CONNECTED );
+  fd_bundle_tile_housekeeping( state );
+  FD_TEST( state->tpu_dirty && fd_memeq( &state->tpu_advertised, &tpu, sizeof(tpu) ) );
+  state->tpu_dirty = 0;
+
+  /* Once a builder is known, the config is refreshed every minute */
+  FD_TEST( state->conn->builder.next==g_clock+(long)60e9 );
+  g_clock += (long)59e9;
+  test_rx_bam_heartbeat( state );
+  for( ulong i=0UL; i<4UL; i++ ) fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( !state->conn->builder.wait );
+  g_clock += (long)1e9;
+  test_rx_bam_heartbeat( state );
+  for( ulong i=0UL; i<4UL && !state->conn->builder.wait; i++ ) fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->builder.wait );
+  wire_rx( env );
+
+  /* Six seconds without a heartbeat reconnects */
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )<=g_clock+(long)6e9 );
+  g_clock += (long)6e9-1L;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( !state->conn->defer_reset );
+  g_clock += 1L;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->defer_reset );
+  wire_rx( env );
+
+  /* The stream ending reconnects, and the reset clears the session */
+  fd_bundle_client_grpc_rx_end( state->conn, FD_BUNDLE_CLIENT_REQ_Bam_InitSchedulerStream, &ok );
+  FD_TEST( !state->conn->bam.stream && state->conn->defer_reset );
+  fd_bundle_client_reset( state );
+  FD_TEST( !state->conn->bam.stream_accepted && !state->conn->bam.heartbeat_seen && !state->conn->builder.wait && !state->conn->builder.avail );
+
+  /* Disconnected, our own TPU is advertised again, but BAM's is kept
+     for the next session */
+  fd_bundle_tile_housekeeping( state );
+  fd_bundle_tpu_t const zero = {0};
+  FD_TEST( state->tpu_dirty && fd_memeq( &state->tpu_advertised, &zero, sizeof(zero) ) );
+  FD_TEST( fd_memeq( &state->conn->tpu, &tpu, sizeof(tpu) ) );
+
+  fd_wksp_free_laddr( fd_keyswitch_delete( fd_keyswitch_leave( state->keyswitch ) ) );
+  test_sign_destroy( sign );
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that only a valid pair of BAM TPU sockets replaces the TPU */
+
+FD_UNIT_TEST( bam_client_tpu ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * const state = env->state;
+  state->conn->protocol = FD_BUNDLE_PROTOCOL_BAM;
+
+  /* The first pair is valid, and every later one is rejected */
+  struct { char const * ip; uint port; char const * fwd_ip; uint fwd_port; } const cases[] = {
+    { "1.2.3.4", 8000U,  "5.6.7.8", 9000U },
+    { "2.2.2.2", 8000U,  "bad",     9000U },
+    { "0.0.0.0", 8000U,  "5.6.7.8", 9000U },
+    { "2.2.2.2", 0U,     "5.6.7.8", 9000U },
+    { "2.2.2.2", 65530U, "5.6.7.8", 9000U }, /* no room for the QUIC port */
+  };
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    uchar           buf[ 512 ];
+    fd_pb_encoder_t enc[1]; fd_pb_encoder_init( enc, buf, sizeof(buf) );
+    test_push_bam_config( enc, cases[ i ].ip, cases[ i ].port, cases[ i ].fwd_ip, cases[ i ].fwd_port );
+    fd_bundle_client_grpc_rx_msg( state->conn, buf, fd_pb_encoder_out_sz( enc ), FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig );
+    FD_TEST( state->conn->tpu.ip4==FD_IP4_ADDR( 1, 2, 3, 4 ) && state->conn->tpu.port==8000 );
+    FD_TEST( state->conn->tpu.fwd_ip4==FD_IP4_ADDR( 5, 6, 7, 8 ) && state->conn->tpu.fwd_port==9000 );
+  }
+
+  /* A config without a BamConfig keeps the TPU */
+  fd_bundle_client_grpc_rx_msg( state->conn, NULL, 0UL, FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig );
+  FD_TEST( state->conn->tpu.ip4==FD_IP4_ADDR( 1, 2, 3, 4 ) );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that an empty challenge is retried, and that a scheduler
+   response without a v0 message drops the connection */
+
+FD_UNIT_TEST( bam_client_bad_responses ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn_empty( env );
+  fd_bundle_tile_t * const state = env->state;
+  state->conn->protocol = FD_BUNDLE_PROTOCOL_BAM;
+
+  fd_bundle_client_grpc_rx_msg( state->conn, NULL, 0UL, FD_BUNDLE_CLIENT_REQ_Bam_GetAuthChallenge );
+  FD_TEST( !state->conn->bam.challenge[ 0 ] && state->metrics.decode_fail_cnt==1UL && state->conn->backoff_iter==1U );
+
+  fd_bundle_client_grpc_rx_msg( state->conn, NULL, 0UL, FD_BUNDLE_CLIENT_REQ_Bam_InitSchedulerStream );
+  FD_TEST( !state->conn->bam.stream_accepted && state->metrics.decode_fail_cnt==2UL && state->conn->defer_reset );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that a BAM client does not dial while the node would refuse
+   the login, this close to our next leader slot */
+
+FD_UNIT_TEST( bam_client_login_cutoff ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * const state = env->state;
+  state->conn->protocol   = FD_BUNDLE_PROTOCOL_BAM;
+  state->next_leader_slot = 1039UL;
+  state->reset_slot       = 1000UL;
+
+  int charge_busy = 0;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==g_clock+(long)4e8 );
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->tcp_sock<0 && !charge_busy );
+
+  state->reset_slot = 999UL;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==g_clock );
+  state->conn->protocol = FD_BUNDLE_PROTOCOL_JITO;
+  state->reset_slot     = 1000UL;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==g_clock );
+
+  test_bundle_env_destroy( env );
+}
+
+typedef struct {
+  uint  seq_id;
+  ulong cnt;
+  uchar revert[ 6 ];
+} test_bam_batch_t;
+
+static void
+test_rx_bam_batches( fd_bundle_tile_t *       state,
+                     test_bam_batch_t const * batches,
+                     ulong                    cnt ) {
+  static uchar    buf[ 4096 ];
+  fd_pb_encoder_t enc[1];
+  test_bam_resp_open( enc, buf, sizeof(buf), 2U ); /* multiple_atomic_txn_batch */
+  for( ulong i=0UL; i<cnt; i++ ) {
+    test_bam_batch_t const * batch = &batches[ i ];
+    FD_TEST( fd_pb_submsg_open( enc, 3U ) );                /* batches */
+    FD_TEST( fd_pb_push_uint32( enc, 1U, batch->seq_id ) ); /* seq_id */
+    FD_TEST( fd_pb_push_uint64( enc, 2U, 600UL ) );         /* max_schedule_slot */
+    for( ulong j=0UL; j<batch->cnt; j++ ) {
+      uchar const data = (uchar)( batch->seq_id*16U+j );
+      FD_TEST( fd_pb_submsg_open( enc, 3U ) );                   /* packets */
+      FD_TEST( fd_pb_push_bytes ( enc, 1U, &data, 1UL ) );       /* data */
+      FD_TEST( fd_pb_submsg_open( enc, 2U ) );                   /* meta */
+      FD_TEST( fd_pb_submsg_open( enc, 2U ) );                   /* flags */
+      FD_TEST( fd_pb_push_bool  ( enc, 2U, batch->revert[ j ] ) ); /* revert_on_error */
+      FD_TEST( fd_pb_submsg_close( enc ) );
+      FD_TEST( fd_pb_submsg_close( enc ) );
+      FD_TEST( fd_pb_submsg_close( enc ) );
+    }
+    FD_TEST( fd_pb_submsg_close( enc ) );
+  }
+  test_rx_bam_resp( state, enc );
+}
+
+/* Verify that each BAM batch becomes one bundle, and that invalid
+   batches are dropped whole */
+
+FD_UNIT_TEST( bam_client_batches ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * const state = env->state;
+  state->conn->protocol = FD_BUNDLE_PROTOCOL_BAM;
+
+  test_bam_batch_t const batches[] = {
+    { .seq_id=0U, .cnt=2UL, .revert={ 1, 1 } },             /* atomic */
+    { .seq_id=1U, .cnt=1UL, .revert={ 0 } },                /* standalone */
+    { .seq_id=2U, .cnt=2UL, .revert={ 0, 0 } },             /* non-atomic with two transactions */
+    { .seq_id=3U, .cnt=2UL, .revert={ 1, 0 } },             /* mixed flags */
+    { .seq_id=4U, .cnt=6UL, .revert={ 1, 1, 1, 1, 1, 1 } }, /* too large */
+    { .seq_id=5U, .cnt=1UL, .revert={ 1 } },
+  };
+
+  /* Without a builder, batches are not forwarded */
+  test_rx_bam_batches( state, batches, 1UL );
+  FD_TEST( !published_txn_cnt( env ) && state->metrics.missing_builder_info_fail_cnt==1UL );
+
+  state->conn->builder.avail = 1;
+  ulong const seq0 = state->bundle_seq;
+  test_rx_bam_batches( state, batches, 6UL );
+  FD_TEST( state->conn->bam.stream_accepted && state->metrics.bundle_received_cnt==3UL );
+
+  struct { uint seq_id; ulong bundle_seq; ulong txn_cnt; uchar atomic; } const want[] = {
+    { 0U, 1UL, 2UL, 1 }, { 0U, 1UL, 2UL, 1 }, { 1U, 2UL, 1UL, 0 }, { 5U, 3UL, 1UL, 1 },
+  };
+  FD_TEST( published_txn_cnt( env )==4UL );
+  for( ulong i=0UL; i<4UL; i++ ) {
+    fd_frag_meta_t const * meta = NULL;
+    fd_txn_m_t const *     txnm = published_txn( env, i, &meta );
+    FD_TEST( meta->sig==1UL && txnm->block_engine.bundle_id==seq0+want[ i ].bundle_seq && txnm->block_engine.bundle_txn_cnt==want[ i ].txn_cnt );
+    FD_TEST( txnm->block_engine.slot==600UL && txnm->block_engine.seq==want[ i ].seq_id && txnm->block_engine.atomic==want[ i ].atomic && txnm->block_engine.want_result );
+  }
+
+  /* A batch that only partly fits is dropped whole */
+  env->stem_cr_avail[ 0 ] = 1UL;
+  test_rx_bam_batches( state, batches, 1UL );
+  FD_TEST( published_txn_cnt( env )==4UL && state->metrics.backpressure_drop_cnt==2UL );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that the block engine and block builder conns run at once: the
+   status is the worse of the two, a reset of one leaves the other's
+   session alone, and gossip follows the builder */
+
+FD_UNIT_TEST( bundle_client_two_conns ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * const state  = env->state;
+  fd_bundle_conn_t * const engine = &state->conn[ 0 ];
+  fd_bundle_conn_t * const bam    = &state->conn[ 1 ];
+
+  /* A BAM block builder conn, not connected yet */
+  bam->ctx             = state;
+  bam->protocol        = FD_BUNDLE_PROTOCOL_BAM;
+  bam->tcp_sock        = -1;
+  bam->grpc_client_mem = fd_wksp_alloc_laddr( wksp, fd_grpc_client_align(), fd_grpc_client_footprint( state->grpc_buf_max ), 1UL );
+  FD_TEST( bam->grpc_client_mem );
+  bam->grpc_client     = fd_grpc_client_new( bam->grpc_client_mem, &fd_bundle_client_grpc_callbacks, bam->grpc_metrics, bam, state->grpc_buf_max, 1UL );
+  state->conn_cnt      = 2UL;
+  FD_TEST( fd_bundle_client_builder( state )==bam );
+  FD_TEST( fd_bundle_conn_status( engine )==FD_BUNDLE_STATE_CONNECTED );
+  FD_TEST( fd_bundle_client_status( state )==FD_BUNDLE_STATE_DISCONNECTED );
+
+  /* Pack's leader state is queued for the builder */
+  *state->leader_state = (fd_pack_leader_state_t){ .slot=500UL, .slot_end_ns=g_clock+(long)4e8 };
+  FD_TEST( fd_bundle_client_leader_state_update( state, 1 ) && bam->leader_pending );
+
+  /* Once the builder is healthy, so is the tile, and the builder's TPU
+     is advertised */
+  int sockpair[2] = { -1, -1 };
+  FD_TEST( 0==socketpair( AF_UNIX, SOCK_STREAM, 0, sockpair ) );
+  bam->tcp_sock                = sockpair[1];
+  bam->tcp_sock_connected      = 1;
+  bam->grpc_client->h2_hs_done = 1;
+  bam->builder.avail           = 1;
+  fd_grpc_client_h2_conn( bam->grpc_client )->flags = 0;
+  bam->tpu = (fd_bundle_tpu_t){ .ip4 = FD_IP4_ADDR( 1, 2, 3, 4 ), .port = 8000, .fwd_ip4 = FD_IP4_ADDR( 1, 2, 3, 4 ), .fwd_port = 8001 };
+  bam->bam.stream         = fd_grpc_client_stream_acquire( bam->grpc_client, FD_BUNDLE_CLIENT_REQ_Bam_InitSchedulerStream );
+  bam->bam.heartbeat_seen = 1;
+  FD_TEST( bam->bam.stream );
+  FD_TEST( fd_bundle_conn_status( bam )==FD_BUNDLE_STATE_CONNECTED );
+  FD_TEST( fd_bundle_client_status( state )==FD_BUNDLE_STATE_CONNECTED );
+
+  void * keyswitch_mem = fd_wksp_alloc_laddr( wksp, fd_keyswitch_align(), fd_keyswitch_footprint(), 1UL );
+  state->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
+  fd_bundle_tile_housekeeping( state );
+  FD_TEST( state->tpu_dirty && fd_memeq( &state->tpu_advertised, &bam->tpu, sizeof(fd_bundle_tpu_t) ) );
+
+  /* A reset of the block engine conn keeps the builder's session */
+  fd_bundle_conn_reset( engine );
+  FD_TEST( engine->tcp_sock<0 && bam->bam.heartbeat_seen );
+  FD_TEST( fd_bundle_conn_status( bam )==FD_BUNDLE_STATE_CONNECTED );
+  FD_TEST( fd_bundle_client_status( state )==FD_BUNDLE_STATE_DISCONNECTED );
+
+  /* A reset of the builder clears its session, and our own TPU is
+     advertised again */
+  fd_bundle_conn_reset( bam );
+  FD_TEST( bam->tcp_sock<0 && !bam->bam.stream && !bam->bam.heartbeat_seen );
+  fd_bundle_tile_housekeeping( state );
+  fd_bundle_tpu_t const zero = {0};
+  FD_TEST( fd_memeq( &state->tpu_advertised, &zero, sizeof(zero) ) );
+
+  FD_TEST( 0==close( sockpair[0] ) );
+  fd_wksp_free_laddr( fd_keyswitch_delete( fd_keyswitch_leave( state->keyswitch ) ) );
+  fd_wksp_free_laddr( bam->grpc_client_mem );
+  test_bundle_env_destroy( env );
+}
+
 /* Verify that a relayer conn fetches its TPU in place of block builder
    info, subscribes to its packets, skips its heartbeats, and has its
    TPU advertised while healthy */
@@ -1812,6 +2320,45 @@ FD_UNIT_TEST( request_failed_clears_wait ) {
   FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live==0 );
   FD_TEST( state->conn->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
   FD_TEST( state->conn->defer_reset==1 );
+
+  test_bundle_env_destroy( env );
+}
+
+/* Verify that messages from other conns leave half of verify_out's
+   credits to the block builder conn */
+
+FD_UNIT_TEST( bundle_client_builder_reserve ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  fd_bundle_tile_t * const state  = env->state;
+  fd_bundle_conn_t * const engine = &state->conn[ 0 ];
+  fd_bundle_conn_t * const bam    = &state->conn[ 1 ];
+  bam->ctx        = state;
+  bam->protocol   = FD_BUNDLE_PROTOCOL_BAM;
+  bam->tcp_sock   = -1;
+  state->conn_cnt = 2UL;
+
+  ulong const reserve = env->stem_depths[ 0 ]/2UL;
+  env->stem_cr_avail[ 0 ] = reserve+1UL;
+
+  uchar const        payload[]    = { 0x01 };
+  test_packet_desc_t packets[ 2 ] = { { payload, sizeof(payload) }, { payload, sizeof(payload) } };
+  uchar              buf[ 256 ];
+  ulong              sz           = encode_subscribe_packets_response( buf, sizeof(buf), packets, 2UL );
+
+  /* Of two block engine packets, only the first fits outside the
+     reserve */
+  fd_bundle_client_grpc_rx_msg( engine, buf, sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  FD_TEST( env->stem_cr_avail[ 0 ]==reserve && state->metrics.backpressure_drop_cnt==1UL );
+
+  /* The builder may use the reserve */
+  fd_bundle_client_grpc_rx_msg( bam, buf, sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  FD_TEST( env->stem_cr_avail[ 0 ]==reserve-2UL && state->metrics.backpressure_drop_cnt==1UL );
+
+  /* Without a builder conn, the block engine may use all credits */
+  state->conn_cnt = 1UL;
+  fd_bundle_client_grpc_rx_msg( engine, buf, sz, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets );
+  FD_TEST( env->stem_cr_avail[ 0 ]==reserve-4UL );
 
   test_bundle_env_destroy( env );
 }

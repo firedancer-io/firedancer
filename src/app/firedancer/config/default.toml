@@ -1692,8 +1692,7 @@ telemetry = true
 
         # The protocol spoken by the block builder at builder_url, for a
         # host it cannot be detected from.  One of "harmonic" or "bam",
-        # or empty to detect it.  "bam" is not supported yet and is
-        # rejected at startup.
+        # or empty to detect it.
         builder_protocol = ""
 
         # The URL of a Harmonic relayer, connected at the same time as

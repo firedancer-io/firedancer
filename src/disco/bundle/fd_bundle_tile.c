@@ -163,7 +163,8 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
 
   fd_bundle_tile_maybe_sleep( ctx, now_ns );
 
-  int const active = fd_bundle_client_status( ctx )==FD_BUNDLE_STATE_CONNECTED;
+  fd_bundle_conn_t const * builder = fd_bundle_client_builder( ctx );
+  int const active = builder && fd_bundle_conn_status( builder )==FD_BUNDLE_STATE_CONNECTED;
   if( ctx->active_fseq && FD_UNLIKELY( fd_fseq_query( ctx->active_fseq )!=(ulong)active ) ) fd_fseq_update( ctx->active_fseq, (ulong)active );
 
   fd_bundle_tpu_t tpu = {0};
@@ -504,10 +505,6 @@ static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  for( ulong i=0UL; i<tile->bundle.conn_cnt; i++ ) {
-    if( FD_UNLIKELY( tile->bundle.conn[ i ].protocol==FD_BUNDLE_PROTOCOL_BAM ) ) FD_LOG_ERR(( "[tiles.bundle.builder_protocol] \"bam\" is not supported yet" ));
-  }
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bundle_tile_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_bundle_tile_t), sizeof(fd_bundle_tile_t)                        );

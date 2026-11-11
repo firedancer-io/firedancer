@@ -82,9 +82,9 @@ struct fd_bundle_conn {
   fd_bundle_tile_t * ctx;
   int                protocol; /* FD_BUNDLE_PROTOCOL_* */
 
-  /* Session state, reset with the conn */
+  /* Session state, reset with the conn (auther unused in BAM mode) */
   fd_bundle_auther_t  auther;
-  fd_bundle_builder_t builder; /* refreshed every 5 minutes, or for the relayer, its TPU */
+  fd_bundle_builder_t builder; /* refreshed every 5 minutes, BAM's from GetBuilderConfig, or for the relayer, its TPU */
 
   /* Leader notice of ctx->leader_state, queued by the protocol's
      leader_update and dropped once its slot ends */
@@ -109,6 +109,19 @@ struct fd_bundle_conn {
       ulong block_bundle_id; /* bundle_id of the bundle being decoded */
       uchar block_lost : 1;  /* a reset cut off the current leader slot's block */
     } harmonic;
+
+    /* BAM session, reset with the conn */
+    struct {
+      fd_grpc_h2_stream_t * stream;              /* InitSchedulerStream, NULL until opened */
+      uchar                 challenge_wait  : 1; /* GetAuthChallenge in flight */
+      uchar                 stream_accepted : 1; /* the node sent a message on the stream */
+      uchar                 pong_pending    : 1;
+      uchar                 heartbeat_seen  : 1; /* a BuilderHeartBeat arrived on this stream */
+      uint                  pong_id;
+      long                  heartbeat_next;      /* next ValidatorHeartBeat */
+      long                  heartbeat_rx;        /* last BuilderHeartBeat, or stream open */
+      char                  challenge[ 128 ];    /* cstr, empty if none */
+    } bam;
   };
 
   /* TPU the server offers for gossip, kept across reconnects, zero if
@@ -186,7 +199,8 @@ struct fd_bundle_tile {
   ulong * waker_fseq;
   long    next_step_deadline;
 
-  /* Validator identity.  Each conn's auther keeps its own copy. */
+  /* Validator identity, which BAM logs in as.  Each conn's auther
+     keeps its own copy. */
   uchar identity_pubkey[ 32 ];
 
   /* Bundle state */
@@ -215,16 +229,17 @@ struct fd_bundle_tile {
   fd_bundle_out_ctx_t       verify_out;
   fd_bundle_out_ctx_t       plugin_out;
 
-  /* TODO: The block engine and block builder conns share verify_out's
-     credits, so a burst from the block engine can drop builder bundles
-     for lack of credits, breaking the builder's ordering.  Give the
-     builder priority. */
+  /* The block builder conn is read first, and messages from other conns
+     leave cr_reserve (half) of verify_out's credits free, so they cannot
+     crowd out the builder's ordered bundles. */
+  ulong cr_reserve; /* credits the message being decoded must leave */
 
   /* App metrics */
   fd_bundle_metrics_t metrics;
 
-  /* 1 while connected, 0 otherwise, for pack.  NULL if the topology has
-     none. */
+  /* 1 while the builder conn is healthy (for BAM, logged in with a
+     builder and heartbeats), 0 otherwise, for pack.  NULL if the
+     topology has none. */
   ulong * active_fseq;
 
   /* tpu_advertised is the last TPU published to gossip, from a healthy
@@ -275,6 +290,9 @@ struct fd_bundle_tile {
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks             7
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy                 8
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo      9
+#define FD_BUNDLE_CLIENT_REQ_Bam_GetAuthChallenge              10
+#define FD_BUNDLE_CLIENT_REQ_Bam_InitSchedulerStream           11
+#define FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig              12
 #define FD_BUNDLE_CLIENT_REQ_Relayer_SubscribePackets         13
 #define FD_BUNDLE_CLIENT_REQ_Relayer_GetTpuConfigs            14
 
@@ -397,6 +415,12 @@ fd_bundle_conn_status( fd_bundle_conn_t const * conn );
 
 int
 fd_bundle_client_status( fd_bundle_tile_t const * ctx );
+
+/* fd_bundle_client_builder returns the block builder conn, which pack
+   follows, or NULL if there is none. */
+
+fd_bundle_conn_t *
+fd_bundle_client_builder( fd_bundle_tile_t * ctx );
 
 /* fd_bundle_conn_name returns the name of conn's protocol, e.g. "jito". */
 

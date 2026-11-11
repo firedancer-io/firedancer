@@ -45,6 +45,12 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_FAILOVER_DOMAIN_SZ     (16UL)
 #define FD_KEYGUARD_FAILOVER_PROOF_SZ      (FD_KEYGUARD_FAILOVER_DOMAIN_SZ+32UL)
 
+/* The bundle tile signs a BAM node login challenge as the label,
+   including its NUL terminator, followed by the challenge string. */
+#define FD_KEYGUARD_BAM_AUTH_LABEL    "X_OFF_CHAIN_JITO_BAM_V1"
+#define FD_KEYGUARD_BAM_AUTH_LABEL_SZ (sizeof(FD_KEYGUARD_BAM_AUTH_LABEL))
+#define FD_KEYGUARD_BAM_AUTH_MTU      (FD_KEYGUARD_BAM_AUTH_LABEL_SZ+127UL) /* challenge_to_sign max_size in bam_api.options, less its NUL */
+
 /* Payload types ******************************************************/
 
 #define FD_KEYGUARD_PAYLOAD_LG_TXN          ( 0)  /* Solana transaction message (e.g. vote) */
@@ -61,6 +67,7 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_PAYLOAD_LG_BLS_PUBKEY   (12)  /* Alpenglow BLS public key query */
 #define FD_KEYGUARD_PAYLOAD_LG_VOTE_HISTORY (14)  /* Alpenglow vote history file */
 #define FD_KEYGUARD_PAYLOAD_LG_FAILOV       (15)  /* Failover admission proof */
+#define FD_KEYGUARD_PAYLOAD_LG_BAM          (16)  /* BAM node authentication */
 
 #define FD_KEYGUARD_PAYLOAD_TXN          (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN         )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP       (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP      )
@@ -76,6 +83,7 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 #define FD_KEYGUARD_PAYLOAD_BLS_PUBKEY   (1UL<<FD_KEYGUARD_PAYLOAD_LG_BLS_PUBKEY  )
 #define FD_KEYGUARD_PAYLOAD_VOTE_HISTORY (1UL<<FD_KEYGUARD_PAYLOAD_LG_VOTE_HISTORY)
 #define FD_KEYGUARD_PAYLOAD_FAILOV       (1UL<<FD_KEYGUARD_PAYLOAD_LG_FAILOV      )
+#define FD_KEYGUARD_PAYLOAD_BAM          (1UL<<FD_KEYGUARD_PAYLOAD_LG_BAM         )
 
 /* Sign types *********************************************************/
 
