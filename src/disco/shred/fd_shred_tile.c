@@ -157,7 +157,7 @@ typedef struct {
      This should be the same for all the shred tiles. */
   ulong                batch_cnt;
   /* Slot of the most recent microblock we've seen from PoH,
-     or 0 if we haven't seen one yet */
+     or ULONG_MAX if we haven't seen one yet */
   ulong                slot;
 
   fd_rnonce_ss_t       repair_nonce_ss[1];
