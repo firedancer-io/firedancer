@@ -2048,14 +2048,15 @@ lthash_dispatch_sub( fd_sched_t *       sched,
   return 1;
 }
 
-/* The block is assumed to be active and has absolutely no other type of
-   task queued.  The block is also assumed to satisfy
-   block_may_speculate().  The dispatcher hands us an account whose
-   writers have all completed, so the guess is READY at once and goes
-   straight to a tile.  The one exception is a serializing transaction
-   still outstanding, which every pseudo transaction created after it
-   waits behind.  Speculation is paused for a moment until that
-   serializing transaction completes.
+/* The block is assumed to be active, and nothing else of it could go
+   out this poll, either because nothing is queued or because every
+   queued transaction is blocked by something in-flight.  The block is
+   also assumed to satisfy block_may_speculate().  The dispatcher hands
+   us an account whose writers have all completed, so the guess is READY
+   at once and goes straight to a tile.  The one exception is a
+   serializing transaction still outstanding, which every pseudo
+   transaction created after it waits behind.  Speculation is paused for
+   a moment until that serializing transaction completes.
 
    Returns 1 with a task in out, or 0 when a pseudo transaction was
    created but waits on a serializing transaction, so the caller returns
@@ -2952,6 +2953,32 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, int may_drain ) {
          progress on a pending drain.  A pseudo transaction the drain
          created may be ready, so poll once more. */
       if( may_drain && lthash_drain_chunk( sched ) ) return task_next_ready( sched, out, 0 );
+
+      /* Now try to dispatch a speculative addition, the same way we do
+         in the branch where the transaction queue is empty.  Every
+         account we select as a speculation candidate has seen its last
+         parsed writer finish, so the speculation doesn't block any
+         queued transactions.  While having lthash additions in flight
+         could in theory slightly delay transaction dispatch when the
+         blocker transaction returns, the delay should be minimal.  FECs
+         also tend to end on a long serial transaction path, so there's
+         typically not a wide DAG phase being starved by lthash
+         additions.  More often, not allowing lthash speculations to go
+         out in this branch causes them to be clustered at the end of a
+         mid-slot FEC, after the last transaction of the FEC has been
+         dispatched.  This has a good chance to lead to lthash
+         speculations finishing well after the last transaction of the
+         FEC has returned, which is not ideal. */
+      if( FD_LIKELY( block_may_speculate( sched, block, 1UL ) ) ) {
+        int spec = lthash_speculate( sched, block, bank_idx, exec_fully_ready_bitset, out );
+        if( FD_UNLIKELY( spec>=0 ) ) {
+          if( spec ) {
+            sched->next_ready_last_tick     = fd_tickcount();
+            sched->next_ready_last_bank_idx = bank_idx;
+          }
+          return (ulong)spec;
+        }
+      }
       return 0UL;
     }
   }
