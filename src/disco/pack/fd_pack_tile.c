@@ -1511,23 +1511,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* Pack can publish a frag in the following scenarios:
-
-   after_credit:
-     A. TIMED_OUT. Sets ctx->leader_slot=ULONG_MAX. return.
-     B. DONE_DRAINING. *after* DONE_PACKING. return.
-     C. SCHEDULE_MB. *doesn't* return.
-     D. EXHAUST_MICROBLOCKS. Sets ctx->leader_slot=ULONG_MAX. return.
-   after_frag:
-   	 E. ABANDONED. Requires ctx->leader_slot!=ULONG_MAX
-
-     It isn't possible to get a burst of 3, but a burst of 2 is possible
-     in these situations.
-
-     B -> E
-     C -> E
-     C -> D
- */
 #define STEM_BURST (2UL)
 
 #define STEM_LAZY  (128L*3000L)
