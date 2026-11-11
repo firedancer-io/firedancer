@@ -1474,15 +1474,6 @@ parse_listen_addr( char const *    cstr,
                  "zone ID (e.g. `%s%%eth0`)", key, cstr, cstr ));
 }
 
-/* A snapshot server listening on loopback cannot be reached by peers. */
-
-static int
-listen_addr_is_loopback( fd_ip6_addr_t const * addr ) {
-  static uchar const ip6_loopback[ 16 ] = { [15] = 1 };
-  if( fd_ip6_addr_is_ip4_mapped( addr->addr ) ) return fd_ip4_addr_is_loopback( FD_LOAD( uint, addr->addr+12 ) );
-  return !memcmp( addr->addr, ip6_loopback, 16UL );
-}
-
 static int
 wfs_hash_is_zero( fd_config_t const * config ) {
   return !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
@@ -1646,8 +1637,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       if( !snapsv_address[0] ) snapsv_address = config->tiles.rpc.rpc_listen_address;
       fd_ip6_addr_t snapsv_addr;
       parse_listen_addr( snapsv_address, "snapshots.server.http_listen_address", &snapsv_addr );
-      if(      config->tiles.rpc.enabled && !listen_addr_is_loopback( &rpc_addr ) ) tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
-      else if( !listen_addr_is_loopback( &snapsv_addr ) )                          tile->gossip.ports.rpc = (ushort)config->firedancer.snapshots.server.http_listen_port;
+      if(      config->tiles.rpc.enabled && !fd_ip6_addr_is_loopback( rpc_addr.addr ) ) tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
+      else if( !fd_ip6_addr_is_loopback( snapsv_addr.addr ) )                          tile->gossip.ports.rpc = (ushort)config->firedancer.snapshots.server.http_listen_port;
     }
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
