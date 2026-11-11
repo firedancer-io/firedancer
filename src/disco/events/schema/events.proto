@@ -3667,6 +3667,56 @@ message MetricsAccdbRegimeDurationNanos {
   uint64 backpressure_sleeping = 10;
 }
 
+// Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type
+message MetricsReplaySchedLthashTaskDispatched {
+  // Subtraction tasks, each a batch of accounts hashed on the parent fork
+  uint64 sub = 1;
+  // Addition tasks, each a batch of accounts hashed on the block's fork
+  uint64 add = 2;
+}
+
+// Out-of-band lthash work discarded when a block was abandoned, demoted, or switched to in-band hashing, by type
+message MetricsReplaySchedLthashWorkDropped {
+  // Additions owed by abandoned blocks, never created
+  uint64 add_owed = 1;
+  // Pseudo transactions of abandoned blocks, never surfaced
+  uint64 add_pending = 2;
+  // Additions in the delta of an abandoned or demoted block, net of undone
+  uint64 add_applied = 3;
+  // Subtractions of abandoned blocks, never dispatched
+  uint64 sub_queued = 4;
+  // Subtractions in the delta of an abandoned or demoted block
+  uint64 sub_applied = 5;
+  // Additions of abandoned blocks that were batched behind a transaction and never reached a tile
+  uint64 add_held = 6;
+  // Additions owed by blocks that picked in-band hashing, never created
+  uint64 inband_add_owed = 7;
+  // Subtractions of blocks that picked in-band hashing, never dispatched
+  uint64 inband_sub_queued = 8;
+}
+
+// Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type
+message MetricsReplaySchedLthashWriteObservedByType {
+  // Declared writable accounts of parsed transactions, as handed to the dispatcher
+  uint64 parsed = 1;
+  // Accounts registered by start-of-block processing
+  uint64 block_start = 2;
+  // Writable lookup table accounts registered at transaction completion
+  uint64 late_lut = 3;
+  // Accounts re-registered when their block was demoted
+  uint64 demoted = 4;
+  // Accounts re-registered when a speculative addition was given up
+  uint64 spec_given_up = 5;
+}
+
+// Writes the replay scheduler saw for out-of-band lthash, by result
+message MetricsReplaySchedLthashWriteObserved {
+  // First write to the account since its last addition pseudo transaction, which makes the block owe it an addition
+  uint64 first_write = 1;
+  // Write to an account the block already owed an addition for
+  uint64 coalesced = 2;
+}
+
 // Accounts not found in the account database cache and read from disk, by cache size class
 message MetricsReplayAccdbAccountCacheMissed {
   // 0-128 B
@@ -9483,28 +9533,94 @@ message MetricsReplay {
   uint64 leader_window_already_produced = 118;
   // Leader windows given up after votor sent them because certificates already let a later window start (Alpenglow)
   uint64 leader_window_superseded = 119;
+  // Transaction cache lookups under the read lock that found their page not resident
+  uint64 txncache_page_miss = 120 [deprecated = true];
+  // Dirty transaction cache pages written to the spill file on eviction
+  uint64 txncache_page_spilled = 121 [deprecated = true];
+  // Transaction cache pages read back from the spill file
+  uint64 txncache_page_spill_read = 122 [deprecated = true];
+  // Transaction cache frames evicted to load another page
+  uint64 txncache_frame_evicted = 123 [deprecated = true];
+  // Time in transaction cache spill file reads and writes
+  uint64 txncache_spill_duration_nanos = 124 [deprecated = true];
+  // Transaction cache logical pages in use, resident or spilled
+  uint64 txncache_page_used = 125 [deprecated = true];
+  // Maximum transaction cache logical pages
+  uint64 txncache_page_capacity = 126 [deprecated = true];
+  // Transaction cache in-memory frames holding a page
+  uint64 txncache_frame_used = 127 [deprecated = true];
+  // Transaction cache in-memory frames, from runtime.transaction_cache_size_mib
+  uint64 txncache_frame_capacity = 128 [deprecated = true];
+  // Time all tiles spent waiting to take the transaction cache shared lock
+  uint64 txncache_lock_read_wait_duration_nanos = 129 [deprecated = true];
+  // Time all tiles spent waiting to take the transaction cache exclusive lock
+  uint64 txncache_lock_write_wait_duration_nanos = 130 [deprecated = true];
+  // Transactions the replay scheduler moved into a staging lane when it promoted their block
+  uint64 sched_txn_promoted = 131 [deprecated = true];
+  // Blocks that fell back to in-band lthash because every demotion reservation was in use
+  uint64 sched_block_inband_picked = 132 [deprecated = true];
+  // Writes the replay scheduler saw for out-of-band lthash, by result
+  MetricsReplaySchedLthashWriteObserved sched_lthash_write_observed = 133 [deprecated = true];
+  // Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type
+  MetricsReplaySchedLthashWriteObservedByType sched_lthash_write_observed_by_type = 134 [deprecated = true];
+  // Out-of-band lthash addition pseudo transactions the dispatcher handed back
+  uint64 sched_lthash_add_created = 135 [deprecated = true];
+  // Addition pseudo transactions the dispatcher handed out as ready
+  uint64 sched_lthash_add_surfaced = 136 [deprecated = true];
+  // Addition pseudo transactions surfaced after a later write made them stale, completed without hashing
+  uint64 sched_lthash_add_stale_surfaced = 137 [deprecated = true];
+  // Additions handed to an exec tile
+  uint64 sched_lthash_add_dispatched = 138 [deprecated = true];
+  // Addition results dropped because a later write made them stale while on the tile
+  uint64 sched_lthash_add_stale_dropped = 139 [deprecated = true];
+  // Addition results added to a block's delta
+  uint64 sched_lthash_add_applied = 140 [deprecated = true];
+  // Applied additions subtracted back out after a later write
+  uint64 sched_lthash_add_undone = 141 [deprecated = true];
+  // Speculative additions created
+  uint64 sched_lthash_spec_created = 142 [deprecated = true];
+  // Speculative additions applied; a subset of SchedLthashAddApplied
+  uint64 sched_lthash_spec_applied = 143 [deprecated = true];
+  // Speculative additions invalidated before they applied
+  uint64 sched_lthash_spec_invalidated = 144 [deprecated = true];
+  // Lane map entries inserted, each owing one out-of-band lthash subtraction
+  uint64 sched_lthash_sub_owed = 145 [deprecated = true];
+  // Subtractions handed to an exec tile
+  uint64 sched_lthash_sub_dispatched = 146 [deprecated = true];
+  // Subtraction results subtracted from a block's delta
+  uint64 sched_lthash_sub_applied = 147 [deprecated = true];
+  // Accounts whose out-of-band lthash subtraction and addition are in the delta of a block whose end task completed
+  uint64 sched_lthash_account_frozen = 148 [deprecated = true];
+  // Out-of-band lthash work discarded when a block was abandoned, demoted, or switched to in-band hashing, by type
+  MetricsReplaySchedLthashWorkDropped sched_lthash_work_dropped = 149 [deprecated = true];
+  // Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type
+  MetricsReplaySchedLthashTaskDispatched sched_lthash_task_dispatched = 150 [deprecated = true];
+  // Out-of-band lthash addition batches held because a transaction or standalone speculation surfaced behind them
+  uint64 sched_lthash_batch_held = 151 [deprecated = true];
+  // Dispatch polls that held an out-of-band lthash addition batch because too few exec tiles were idle
+  uint64 sched_lthash_batch_idle_waited = 152 [deprecated = true];
   // Rooted stake delegations held in memory
-  uint64 stake_delegation_root_used = 120;
+  uint64 stake_delegation_root_used = 153;
   // Rooted stake delegations that fit in memory, from runtime.stake_delegation_cache_cnt
-  uint64 stake_delegation_root_capacity = 121;
+  uint64 stake_delegation_root_capacity = 154;
   // Rooted stake delegations currently spilled to disk
-  uint64 stake_delegation_root_disk_count = 122;
+  uint64 stake_delegation_root_disk_count = 155;
   // Unrooted stake delegation fork deltas held in memory
-  uint64 stake_delegation_delta_used = 123;
+  uint64 stake_delegation_delta_used = 156;
   // Unrooted stake delegation fork deltas that fit in memory
-  uint64 stake_delegation_delta_capacity = 124;
+  uint64 stake_delegation_delta_capacity = 157;
   // Unrooted stake delegation fork deltas currently spilled to disk
-  uint64 stake_delegation_delta_disk_count = 125;
+  uint64 stake_delegation_delta_disk_count = 158;
   // Rooted stake delegations written to disk because the in-memory root pool was full
-  uint64 stake_delegation_root_spilled = 126;
+  uint64 stake_delegation_root_spilled = 159;
   // Stake delegation fork deltas written to disk because the in-memory delta pool was full
-  uint64 stake_delegation_delta_spilled = 127;
+  uint64 stake_delegation_delta_spilled = 160;
   // Reads from the stake delegation spill file by all tiles
-  uint64 stake_delegation_disk_read = 128;
+  uint64 stake_delegation_disk_read = 161;
   // Writes to the stake delegation spill file by all tiles
-  uint64 stake_delegation_disk_written = 129;
+  uint64 stake_delegation_disk_written = 162;
   // Time all tiles spent in stake delegation spill file reads and writes
-  uint64 stake_delegation_disk_duration_nanos = 130;
+  uint64 stake_delegation_disk_duration_nanos = 163;
 }
 
 // Metrics of one rotor tile instance, one row per sweep

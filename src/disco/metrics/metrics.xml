@@ -1039,6 +1039,35 @@ deliberate exception with lint-allow="<rule id>")
     <int value="1" name="Failed" label="Address lookup table expansion failed" />
 </enum>
 
+<enum name="SchedLthashWriteResult">
+    <int value="0" name="FirstWrite" label="First write to the account since its last addition pseudo transaction, which makes the block owe it an addition" />
+    <int value="1" name="Coalesced" label="Write to an account the block already owed an addition for" />
+</enum>
+
+<enum name="SchedLthashWriteType">
+    <int value="0" name="Parsed" label="Declared writable accounts of parsed transactions, as handed to the dispatcher" />
+    <int value="1" name="BlockStart" label="Accounts registered by start-of-block processing" />
+    <int value="2" name="LateLut" label="Writable lookup table accounts registered at transaction completion" />
+    <int value="3" name="Demoted" label="Accounts re-registered when their block was demoted" />
+    <int value="4" name="SpecGivenUp" label="Accounts re-registered when a speculative addition was given up" />
+</enum>
+
+<enum name="SchedLthashWorkType">
+    <int value="0" name="AddOwed" label="Additions owed by abandoned blocks, never created" />
+    <int value="1" name="AddPending" label="Pseudo transactions of abandoned blocks, never surfaced" />
+    <int value="2" name="AddApplied" label="Additions in the delta of an abandoned or demoted block, net of undone" />
+    <int value="3" name="SubQueued" label="Subtractions of abandoned blocks, never dispatched" />
+    <int value="4" name="SubApplied" label="Subtractions in the delta of an abandoned or demoted block" />
+    <int value="5" name="AddHeld" label="Additions of abandoned blocks that were batched behind a transaction and never reached a tile" />
+    <int value="6" name="InbandAddOwed" label="Additions owed by blocks that picked in-band hashing, never created" />
+    <int value="7" name="InbandSubQueued" label="Subtractions of blocks that picked in-band hashing, never dispatched" />
+</enum>
+
+<enum name="SchedLthashTaskType">
+    <int value="0" name="Sub" label="Subtraction tasks, each a batch of accounts hashed on the parent fork" />
+    <int value="1" name="Add" label="Addition tasks, each a batch of accounts hashed on the block's fork" />
+</enum>
+
 <tile name="replay">
     <gauge name="IdentityBalanceLamports" summary="Identity account balance at the optimistically confirmed slot" />
     <gauge name="ActiveStakeLamports" summary="Our active stake at the optimistically confirmed slot" />
@@ -1059,6 +1088,39 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="StoreFecCacheUsed" summary="FEC payload slots in use in the store RAM cache" />
     <gauge name="StoreFecCacheCapacity" summary="FEC payload capacity of the store RAM cache" />
     <gauge name="StoreFecCachePinned" ambiguous-kind="true" summary="FEC payload views currently pinned against eviction" />
+    <counter name="TxncachePageMiss" deprecated="true" summary="Transaction cache lookups under the read lock that found their page not resident" />
+    <counter name="TxncachePageSpilled" deprecated="true" summary="Dirty transaction cache pages written to the spill file on eviction" />
+    <counter name="TxncachePageSpillRead" deprecated="true" summary="Transaction cache pages read back from the spill file" />
+    <counter name="TxncacheFrameEvicted" deprecated="true" summary="Transaction cache frames evicted to load another page" />
+    <counter name="TxncacheSpillDurationNanos" source="ticks" deprecated="true" summary="Time in transaction cache spill file reads and writes" />
+    <counter name="TxncacheLockReadWaitDurationNanos" source="ticks" deprecated="true" summary="Time all tiles spent waiting to take the transaction cache shared lock" />
+    <counter name="TxncacheLockWriteWaitDurationNanos" source="ticks" deprecated="true" summary="Time all tiles spent waiting to take the transaction cache exclusive lock" />
+    <gauge name="TxncachePageUsed" deprecated="true" summary="Transaction cache logical pages in use, resident or spilled" />
+    <gauge name="TxncachePageCapacity" deprecated="true" summary="Maximum transaction cache logical pages" />
+    <gauge name="TxncacheFrameUsed" deprecated="true" summary="Transaction cache in-memory frames holding a page" />
+    <gauge name="TxncacheFrameCapacity" deprecated="true" summary="Transaction cache in-memory frames, from runtime.transaction_cache_size_mib" />
+    <counter name="SchedTxnPromoted" deprecated="true" summary="Transactions the replay scheduler moved into a staging lane when it promoted their block" />
+    <counter name="SchedBlockInbandPicked" deprecated="true" summary="Blocks that fell back to in-band lthash because every demotion reservation was in use" />
+    <counter name="SchedLthashWriteObserved" enum="SchedLthashWriteResult" deprecated="true" summary="Writes the replay scheduler saw for out-of-band lthash, by result" />
+    <counter name="SchedLthashWriteObservedByType" enum="SchedLthashWriteType" deprecated="true" summary="Writes the replay scheduler saw for out-of-band lthash, the same as SchedLthashWriteObserved, by type" />
+    <counter name="SchedLthashAddCreated" deprecated="true" summary="Out-of-band lthash addition pseudo transactions the dispatcher handed back" />
+    <counter name="SchedLthashAddSurfaced" deprecated="true" summary="Addition pseudo transactions the dispatcher handed out as ready" />
+    <counter name="SchedLthashAddStaleSurfaced" deprecated="true" summary="Addition pseudo transactions surfaced after a later write made them stale, completed without hashing" />
+    <counter name="SchedLthashAddDispatched" deprecated="true" summary="Additions handed to an exec tile" />
+    <counter name="SchedLthashAddStaleDropped" deprecated="true" summary="Addition results dropped because a later write made them stale while on the tile" />
+    <counter name="SchedLthashAddApplied" deprecated="true" summary="Addition results added to a block's delta" />
+    <counter name="SchedLthashAddUndone" deprecated="true" summary="Applied additions subtracted back out after a later write" />
+    <counter name="SchedLthashSpecCreated" deprecated="true" summary="Speculative additions created" />
+    <counter name="SchedLthashSpecApplied" deprecated="true" summary="Speculative additions applied; a subset of SchedLthashAddApplied" />
+    <counter name="SchedLthashSpecInvalidated" deprecated="true" summary="Speculative additions invalidated before they applied" />
+    <counter name="SchedLthashSubOwed" deprecated="true" summary="Lane map entries inserted, each owing one out-of-band lthash subtraction" />
+    <counter name="SchedLthashSubDispatched" deprecated="true" summary="Subtractions handed to an exec tile" />
+    <counter name="SchedLthashSubApplied" deprecated="true" summary="Subtraction results subtracted from a block's delta" />
+    <counter name="SchedLthashAccountFrozen" deprecated="true" summary="Accounts whose out-of-band lthash subtraction and addition are in the delta of a block whose end task completed" />
+    <counter name="SchedLthashWorkDropped" enum="SchedLthashWorkType" deprecated="true" summary="Out-of-band lthash work discarded when a block was abandoned, demoted, or switched to in-band hashing, by type" />
+    <counter name="SchedLthashTaskDispatched" enum="SchedLthashTaskType" deprecated="true" summary="Out-of-band lthash tasks handed to exec tiles, each a batch of the accounts SchedLthashSubDispatched and SchedLthashAddDispatched count, by type" />
+    <counter name="SchedLthashBatchHeld" deprecated="true" summary="Out-of-band lthash addition batches held because a transaction or standalone speculation surfaced behind them" />
+    <counter name="SchedLthashBatchIdleWaited" deprecated="true" summary="Dispatch polls that held an out-of-band lthash addition batch because too few exec tiles were idle" />
     <gauge name="StakeDelegationRootUsed" summary="Rooted stake delegations held in memory" />
     <gauge name="StakeDelegationRootCapacity" summary="Rooted stake delegations that fit in memory, from runtime.stake_delegation_cache_cnt" />
     <gauge name="StakeDelegationRootDiskCount" summary="Rooted stake delegations currently spilled to disk" />
