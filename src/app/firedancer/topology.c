@@ -1629,7 +1629,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.votor            = config->firedancer.development.votor.quic_server_listen_port;
 
     /* Advertise the rpc port for snapshots, else the snapshot server's. */
-    tile->gossip.ports.rpc              = 0;
+    tile->gossip.ports.rpc = 0;
     if( fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX ) {
       fd_ip6_addr_t rpc_addr;
       parse_listen_addr( config->tiles.rpc.rpc_listen_address, "tiles.rpc.rpc_listen_address", &rpc_addr );
