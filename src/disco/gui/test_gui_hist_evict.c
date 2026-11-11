@@ -2225,8 +2225,33 @@ test_timeline_batches( fd_gui_t * gui ) {
   test_json_t json = timeline_response( gui );
   FD_TEST( test_json_string_eq( timeline_value( json, "granularity" ), "txn_batch" ) );
   FD_TEST( test_json_count( timeline_value( json, "state_cnt" ) )==2 );
-  FD_TEST( !test_json_count( timeline_value( json, "txn_idx" ) ) && !test_json_count( timeline_value( json, "slot_state_lo" ) ) );
+  FD_TEST( !test_json_count( timeline_value( json, "txn_idx" ) ) && !test_json_count( timeline_value( json, "txn_slot_delta" ) ) );
+  FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==100UL );
   int n = test_json_count( timeline_value( json, "state" ) );
+  /* Every non-idle batch state is covered by exactly one slot segment,
+     Idle by none, and runs of states between Idles are one segment. */
+  {
+    int seg_n = test_json_count( timeline_value( json, "slot_state_lo" ) );
+    FD_TEST( seg_n>0 && seg_n==test_json_count( timeline_value( json, "slot_state_cnt" ) ) && seg_n==test_json_count( timeline_value( json, "slot_delta" ) ) );
+    static uchar covered[ 4096 ];
+    FD_TEST( n<=4096 );
+    memset( covered, 0, sizeof(covered) );
+    for( int g=0; g<seg_n; g++ ) {
+      ulong glo  = test_json_ulong( test_json_index( timeline_value( json, "slot_state_lo"  ), g ) );
+      ulong gcnt = test_json_ulong( test_json_index( timeline_value( json, "slot_state_cnt" ), g ) );
+      FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_delta" ), g ) )==0UL );
+      FD_TEST( gcnt && glo+gcnt<=(ulong)n );
+      for( ulong i=glo; i<glo+gcnt; i++ ) { FD_TEST( !covered[ i ] ); covered[ i ] = 1; }
+    }
+    ulong runs = 0UL;
+    for( int i=0; i<n; i++ ) {
+      int idle = test_json_ulong( test_json_index( timeline_value( json, "state" ), i ) )==FD_GUI_TILE_STATE_IDLE;
+      FD_TEST( covered[ i ]==!idle );
+      if( !idle && ( !i || !covered[ i-1 ] ) ) runs++;
+    }
+    /* runs also split at tile boundaries */
+    FD_TEST( runs<=(ulong)seg_n );
+  }
   FD_TEST( n==test_json_count( timeline_value( json, "dur" ) ) );
   ulong total = 0UL; ulong sig_batch = 0UL;
   ulong stage_cnt[ 4 ] = {0}; ulong stage_dur[ 4 ] = {0};

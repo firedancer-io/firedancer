@@ -3825,6 +3825,22 @@ fd_gui_printf_timeline_query_revenue( fd_gui_t * gui,
 #define FD_GUI_STATES_LANE_LTHASH    (3)
 #define FD_GUI_STATES_LANE_CNT       (4)
 
+/* fd_gui_tile_states_row_slot returns the slot of a tile states row.
+   Batch rows report the slot of their member that ended last. */
+
+static inline ulong
+fd_gui_tile_states_row_slot( void const * r,
+                             int          lane,
+                             int          batch ) {
+  switch( lane ) {
+    case FD_GUI_STATES_LANE_SLOT:   return ((fd_gui_store_replay_slot_state_t const *)r)->slot;
+    case FD_GUI_STATES_LANE_LTHASH: return batch ? ((fd_gui_store_replay_lthash_batch_t const *)r)->slot
+                                                 : ((fd_gui_store_replay_lthash_t const *)r)->slot;
+    default:                        return batch ? ((fd_gui_store_replay_txn_batch_t const *)r)->slot
+                                                 : ((fd_gui_store_replay_txn_t const *)r)->slot;
+  }
+}
+
 static void
 fd_gui_tile_states_flush( fd_gui_t * gui,
                           int        out,
@@ -3832,9 +3848,20 @@ fd_gui_tile_states_flush( fd_gui_t * gui,
                           int        lane,
                           ulong      lo,
                           ulong      cnt,
-                          ulong      refslot ) {
+                          ulong      refslot,
+                          int        batch ) {
   if( !cnt ) return;
   void const * r = gui->timeline_scratch.tile_states.rows[ row ];
+  if( batch ) {
+    /* txn_batch reports every non-idle segment as a slot segment. */
+    switch( out ) {
+      case FD_GUI_STATES_OUT_SLOT_STATE_LO:  jsonp_ulong( gui->http, NULL, lo );                                         break;
+      case FD_GUI_STATES_OUT_SLOT_STATE_CNT: jsonp_ulong( gui->http, NULL, cnt );                                        break;
+      case FD_GUI_STATES_OUT_SLOT_DELTA:     jsonp_ulong( gui->http, NULL, fd_gui_tile_states_row_slot( r, lane, 1 )-refslot ); break;
+      default: break;
+    }
+    return;
+  }
   fd_gui_store_replay_txn_t const *        t = r;
   fd_gui_store_replay_slot_state_t const * s = r;
   fd_gui_store_replay_lthash_t const *     l = r;
@@ -3887,6 +3914,7 @@ fd_gui_tile_states_walk( fd_gui_t * gui,
                          long       end,
                          ulong      refslot,
                          int        out,
+                         int        batch,
                          ulong      seg_cnt_out[ FD_GUI_STATES_LANE_CNT ] ) {
   fd_gui_timeline_state_entry_t const * e = gui->timeline_scratch.tile_states.entries;
   ulong k = 0UL; /* global state index */
@@ -3915,12 +3943,20 @@ fd_gui_tile_states_walk( fd_gui_t * gui,
         ulong state = idle ? FD_GUI_TILE_STATE_IDLE : e[ j ].state;
         long  dur   = idle ? lo-t : e[ j ].hi-lo;
         void const * const * rows = gui->timeline_scratch.tile_states.rows;
-        int same = lane==seg_lane && ( row==seg_row || ( lane==FD_GUI_STATES_LANE_SLOT &&
-                   ((fd_gui_store_replay_slot_state_t const *)rows[ row ])->slot==((fd_gui_store_replay_slot_state_t const *)rows[ seg_row ])->slot ) );
+        int same;
+        if( batch ) {
+          /* txn_batch: adjacent non-idle states of any kind in the same
+             slot form one slot segment. */
+          same = ( lane<0 )==( seg_lane<0 ) && ( lane<0 ||
+                 fd_gui_tile_states_row_slot( rows[ row ], lane, 1 )==fd_gui_tile_states_row_slot( rows[ seg_row ], seg_lane, 1 ) );
+        } else {
+          same = lane==seg_lane && ( row==seg_row || ( lane==FD_GUI_STATES_LANE_SLOT &&
+                 ((fd_gui_store_replay_slot_state_t const *)rows[ row ])->slot==((fd_gui_store_replay_slot_state_t const *)rows[ seg_row ])->slot ) );
+        }
         if( !same ) {
           if( seg_lane>=0 ) {
             seg_cnt_out[ seg_lane ]++;
-            fd_gui_tile_states_flush( gui, out, seg_row, seg_lane, seg_lo, seg_cnt, refslot );
+            fd_gui_tile_states_flush( gui, out, seg_row, seg_lane, seg_lo, seg_cnt, refslot, batch );
           }
           seg_lane = lane;
           seg_row  = row;
@@ -3937,7 +3973,7 @@ fd_gui_tile_states_walk( fd_gui_t * gui,
     }
     if( seg_lane>=0 ) {
       seg_cnt_out[ seg_lane ]++;
-      fd_gui_tile_states_flush( gui, out, seg_row, seg_lane, seg_lo, seg_cnt, refslot );
+      fd_gui_tile_states_flush( gui, out, seg_row, seg_lane, seg_lo, seg_cnt, refslot, batch );
     }
     if( out==FD_GUI_STATES_OUT_STATE_CNT ) jsonp_ulong( gui->http, NULL, pos_cnt );
   }
@@ -4010,6 +4046,7 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
                                        FD_GUI_TILE_STATE_SIGVERIFY_BATCH, FD_GUI_STATES_LANE_SIGVERIFY );
         }
         if( n==n0 ) continue; /* no state of this row ends in the window */
+        refslot = fd_ulong_min( refslot, b->slot );
         rows[ row_cnt++ ] = b;
       } else {
         fd_gui_store_replay_txn_t const * t = it.rec;
@@ -4048,6 +4085,7 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
       if( batch ) {
         fd_gui_store_replay_lthash_batch_t const * lb = it.rec;
         l_start = lb->start_ns; l_end = lb->end_ns; l_pos = lb->exec_idx;
+        if( l_pos<exec_cnt && l_start<l_end && l_end>=start && l_end<end ) refslot = fd_ulong_min( refslot, lb->slot );
       } else {
         fd_gui_store_replay_lthash_t const * l = it.rec;
         l_start = l->start_ns;  l_end = l->end_ns;  l_pos = l->exec_idx;
@@ -4072,7 +4110,7 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
         if( s->start_ns>=s->end_ns || s->end_ns<start || s->end_ns>=end ) continue;
         if( FD_UNLIKELY( slot_cnt==FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX ) ) { limit = 1; break; }
         n = fd_gui_tile_states_push( e, n, s->start_ns, s->end_ns, start, end, row_cnt, exec_cnt, s->state, FD_GUI_STATES_LANE_SLOT );
-        refslot = fd_ulong_min( refslot, s->slot ); /* slot states are exact in txn_batch too */
+        refslot = fd_ulong_min( refslot, s->slot );
         rows[ row_cnt++ ] = s;
         slot_cnt++;
       }
@@ -4087,7 +4125,7 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
   /* Overlapping rows can split a row into several segments.  Bound the
      segments so the response fits (see tile_states_response_bound). */
   ulong seg_cnt[ FD_GUI_STATES_LANE_CNT ] = { 0UL };
-  fd_gui_tile_states_walk( gui, n, start, end, refslot, FD_GUI_STATES_OUT_COUNT, seg_cnt );
+  fd_gui_tile_states_walk( gui, n, start, end, refslot, FD_GUI_STATES_OUT_COUNT, batch, seg_cnt );
   if( FD_UNLIKELY( seg_cnt[ FD_GUI_STATES_LANE_EXEC ]+seg_cnt[ FD_GUI_STATES_LANE_SIGVERIFY ]>2UL*FD_GUI_TIMELINE_QUERY_TXN_MAX ||
                    seg_cnt[ FD_GUI_STATES_LANE_SLOT ]>FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX ||
                    seg_cnt[ FD_GUI_STATES_LANE_LTHASH ]>FD_GUI_TIMELINE_QUERY_LTHASH_MAX ) ) {
@@ -4112,10 +4150,10 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
   };
   for( int out=FD_GUI_STATES_OUT_STATE_CNT; out<FD_GUI_STATES_OUT_CNT; out++ ) {
     jsonp_open_array( gui->http, names[ out ] );
-    /* Batch granularity only reports the states. */
-    /* txn_batch only maps slot states to slots: batches can straddle
-       slots, so the txn_* and lthash_* arrays stay empty. */
-    if( !batch || out<=FD_GUI_STATES_OUT_SLOT_DELTA || out==FD_GUI_STATES_OUT_TILE_START ) fd_gui_tile_states_walk( gui, n, start, end, refslot, out, seg_cnt );
+    /* txn_batch maps every non-idle state (batch states, lthash
+       batches and slot states) to its slot through the slot_* arrays;
+       the txn_* and lthash_* arrays stay empty. */
+    if( !batch || out<=FD_GUI_STATES_OUT_SLOT_DELTA || out==FD_GUI_STATES_OUT_TILE_START ) fd_gui_tile_states_walk( gui, n, start, end, refslot, out, batch, seg_cnt );
     jsonp_close_array( gui->http );
   }
   fd_gui_timeline_close( gui );

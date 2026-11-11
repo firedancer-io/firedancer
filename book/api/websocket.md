@@ -3081,7 +3081,7 @@ each chunk holds the fields below other than `granularity` and
 | available_end_ns   | `string\|null`     | Exclusive approximate lookup end for the selected transaction history |
 | start_ts           | `string`           | Equals `start_ns`; reference for `tile_start_ts_delta` |
 | tile_start_ts_delta | `(string\|null)[]` | Per tile, the start of its first state, relative to `start_ts` (negative if before it), or `null` if the tile has no states |
-| reference_slot     | `number\|null`     | Smallest slot among the returned transactions, slot states and LtHash tasks (`txn_batch`: slot states only), or `null` if none |
+| reference_slot     | `number\|null`     | Smallest slot among the returned transactions, slot states and LtHash tasks (`txn_batch`: slot states and batches), or `null` if none |
 | tile               | `(number\|null)[]` | Per tile, its index into `summary.tiles`: the execrp tiles in order, then the replay tile |
 | state_cnt          | `number[]`         | Per tile, the number of its states. Tile `i`'s states start at the sum of the earlier tiles' counts |
 | state              | `number[]`         | All states, tile by tile and in time order, as listed above |
@@ -3127,10 +3127,17 @@ after the previous one ends, at most 128 tasks) and each batch
 is one `LthashBatch` state that likewise ends with its last task and
 lasts the tasks' total time; a batch is recorded once its tile's next task
 does not join it or it has been idle for 40ms. Slot states are
-reported unchanged, with their `slot_state_lo`, `slot_state_cnt` and
-`slot_delta` as for `txn`, and `reference_slot` is the smallest slot
-among them (`null` if none). The `txn_*` and `lthash_*` arrays are
-empty, since a batch can hold members of several slots.
+reported unchanged. `slot_state_lo`, `slot_state_cnt` and `slot_delta`
+map every non-idle state to a slot, on every tile: slot states (exact,
+as for `txn`), transaction batch states (`SigverifyBatch` to
+`PostExecBatch`) and `LthashBatch` states. A segment is a run of
+adjacent non-idle states of one tile in the same slot; `slot_state_lo`
+indexes the response-wide `state` array, segments of different tiles
+are interleaved in tile order, and Idle states are never covered. A
+batch's slot is the slot of its member that ended last, so batches near
+a slot boundary are approximate. `reference_slot` is the smallest of
+these slots (`null` if none). The `txn_*` and `lthash_*` arrays are
+empty.
 `tile_start_ts_delta` is reported as for `txn`.
 
 ::: details Example
