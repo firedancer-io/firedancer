@@ -1922,7 +1922,7 @@ deliberate exception with lint-allow="<rule id>")
 
 <tile name="benchs" telemetry="false">
     <counter name="TxnTx" summary="Benchmark transactions sent" />
-    <counter name="TxnDropped" summary="Benchmark transactions dropped because no QUIC connection was established or it had no free stream" />
+    <counter name="TxnDropped" summary="Benchmark transactions dropped because no QUIC connection was established or it could not send" />
 </tile>
 
 <enum name="DatagramRxResult">
@@ -2004,8 +2004,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="ClientHandshakeCreated" summary="Handshake flows created" />
     <counter name="ClientHandshakePoolFullRejected" summary="Handshakes dropped due to alloc fail" />
     <counter name="ClientHandshakeEvicted" summary="Handshakes dropped due to eviction" />
-    <counter name="ClientStreamRx" summary="Stream receive events" />
-    <counter name="ClientStreamRxBytes" summary="Stream payload bytes received" />
+    <counter name="ClientStreamRx" deprecated="true" summary="Stream receive events" />
+    <counter name="ClientStreamRxBytes" deprecated="true" summary="Stream payload bytes received" />
     <counter name="ClientFrameRx" enum="QuicFrameType" summary="QUIC frames received, by frame type" />
     <counter name="ClientFrameParseFailed" summary="QUIC frames that failed to parse" />
     <counter name="ClientPktMetaAcquireAttempted" enum="PktMetaAcquireResult" summary="Attempts to acquire packet metadata for transmission, by result" />
@@ -2041,8 +2041,8 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="ServerHandshakeCreated" summary="Handshake flows created" />
     <counter name="ServerHandshakePoolFullRejected" summary="Handshakes dropped due to alloc fail" />
     <counter name="ServerHandshakeEvicted" summary="Handshakes dropped due to eviction" />
-    <counter name="ServerStreamRx" summary="Stream receive events" />
-    <counter name="ServerStreamRxBytes" summary="Stream payload bytes received" />
+    <counter name="ServerStreamRx" deprecated="true" summary="Stream receive events" />
+    <counter name="ServerStreamRxBytes" deprecated="true" summary="Stream payload bytes received" />
     <counter name="ServerFrameRx" enum="QuicFrameType" summary="QUIC frames received, by frame type" />
     <counter name="ServerFrameParseFailed" summary="QUIC frames that failed to parse" />
     <counter name="ServerPktMetaAcquireAttempted" enum="PktMetaAcquireResult" summary="Attempts to acquire packet metadata for transmission, by result" />

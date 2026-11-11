@@ -254,8 +254,8 @@
         "client_handshake_created":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Handshake flows created" },
         "client_handshake_pool_full_rejected": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Handshakes dropped due to alloc fail" },
         "client_handshake_evicted":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Handshakes dropped due to eviction" },
-        "client_stream_rx":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stream receive events" },
-        "client_stream_rx_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stream payload bytes received" },
+        "client_stream_rx":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stream receive events", "deprecated": true },
+        "client_stream_rx_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stream payload bytes received", "deprecated": true },
         "client_frame_rx": {
             "type": "Tuple",
             "description": "QUIC frames received, by frame type",
@@ -457,8 +457,8 @@
         "server_handshake_created":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Handshake flows created" },
         "server_handshake_pool_full_rejected": { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Handshakes dropped due to alloc fail" },
         "server_handshake_evicted":            { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Handshakes dropped due to eviction" },
-        "server_stream_rx":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stream receive events" },
-        "server_stream_rx_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stream payload bytes received" },
+        "server_stream_rx":                    { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stream receive events", "deprecated": true },
+        "server_stream_rx_bytes":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Stream payload bytes received", "deprecated": true },
         "server_frame_rx": {
             "type": "Tuple",
             "description": "QUIC frames received, by frame type",

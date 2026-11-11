@@ -18,22 +18,20 @@ union fd_quic_pkt_meta_key {
   struct {
     /* which frame type is recorded:
         FD_QUIC_PKT_META_TYPE_HS_DATA             handshake data
-        FD_QUIC_PKT_META_TYPE_STREAM              stream data
         FD_QUIC_PKT_META_TYPE_HS_DONE             handshake-done frame
         FD_QUIC_PKT_META_TYPE_MAX_DATA            max_data frame
         FD_QUIC_PKT_META_TYPE_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
         FD_QUIC_PKT_META_TYPE_CLOSE               close frame
         FD_QUIC_PKT_META_TYPE_PING                set to send a PING frame
-        FD_QUIC_PKT_META_TYPE_DATAGRAM            DATAGRAM frame, never retransmitted (RFC 9221 Section 5.2)
+        FD_QUIC_PKT_META_TYPE_USER                caller-built packet (fd_quic_conn_tx_{dgram,stream})
     */
     # define          FD_QUIC_PKT_META_TYPE_HS_DATA            (0)
-    # define          FD_QUIC_PKT_META_TYPE_STREAM             (1)
     # define          FD_QUIC_PKT_META_TYPE_HS_DONE            (2)
     # define          FD_QUIC_PKT_META_TYPE_MAX_DATA           (3)
     # define          FD_QUIC_PKT_META_TYPE_MAX_STREAMS_UNIDIR (4)
     # define          FD_QUIC_PKT_META_TYPE_CLOSE              (5)
     # define          FD_QUIC_PKT_META_TYPE_PING               (6)
-    # define          FD_QUIC_PKT_META_TYPE_DATAGRAM           (7)
+    # define          FD_QUIC_PKT_META_TYPE_USER               (7)
     uchar type: 4;
 
     ulong pkt_num: 60;

@@ -18,9 +18,13 @@ FD_IMPORT_BINARY(sample_transaction, "src/waltz/quic/tests/quic_txn.bin");
 
 static int g_conn_hs_complete = 0;
 static int g_conn_final = 0;
-static ulong g_stream_notify = 0UL;
 
 #define MAX_TXN_COUNT 128
+
+/* Packet numbers of the stream packets awaiting an ack */
+static ulong g_pkt_num[ MAX_TXN_COUNT ];
+static ulong g_pkt_cnt   = 0UL;
+static ulong g_pkt_acked = 0UL;
 
 void
 txn_cmd_args( int *    pargc,
@@ -52,13 +56,17 @@ cb_conn_final( fd_quic_conn_t * conn,
 }
 
 static void
-cb_stream_notify( fd_quic_stream_t * stream,
-                  void *             stream_ctx,
-                  int                notify_type ) {
-  (void)stream;
-  (void)stream_ctx;
-  (void)notify_type;
-  g_stream_notify += 1;
+cb_ack_range( fd_quic_conn_t * conn,
+              ulong            pkt_num_lo,
+              ulong            pkt_num_hi,
+              void *           quic_ctx ) {
+  (void)conn;
+  (void)quic_ctx;
+  for( ulong i=0UL; i<g_pkt_cnt; i++ ) {
+    if( g_pkt_num[ i ]<pkt_num_lo || g_pkt_num[ i ]>pkt_num_hi ) continue;
+    g_pkt_num[ i ] = ULONG_MAX;
+    g_pkt_acked++;
+  }
 }
 
 static void
@@ -73,7 +81,7 @@ send_quic_transactions( fd_quic_t *         quic,
 
   quic->cb.conn_final       = cb_conn_final;
   quic->cb.conn_hs_complete = cb_conn_hs_complete;
-  quic->cb.stream_notify    = cb_stream_notify;
+  quic->cb.ack_range        = cb_ack_range;
 
   fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, (ushort)udpsock->listen_port, fd_log_wallclock() );
   while( FD_LIKELY( !( g_conn_hs_complete || g_conn_final ) ) ) {
@@ -84,29 +92,32 @@ send_quic_transactions( fd_quic_t *         quic,
   if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_ACTIVE ) )
     FD_LOG_ERR(( "unable to connect to QUIC endpoint at "FD_IP4_ADDR_FMT":%hu, is it running? state is %u", FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, conn->state ));
 
-  ulong sent = 0;
-  while( sent < count && !g_conn_final ) {
-    long now = fd_log_wallclock();
-    fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
-    if( FD_UNLIKELY( !stream ) ) {
-      fd_quic_service( quic, now );
+  /* One stream per transaction */
+  for( ulong sent=0UL; sent<count && !g_conn_final; sent++ ) {
+    fd_aio_pkt_info_t * chunk     = pkt + sent;
+    ulong               stream_id = FD_QUIC_STREAM_TYPE_UNI_CLIENT + 4UL*sent;
+
+    /* wait for the peer to grant the stream (MAX_STREAMS) */
+    while( !g_conn_final && stream_id>=conn->tx_sup_stream_id ) {
+      fd_quic_service( quic, fd_log_wallclock() );
       fd_quic_udpsock_service( udpsock );
-      continue;
     }
+    if( FD_UNLIKELY( g_conn_final ) ) break;
 
-    fd_aio_pkt_info_t * chunk = pkt + sent;
-    int res = fd_quic_stream_send( stream, chunk->buf, chunk->buf_sz, 1 );
-    if( FD_UNLIKELY( res != FD_QUIC_SUCCESS ) ) FD_LOG_ERR(( "fd_quic_stream_send failed (%d)", res ));
-    sent += 1UL;
+    if( FD_UNLIKELY( !fd_quic_test_stream_send( conn, stream_id, chunk->buf, chunk->buf_sz, &g_pkt_num[ g_pkt_cnt ] ) ) )
+      FD_LOG_ERR(( "failed to send transaction (%u bytes)", (uint)chunk->buf_sz ));
+    g_pkt_cnt++;
 
-    fd_quic_service( quic, now );
-    fd_quic_udpsock_service( udpsock );
-  }
-
-  while( FD_LIKELY( g_stream_notify!=count && !g_conn_final ) ) {
     fd_quic_service( quic, fd_log_wallclock() );
     fd_quic_udpsock_service( udpsock );
   }
+
+  /* An unacked packet ends this wait at the conn's idle timeout */
+  while( FD_LIKELY( g_pkt_acked!=g_pkt_cnt && !g_conn_final ) ) {
+    fd_quic_service( quic, fd_log_wallclock() );
+    fd_quic_udpsock_service( udpsock );
+  }
+  if( FD_UNLIKELY( g_pkt_acked!=g_pkt_cnt ) ) FD_LOG_WARNING(( "%lu of %lu packets were not acknowledged", g_pkt_cnt-g_pkt_acked, g_pkt_cnt ));
 
   /* close and wait for connection to complete */
   if( !g_conn_final ) {
@@ -124,16 +135,14 @@ void
 txn_cmd_fn( args_t *   args,
             config_t * config ) {
   /* wait until validator is ready to receive txns before sending */
-  ready_cmd_fn( args, config );
+  args_t ready_args = {0};
+  ready_cmd_fn( &ready_args, config );
 
   fd_quic_limits_t quic_limits = {
     .conn_cnt           =  1UL,
     .handshake_cnt      =  1UL,
     .conn_id_cnt        =  4UL,
-    .stream_id_cnt      =  64UL,
-    .inflight_frame_cnt =  64UL,
-    .tx_buf_sz          =  fd_ulong_pow2_up( FD_TXN_MTU ),
-    .stream_pool_cnt    =  16UL
+    .inflight_frame_cnt =  2UL*MAX_TXN_COUNT,
   };
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
@@ -183,6 +192,8 @@ txn_cmd_fn( args_t *   args,
 
     long buf_sz = fd_base64_decode( buf, args->txn.payload_base64, payload_b64_sz );
     if( FD_UNLIKELY( buf_sz<0L ) ) FD_LOG_ERR(( "bad payload input `%s`", args->txn.payload_base64 ));
+    if( FD_UNLIKELY( (ulong)buf_sz>FD_QUIC_STREAM_TX_MAX ) )
+      FD_LOG_ERR(( "Transaction is too large to send in one QUIC packet (%ld bytes, max %lu)", buf_sz, FD_QUIC_STREAM_TX_MAX ));
 
     for( ulong i=0; i<args->txn.count; i++ ) {
       pkt[ i ].buf    = (void * )buf;

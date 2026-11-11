@@ -206,8 +206,6 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 1,
     .handshake_cnt      = 1,
     .log_depth          = 256,
-    .stream_pool_cnt    = 100,
-    .stream_id_cnt      = 10
   };
 
   fd_wksp_t * wksp = fd_wksp_join(

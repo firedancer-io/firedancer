@@ -43,14 +43,6 @@ fd_quic_test_cb_conn_final( fd_quic_conn_t * conn,
                  (void *)conn, (void *)quic_ctx ));
 }
 
-static void
-fd_quic_test_cb_stream_notify( fd_quic_stream_t * stream,
-                               void *             quic_ctx,
-                               int                notify_type ) {
-  FD_LOG_DEBUG(( "cb_stream_notify(stream=%lu, quic_ctx=%p, notify_type=%d)",
-                 stream->stream_id, quic_ctx, notify_type ));
-}
-
 static int
 fd_quic_test_cb_stream_rx( fd_quic_conn_t * conn,
                            ulong            stream_id,
@@ -121,7 +113,6 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   quic->cb.conn_new         = fd_quic_test_cb_conn_new;
   quic->cb.conn_hs_complete = fd_quic_test_cb_conn_handshake_complete;
   quic->cb.conn_final       = fd_quic_test_cb_conn_final;
-  quic->cb.stream_notify    = fd_quic_test_cb_stream_notify;
   quic->cb.stream_rx        = fd_quic_test_cb_stream_rx;
   quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
 }
@@ -166,11 +157,27 @@ fd_quic_new_anonymous_small( fd_wksp_t * wksp,
     .handshake_cnt      = 1UL,
     .conn_id_cnt        = 4UL,
     .inflight_frame_cnt = 64UL,
-    .tx_buf_sz          = 1UL<<15UL,
-    .stream_pool_cnt    = 1024
   };
 
   return fd_quic_new_anonymous( wksp, &quic_limits, role, rng );
+}
+
+int
+fd_quic_test_stream_send( fd_quic_conn_t * conn,
+                          ulong            stream_id,
+                          void const *     data,
+                          ulong            data_sz,
+                          ulong *          opt_pkt_num ) {
+  uchar pkt[ 1500 ];
+  ulong used = 0UL;
+  if( FD_UNLIKELY( fd_quic_conn_tx_stream( conn, pkt, sizeof(pkt), &used, stream_id, data, data_sz, NULL )==ULONG_MAX ) ) return 0;
+  ulong pkt_sz = fd_quic_conn_tx_stream( conn, pkt, sizeof(pkt), &used, ULONG_MAX, NULL, 0UL, opt_pkt_num );
+  if( FD_UNLIKELY( !pkt_sz || pkt_sz==ULONG_MAX ) ) return 0;
+
+  uchar * tx_ptr = pkt+pkt_sz;
+  return !fd_quic_tx_buffered_raw( conn->quic, &tx_ptr, pkt, &conn->ipv4_id,
+                                   conn->peer[0].ip_addr, conn->peer[0].udp_port,
+                                   conn->host.ip_addr,    conn->host.udp_port );
 }
 
 void

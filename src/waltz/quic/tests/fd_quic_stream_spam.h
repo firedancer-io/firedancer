@@ -22,7 +22,7 @@ typedef void
 struct fd_quic_stream_spam_private {
   fd_quic_stream_gen_spam_t gen_fn;
   void *                    gen_ctx;
-  fd_quic_stream_t *        stream;
+  ulong                     stream_cnt; /* streams sent so far */
 };
 
 typedef struct fd_quic_stream_spam_private fd_quic_stream_spam_t;
@@ -43,22 +43,12 @@ fd_quic_stream_spam_leave( fd_quic_stream_spam_t * spam );
 void *
 fd_quic_stream_spam_delete( void * shspam );
 
-/* fd_quic_stream_spam_service initiates as many random streams as
-   possible. Returns number of streams sent on success, -1 on fatal
-   error. */
+/* fd_quic_stream_spam_service sends a random stream.  Returns the
+   number of streams sent (0 or 1). */
 
 long
 fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
                              fd_quic_stream_spam_t * spam );
-
-/* fd_quic_stream_spam_notify notifies the spammer of impending
-   finalization of a stream.  U.B. if given stream was not created
-   during a fd_quic_stream_spam_service() call. */
-
-void
-fd_quic_stream_spam_notify( fd_quic_stream_t * stream,
-                            void *             ctx,
-                            int                type );
 
 /* fd_quic_stream_spam_gen is an impl of fd_quic_stream_gen_spam_t.
    ctx is ignored.  Generates random bytes with random size within

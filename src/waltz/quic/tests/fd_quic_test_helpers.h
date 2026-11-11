@@ -104,6 +104,18 @@ fd_quic_virtual_pair_init( fd_quic_virtual_pair_t * pair,
 void
 fd_quic_virtual_pair_fini( fd_quic_virtual_pair_t * pair );
 
+/* fd_quic_test_stream_send sends data as stream_id (see
+   fd_quic_conn_tx_stream) in a packet of its own out the quic's aio.
+   Returns 1 on success and 0 on failure.  On success, the packet number
+   is written to *opt_pkt_num if non-NULL. */
+
+int
+fd_quic_test_stream_send( fd_quic_conn_t * conn,
+                          ulong            stream_id,
+                          void const *     data,
+                          ulong            data_sz,
+                          ulong *          opt_pkt_num );
+
 void
 fd_quic_test_cb_tls_keylog( void *       quic_ctx,
                             char const * line );

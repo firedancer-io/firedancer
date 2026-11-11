@@ -10,12 +10,11 @@
 
 FD_IMPORT_BINARY(transaction, "src/waltz/quic/tests/quic_txn.bin");
 
-fd_quic_conn_t *   gbl_conn   = NULL;
-fd_quic_stream_t * gbl_stream = NULL;
+fd_quic_conn_t * gbl_conn      = NULL;
+ulong            gbl_stream_id = 0UL;
 
 int g_handshake_complete = 0;
 int g_conn_final = 0;
-int g_stream_notify = 0;
 
 /* track txns sent */
 ulong sent_cnt = 0UL;
@@ -44,21 +43,6 @@ cb_conn_final( fd_quic_conn_t * conn,
   g_conn_final = 1;
 
   gbl_conn = NULL;
-  gbl_stream = NULL;
-}
-
-void
-cb_stream_notify( fd_quic_stream_t * stream,
-                  void *             stream_ctx,
-                  int                notify_type ) {
-  (void)stream;
-  (void)stream_ctx;
-
-  if( notify_type == FD_QUIC_STREAM_NOTIFY_END ) {
-    sent_cnt++;
-  } else {
-    FD_LOG_WARNING(( "stream ended in failure: %d", (int)notify_type ));
-  }
 }
 
 ulong
@@ -97,7 +81,6 @@ run_quic_client( fd_quic_t *         quic,
   quic->cb.conn_new = cb_conn_new;
   quic->cb.conn_hs_complete = cb_conn_handshake_complete;
   quic->cb.conn_final = cb_conn_final;
-  quic->cb.stream_notify = cb_stream_notify;
 
   fd_quic_set_aio_net_tx( quic, udpsock->aio );
   FD_TEST( fd_quic_init( quic ) );
@@ -111,18 +94,13 @@ run_quic_client( fd_quic_t *         quic,
       /* if no connection, try making one */
       FD_LOG_NOTICE(( "Creating connection" ));
 
-      gbl_conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0, now );
+      gbl_conn      = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0, now );
+      gbl_stream_id = FD_QUIC_STREAM_TYPE_UNI_CLIENT;
 
       continue;
     }
 
     if( gbl_conn->state != FD_QUIC_CONN_STATE_ACTIVE ) {
-      continue;
-    }
-
-    if( !gbl_stream ) {
-      gbl_stream = fd_quic_conn_new_stream( gbl_conn );
-
       continue;
     }
 
@@ -136,18 +114,21 @@ run_quic_client( fd_quic_t *         quic,
       if( buf_sz == 0UL ) {
         continue;
       }
+
+      if( FD_UNLIKELY( buf_sz>FD_QUIC_STREAM_TX_MAX ) ) {
+        FD_LOG_WARNING(( "Skipping transaction too large for one QUIC packet (%lu bytes, max %lu)", buf_sz, FD_QUIC_STREAM_TX_MAX ));
+        buf_sz = 0UL;
+        continue;
+      }
     }
 
-    /* have gbl_conn, gbl_stream and input, so try sending a transaction */
-    int rc = fd_quic_stream_send( gbl_stream, buf, buf_sz, 1 /* FIN flag */ );
-    if( rc == FD_QUIC_SUCCESS ) {
-      /* we sent 1 chunk */
+    /* have gbl_conn and input, so try sending a transaction */
+    if( fd_quic_test_stream_send( gbl_conn, gbl_stream_id, buf, buf_sz, NULL ) ) {
+      sent_cnt++;
+      gbl_stream_id += 4UL;
 
       /* set buf_sz to zero to indicate more input needed */
       buf_sz = 0UL;
-
-      /* we used this gbl_stream, so set to NULL */
-      gbl_stream = NULL;
     }
   }
 
@@ -219,9 +200,7 @@ main( int argc,
      .conn_cnt           = 1024UL,
      .handshake_cnt      = 256UL,
      .conn_id_cnt        = 16UL,
-     .stream_pool_cnt    = 2048UL,
      .inflight_frame_cnt = 64UL * 1024,
-     .tx_buf_sz          = 1UL<<15UL
   };
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );

@@ -15,8 +15,8 @@ my_stream_rx_cb( fd_quic_conn_t * conn,
 
   /* Derive expected payload */
 
-  uchar payload_buf[ 4096UL ];
-  fd_aio_pkt_info_t pkt = { .buf=payload_buf, .buf_sz=4096UL };
+  uchar payload_buf[ 1024UL ];
+  fd_aio_pkt_info_t pkt = { .buf=payload_buf, .buf_sz=1024UL };
   fd_quic_stream_spam_gen( NULL, &pkt, stream_id );
 
   FD_LOG_DEBUG(( "server rx stream data stream=%lu size=%lu offset=%lu",
@@ -102,8 +102,6 @@ main( int     argc,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 10,
     .inflight_frame_cnt = 100 * 2,
-    .tx_buf_sz          = 1<<15,
-    .stream_pool_cnt    = 512
   };
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_server_limits, FD_QUIC_ROLE_SERVER, rng );
   FD_TEST( server_quic );
@@ -114,10 +112,7 @@ main( int     argc,
     .conn_cnt           = 2,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 10,
-    .stream_id_cnt      = 20,
     .inflight_frame_cnt = 100 * 2,
-    .tx_buf_sz          = 1<<15,
-    .stream_pool_cnt    = 512
   };
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
@@ -126,7 +121,6 @@ main( int     argc,
   server_quic->cb.stream_rx        = my_stream_rx_cb;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
-  client_quic->cb.stream_notify    = fd_quic_stream_spam_notify;
 
   server_quic->config.initial_rx_max_stream_data = 1<<21;
   client_quic->config.initial_rx_max_stream_data = 1<<15;

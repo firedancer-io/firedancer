@@ -23,6 +23,9 @@
 /* max number of buffers batched for receive */
 #define IO_VEC_CNT 128
 
+/* longest time a transaction waits for its QUIC packet to fill */
+#define QUIC_COALESCE_NS (100000L)
+
 static int
 quic_tx_aio_send( void *                    _ctx,
                   fd_aio_pkt_info_t const * batch,
@@ -46,7 +49,11 @@ typedef struct {
   uint             quic_ip;
   ushort           quic_port;
   fd_quic_conn_t * quic_conn;
-  ulong            no_stream;
+  ulong            stream_id;   /* stream of the next transaction */
+  long             flush_ts;    /* seal the packet being filled at this time */
+  uchar            stream_pkt[ 2048 ]; /* packet being filled with transactions */
+  ulong            stream_used;
+  ulong            dropped_cnt;
   uint             service_ratio_idx;
   fd_aio_t         tx_aio;
 
@@ -178,9 +185,6 @@ populate_quic_limits( fd_quic_limits_t * limits ) {
   limits->handshake_cnt = limits->conn_cnt;
   limits->conn_id_cnt = 16;
   limits->inflight_frame_cnt = 1UL<<14;
-  limits->tx_buf_sz = 1UL<<11;
-  limits->stream_pool_cnt = 1UL<<16;
-  limits->stream_id_cnt = 1UL<<16;
 }
 
 static void
@@ -207,7 +211,63 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static inline void
 metrics_write( fd_benchs_ctx_t * ctx ) {
   FD_MCNT_SET( BENCHS, TXN_TX,      ctx->packet_cnt );
-  FD_MCNT_SET( BENCHS, TXN_DROPPED, ctx->no_stream  );
+  FD_MCNT_SET( BENCHS, TXN_DROPPED, ctx->dropped_cnt );
+}
+
+static void
+quic_tx_send( fd_benchs_ctx_t * ctx ) {
+  if( FD_LIKELY( ctx->tx_idx ) ) {
+    int rtn = sendmmsg( ctx->conn_fd[0], ctx->tx_msgs, (uint)ctx->tx_idx, 0 );
+    if( FD_UNLIKELY( rtn < 0 ) ) {
+      FD_LOG_NOTICE(( "Error occurred in sendmmsg. Error: %d %s",
+          errno, strerror( errno ) ));
+    }
+    ctx->tx_idx = 0;
+  }
+}
+
+/* quic_tx_push queues the first sz bytes of tx_bufs[ tx_idx ] for
+   sending. */
+
+static void
+quic_tx_push( fd_benchs_ctx_t * ctx,
+              ulong             sz ) {
+  ulong tx_idx = ctx->tx_idx;
+  ctx->tx_iovecs[tx_idx] = (struct iovec) {
+    .iov_base = ctx->tx_bufs[tx_idx],
+    .iov_len  = sz
+  };
+  ctx->tx_msgs[tx_idx] = (struct mmsghdr) {
+    .msg_hdr = {
+      .msg_iov    = &ctx->tx_iovecs[tx_idx],
+      .msg_iovlen = 1,
+    }
+  };
+  ctx->tx_idx = tx_idx+1UL;
+}
+
+/* quic_tx_push_sealed queues the sealed packet in stream_pkt for
+   sending. */
+
+static void
+quic_tx_push_sealed( fd_benchs_ctx_t * ctx,
+                     ulong             pkt_sz ) {
+  if( FD_UNLIKELY( ctx->tx_idx==IO_VEC_CNT ) ) quic_tx_send( ctx );
+  fd_memcpy( ctx->tx_bufs[ ctx->tx_idx ], ctx->stream_pkt, pkt_sz );
+  quic_tx_push( ctx, pkt_sz );
+}
+
+/* quic_tx_flush seals the packet of coalesced transactions and sends
+   all queued packets. */
+
+static void
+quic_tx_flush( fd_benchs_ctx_t * ctx ) {
+  if( FD_LIKELY( ctx->quic_conn ) ) {
+    ulong pkt_sz = fd_quic_conn_tx_stream( ctx->quic_conn, ctx->stream_pkt, sizeof(ctx->stream_pkt), &ctx->stream_used, ULONG_MAX, NULL, 0UL, NULL );
+    if( FD_LIKELY( pkt_sz && pkt_sz!=ULONG_MAX ) ) quic_tx_push_sealed( ctx, pkt_sz );
+  }
+  quic_tx_send( ctx );
+  ctx->flush_ts = LONG_MAX;
 }
 
 static inline int
@@ -242,12 +302,13 @@ during_frag( fd_benchs_ctx_t * ctx,
     /* make this configurable */
     if( FD_UNLIKELY( ctx->service_ratio_idx++ == 8 ) ) {
       ctx->service_ratio_idx = 0;
+      quic_tx_send( ctx );
       service_quic( ctx, ctx->now );
       fd_quic_service( ctx->quic, ctx->now );
     }
 
     if( FD_UNLIKELY( !ctx->quic_conn ) ) {
-      ctx->no_stream++;
+      ctx->dropped_cnt++;
 
       /* try to connect */
       uint   dest_ip   = ctx->quic_ip;
@@ -263,6 +324,8 @@ during_frag( fd_benchs_ctx_t * ctx,
       }
 
       FD_LOG_NOTICE(( "connection created on port %d", (int)dest_port ));
+      ctx->stream_id   = FD_QUIC_STREAM_TYPE_UNI_CLIENT;
+      ctx->stream_used = 0UL;
 
       /* set the context to point to the location
          of the quic_conn pointer
@@ -273,31 +336,28 @@ during_frag( fd_benchs_ctx_t * ctx,
       service_quic( ctx, ctx->now );
       fd_quic_service( ctx->quic, ctx->now );
 
-      /* conn and streams may be invalidated by fd_quic_service */
+      /* conn may be invalidated by fd_quic_service */
 
       return;
     }
 
-    fd_quic_stream_t * stream = fd_quic_conn_new_stream( ctx->quic_conn );
-    if( FD_UNLIKELY( !stream ) ) {
-      ctx->no_stream++;
+    if( FD_UNLIKELY( sz>FD_QUIC_STREAM_TX_MAX ) ) FD_LOG_ERR(( "transaction too large for one QUIC packet (%lu bytes, max %lu)", sz, FD_QUIC_STREAM_TX_MAX ));
+    uchar const * txn = fd_chunk_to_laddr( ctx->mem, chunk );
+    ulong pkt_sz = fd_quic_conn_tx_stream( ctx->quic_conn, ctx->stream_pkt, sizeof(ctx->stream_pkt), &ctx->stream_used, ctx->stream_id, txn, sz, NULL );
+    if( pkt_sz && pkt_sz!=ULONG_MAX ) {
+      quic_tx_push_sealed( ctx, pkt_sz );
+      ctx->flush_ts = LONG_MAX;
+      pkt_sz = fd_quic_conn_tx_stream( ctx->quic_conn, ctx->stream_pkt, sizeof(ctx->stream_pkt), &ctx->stream_used, ctx->stream_id, txn, sz, NULL );
+    }
+    if( FD_LIKELY( !pkt_sz ) ) {
+      if( ctx->flush_ts==LONG_MAX ) ctx->flush_ts = ctx->now + QUIC_COALESCE_NS;
+      ctx->stream_id += 4UL;
+      ctx->packet_cnt++;
+    } else {
+      ctx->dropped_cnt++;
+      quic_tx_flush( ctx );
       service_quic( ctx, ctx->now );
       fd_quic_service( ctx->quic, ctx->now );
-
-      /* conn and streams may be invalidated by fd_quic_service */
-
-      return;
-    } else {
-      int fin = 1;
-      int rtn = fd_quic_stream_send( stream, fd_chunk_to_laddr( ctx->mem, chunk ), sz, fin );
-      ctx->packet_cnt++;
-
-      if( FD_UNLIKELY( rtn != FD_QUIC_SUCCESS ) ) {
-        /* this can happen dring handshaking */
-        if( rtn != FD_QUIC_SEND_ERR_INVAL_CONN ) {
-          FD_LOG_ERR(( "fd_quic_stream_send failed with: %d", rtn ));
-        }
-      }
     }
   }
 }
@@ -408,6 +468,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
     ctx->quic      = quic;
     ctx->tx_idx    = 0UL;
+    ctx->flush_ts  = LONG_MAX;
 
     fd_aio_t * quic_tx_aio = fd_aio_join( fd_aio_new( &ctx->tx_aio, ctx, quic_tx_aio_send ) );
     if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
@@ -451,18 +512,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->now = fd_clock_tile_now( clock );
 }
 
-static void
-quic_tx_aio_send_flush( fd_benchs_ctx_t * ctx ) {
-  if( FD_LIKELY( ctx->tx_idx ) ) {
-    int rtn = sendmmsg( ctx->conn_fd[0], ctx->tx_msgs, (uint)ctx->tx_idx, 0 );
-    if( FD_UNLIKELY( rtn < 0 ) ) {
-      FD_LOG_NOTICE(( "Error occurred in sendmmsg. Error: %d %s",
-          errno, strerror( errno ) ));
-    }
-    ctx->tx_idx = 0;
-  }
-}
-
 static int
 quic_tx_aio_send( void *                    _ctx,
                   fd_aio_pkt_info_t const * batch,
@@ -475,50 +524,16 @@ quic_tx_aio_send( void *                    _ctx,
   /* assume 20 + 8 for those */
   ulong hdr_sz = 20+8;
 
-  if( FD_LIKELY( batch_cnt ) ) {
-    /* do we have space? */
-    ulong remain = IO_VEC_CNT - ctx->tx_idx;
-    if( FD_UNLIKELY( remain > batch_cnt ) ) {
-      quic_tx_aio_send_flush( ctx );
+  for( ulong j = 0; j < batch_cnt; ++j ) {
+    if( FD_UNLIKELY( batch[j].buf_sz < hdr_sz ) ) continue;
+    if( FD_UNLIKELY( ctx->tx_idx == IO_VEC_CNT ) ) quic_tx_send( ctx );
 
-      /* tx_idx may have changed */
-      remain = IO_VEC_CNT - ctx->tx_idx;
-    }
-
-    ulong cnt = fd_ulong_min( remain, batch_cnt );
-    ulong tx_idx = ctx->tx_idx;
-    for( ulong j = 0; j < cnt; ++j ) {
-      if( FD_UNLIKELY( batch[j].buf_sz < hdr_sz ) ) continue;
-
-      uchar * tx_buf = ctx->tx_bufs[tx_idx];
-
-      /* copy, stripping the header */
-      fd_memcpy( tx_buf, (uchar*)batch[j].buf + hdr_sz, batch[j].buf_sz - hdr_sz );
-
-      ctx->tx_iovecs[tx_idx] = (struct iovec) {
-        .iov_base = tx_buf,
-        .iov_len  = batch[j].buf_sz - hdr_sz
-      };
-      ctx->tx_msgs[tx_idx] = (struct mmsghdr) {
-        .msg_hdr = {
-          .msg_iov    = &ctx->tx_iovecs[tx_idx],
-          .msg_iovlen = 1,
-        }
-      };
-
-      tx_idx++;
-    }
-
-    /* write back */
-    ctx->tx_idx = tx_idx;
-
-    // TODO count drops?
-    // ctx->dropped += batch_cnt - remain;
+    /* copy, stripping the header */
+    fd_memcpy( ctx->tx_bufs[ ctx->tx_idx ], (uchar*)batch[j].buf + hdr_sz, batch[j].buf_sz - hdr_sz );
+    quic_tx_push( ctx, batch[j].buf_sz - hdr_sz );
   }
 
-  if( FD_UNLIKELY( ctx->tx_idx == IO_VEC_CNT || flush ) ) {
-    quic_tx_aio_send_flush( ctx );
-  }
+  if( FD_UNLIKELY( flush ) ) quic_tx_send( ctx );
 
   if( FD_LIKELY( opt_batch_idx ) ) *opt_batch_idx = batch_cnt;
 
@@ -527,6 +542,7 @@ quic_tx_aio_send( void *                    _ctx,
 
 static void
 during_housekeeping( fd_benchs_ctx_t * ctx ) {
+  if( !ctx->no_quic && fd_clock_tile_now( ctx->clock )>=ctx->flush_ts ) quic_tx_flush( ctx );
   if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
     fd_clock_tile_recal( ctx->clock );
   }

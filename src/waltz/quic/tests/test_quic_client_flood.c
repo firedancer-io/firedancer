@@ -62,7 +62,7 @@ run_quic_client(
   uint                      batch_sz ) {
 
 # define MSG_SZ_MIN (1UL)
-# define MSG_SZ_MAX (1232UL-64UL-32UL)
+# define MSG_SZ_MAX (FD_QUIC_STREAM_TX_MAX)
 # define MSG_SIZE_RANGE (MSG_SZ_MAX - MSG_SZ_MIN + 1UL)
   fd_aio_pkt_info_t batches[MSG_SIZE_RANGE][1];
 
@@ -153,6 +153,7 @@ run_quic_client(
     fd_rng_delete    ( fd_rng_leave   ( rng    ) );
   } while(0);
 
+  ulong stream_id  = FD_QUIC_STREAM_TYPE_UNI_CLIENT;
   ulong stream_cnt = 0;
   ulong tot_sz     = 0;
   long  t0         = fd_clock_tile_now( clock );
@@ -167,16 +168,14 @@ run_quic_client(
     fd_quic_service( quic, fd_clock_tile_now( clock ) );
     fd_quic_udpsock_service( udpsock );
 
-    /* obtain a free stream */
     for( ulong j = 0; j < batch_sz; ++j ) {
       if( !client_conn ) break;
-      fd_quic_stream_t * stream = fd_quic_conn_new_stream( client_conn );
-      if( !stream ) break;
 
       fd_aio_pkt_info_t * chunk = batches[msg_sz - MSG_SZ_MIN];
-      int res = fd_quic_stream_send( stream, chunk->buf, chunk->buf_sz, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
-      stream_cnt += res==FD_QUIC_SUCCESS;
-      tot_sz     += fd_ulong_if( res==FD_QUIC_SUCCESS, chunk->buf_sz, 0 );
+      if( !fd_quic_test_stream_send( client_conn, stream_id, chunk->buf, chunk->buf_sz, NULL ) ) break;
+      stream_id  += 4UL;
+      stream_cnt += 1UL;
+      tot_sz     += chunk->buf_sz;
 
       msg_sz++;
       msg_sz = fd_ulong_if( msg_sz>MSG_SZ_MAX, MSG_SZ_MIN, msg_sz );
@@ -270,7 +269,6 @@ main( int argc, char ** argv ) {
 
   fd_quic_limits_t quic_limits = {0};
   fd_quic_limits_from_env( &argc, &argv, &quic_limits );
-  quic_limits.stream_id_cnt = quic_limits.stream_pool_cnt;
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
@@ -279,7 +277,6 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Creating client QUIC" ));
   fd_quic_t * quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( quic );
-  quic->cb.stream_notify = NULL;
 
   fd_quic_udpsock_t _udpsock[1];
   fd_quic_udpsock_t * udpsock = fd_quic_udpsock_create( _udpsock, &argc, &argv, wksp, fd_quic_get_aio_net_rx( quic ) );

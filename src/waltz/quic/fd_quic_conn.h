@@ -4,7 +4,6 @@
 #include "fd_quic.h"
 #include "fd_quic_common.h"
 #include "fd_quic_ack_tx.h"
-#include "fd_quic_stream.h"
 #include "fd_quic_conn_id.h"
 #include "crypto/fd_quic_crypto_suites.h"
 #include "fd_quic_pkt_meta.h"
@@ -147,17 +146,7 @@ struct fd_quic_conn {
   fd_quic_crypto_keys_t    new_keys[2];
   uint                     keys_avail;
 
-  fd_quic_stream_t         send_streams[1];      /* sentinel of list of streams needing action */
-  fd_quic_stream_t         used_streams[1];      /* sentinel of list of used streams */
-  /* invariant: an allocated stream must be in exactly one of the following lists:
-     send_streams
-     used_streams */
-
-  /* stream id members */
-  ulong tx_next_stream_id;  /* stream ID to be used for new stream */
   ulong tx_sup_stream_id;   /* highest allowed TX stream ID + 4 */
-
-  fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream - PERSISTENT */
 
   /* packet number info
      each encryption level maps to a packet number space
@@ -199,8 +188,6 @@ struct fd_quic_conn {
                                            /* even if a bytes on a stream are not received,
                                               higher offsets received imply the usage of those bytes,
                                               and they count against the max */
-  ulong                tx_tot_data;        /* total of all bytes received across all streams
-                                              and including implied bytes */
 
   uint                 flags;
 # define FD_QUIC_CONN_FLAGS_MAX_DATA           (1u<<0u)
@@ -275,19 +262,17 @@ fd_quic_conn_new( void *                   mem,
 /* clears all non-persistent members of the connection object */
 static inline void
 fd_quic_conn_clear( fd_quic_conn_t * conn ) {
-  fd_quic_t            * quic       = conn->quic;
-  uint                   conn_idx   = conn->conn_idx;
-  uint                   conn_gen   = conn->conn_gen;
-  uint                   conn_state = conn->state;
-  fd_quic_stream_map_t * stream_map = conn->stream_map;
+  fd_quic_t * quic       = conn->quic;
+  uint        conn_idx   = conn->conn_idx;
+  uint        conn_gen   = conn->conn_gen;
+  uint        conn_state = conn->state;
 
-  fd_memset( conn, 0, sizeof( fd_quic_conn_t ) );
+  fd_memset( conn, 0, sizeof(fd_quic_conn_t) );
 
-  conn->quic       = quic;
-  conn->conn_idx   = conn_idx;
-  conn->conn_gen   = conn_gen;
-  conn->state      = conn_state;
-  conn->stream_map = stream_map;
+  conn->quic     = quic;
+  conn->conn_idx = conn_idx;
+  conn->conn_gen = conn_gen;
+  conn->state    = conn_state;
 }
 
 /* set the user-defined context value on the connection */

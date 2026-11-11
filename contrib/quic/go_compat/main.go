@@ -237,13 +237,8 @@ func clientTest(fdQuic *C.fd_quic_t) {
 		log.Print("fd_quic client: connected")
 		data := []byte("hello")
 
-		stream := C.fd_quic_conn_new_stream(quicConn)
-		if stream == nil {
-			log.Fatal("fd_quic_conn_new_stream failed")
-		}
-		sendRes := C.fd_quic_stream_send(stream, unsafe.Pointer(unsafe.SliceData(data)), C.ulong(len(data)), 1)
-		if sendRes != C.FD_QUIC_SUCCESS {
-			log.Fatalf("fd_quic_stream_send failed (%d)", sendRes)
+		if C.fd_quic_test_stream_send(quicConn, C.FD_QUIC_STREAM_TYPE_UNI_CLIENT, unsafe.Pointer(unsafe.SliceData(data)), C.ulong(len(data)), nil) == 0 {
+			log.Fatal("fd_quic_test_stream_send failed")
 		}
 		// FIXME this is required because fd_quic sends a CONN_CLOSE before a STREAM frame
 		service(func() bool {
@@ -378,10 +373,7 @@ func main() {
 		conn_cnt:           4,
 		handshake_cnt:      4,
 		conn_id_cnt:        4,
-		stream_id_cnt:      64,
 		inflight_frame_cnt: 64,
-		tx_buf_sz:          1280,
-		stream_pool_cnt:    64,
 	}
 	quic_mem := C.aligned_alloc(C.fd_quic_align(), C.fd_quic_footprint(&quic_limits))
 	fdQuic := C.fd_quic_join(C.fd_quic_new(quic_mem, &quic_limits))

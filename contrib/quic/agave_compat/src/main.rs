@@ -36,13 +36,13 @@ mod bindings {
 
 use crate::bindings::{
     fd_aio_pcapng_get_aio, fd_aio_pcapng_join, fd_aio_pcapng_start_l3, fd_aio_pcapng_t, fd_boot,
-    fd_halt, fd_log_wallclock, fd_pcapng_fwrite_tls_key_log, fd_quic_conn_new_stream,
-    fd_quic_conn_t, fd_quic_connect, fd_quic_get_aio_net_rx, fd_quic_init, fd_quic_limits_t,
-    fd_quic_new_anonymous, fd_quic_new_anonymous_small, fd_quic_service, fd_quic_set_aio_net_tx,
-    fd_quic_stream_send, fd_quic_t, fd_rng_t, fd_udpsock_align, fd_udpsock_footprint,
-    fd_udpsock_get_tx, fd_udpsock_join, fd_udpsock_new, fd_udpsock_service, fd_udpsock_set_layer,
-    fd_udpsock_set_rx, fd_udpsock_t, fd_wksp_new_anon, fd_wksp_t, FD_QUIC_CONN_STATE_ACTIVE,
-    FD_QUIC_CONN_STATE_DEAD, FD_QUIC_ROLE_CLIENT, FD_QUIC_ROLE_SERVER, FD_UDPSOCK_LAYER_IP,
+    fd_halt, fd_log_wallclock, fd_pcapng_fwrite_tls_key_log, fd_quic_conn_t, fd_quic_connect,
+    fd_quic_get_aio_net_rx, fd_quic_init, fd_quic_limits_t, fd_quic_new_anonymous,
+    fd_quic_new_anonymous_small, fd_quic_service, fd_quic_set_aio_net_tx, fd_quic_t,
+    fd_quic_test_stream_send, fd_rng_t, fd_udpsock_align, fd_udpsock_footprint, fd_udpsock_get_tx,
+    fd_udpsock_join, fd_udpsock_new, fd_udpsock_service, fd_udpsock_set_layer, fd_udpsock_set_rx,
+    fd_udpsock_t, fd_wksp_new_anon, fd_wksp_t, FD_QUIC_CONN_STATE_ACTIVE, FD_QUIC_CONN_STATE_DEAD,
+    FD_QUIC_ROLE_CLIENT, FD_QUIC_ROLE_SERVER, FD_QUIC_STREAM_TYPE_UNI_CLIENT, FD_UDPSOCK_LAYER_IP,
 };
 use libc::{fflush, fopen};
 
@@ -374,11 +374,8 @@ unsafe fn agave_to_fdquic_bench() {
         conn_cnt: 1,
         handshake_cnt: 1,
         conn_id_cnt: 4,
-        stream_id_cnt: 16,
         inflight_frame_cnt: 1024,
         min_inflight_frame_cnt_conn: 128,
-        tx_buf_sz: 0,
-        stream_pool_cnt: 8,
         log_depth: 128,
     };
     let quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_SERVER as i32, &mut rng);
@@ -618,11 +615,8 @@ unsafe fn fdquic_to_agave_alpenglow() {
         conn_cnt: 1,
         handshake_cnt: 1,
         conn_id_cnt: 4,
-        stream_id_cnt: 16,
         inflight_frame_cnt: 1024,
         min_inflight_frame_cnt_conn: 128,
-        tx_buf_sz: 1 << 15,
-        stream_pool_cnt: 8,
         log_depth: 128,
     };
     let quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_CLIENT as i32, &mut rng);
@@ -664,23 +658,23 @@ unsafe fn fdquic_to_agave_alpenglow() {
 
     let wire = alpenglow_test_wire();
     let stream_start = Instant::now();
-    let stream = loop {
-        let stream = fd_quic_conn_new_stream(conn);
-        if !stream.is_null() {
-            break stream;
-        }
+    while fd_quic_test_stream_send(
+        conn,
+        FD_QUIC_STREAM_TYPE_UNI_CLIENT as u64,
+        wire.as_ptr() as *const c_void,
+        wire.len() as u64,
+        std::ptr::null_mut(),
+    ) == 0
+    {
         fd_quic_service(quic, fd_log_wallclock());
         fd_udpsock_service(udpsock);
         assert!(
             stream_start.elapsed() < Duration::from_secs(3),
-            "fd_quic_conn_new_stream failed: state={} tx_next={} tx_sup={}",
+            "fd_quic_test_stream_send failed: state={} tx_sup={}",
             (*conn).state,
-            (*conn).tx_next_stream_id,
             (*conn).tx_sup_stream_id
         );
-    };
-    let send_rc = fd_quic_stream_send(stream, wire.as_ptr() as *const c_void, wire.len() as u64, 1);
-    assert_eq!(send_rc, 0, "fd_quic_stream_send failed");
+    }
 
     let receive_start = Instant::now();
     let received = loop {
@@ -732,11 +726,8 @@ unsafe fn fdquic_to_remote_agave_alpenglow(dst: SocketAddrV4, requested_local_po
         conn_cnt: 1,
         handshake_cnt: 1,
         conn_id_cnt: 4,
-        stream_id_cnt: 16,
         inflight_frame_cnt: 1024,
         min_inflight_frame_cnt_conn: 128,
-        tx_buf_sz: 1 << 15,
-        stream_pool_cnt: 8,
         log_depth: 128,
     };
     let quic = fd_quic_new_anonymous(wksp, &quic_limits, FD_QUIC_ROLE_CLIENT as i32, &mut rng);
@@ -767,20 +758,18 @@ unsafe fn fdquic_to_remote_agave_alpenglow(dst: SocketAddrV4, requested_local_po
         fd_udpsock_service(udpsock);
 
         if (*conn).state == FD_QUIC_CONN_STATE_ACTIVE && Instant::now() >= next_send {
-            let stream = fd_quic_conn_new_stream(conn);
-            if !stream.is_null() {
-                let send_rc = fd_quic_stream_send(
-                    stream,
-                    wire.as_ptr() as *const c_void,
-                    wire.len() as u64,
-                    1,
-                );
-                if send_rc == 0 {
-                    sent += 1;
-                    eprintln!("Sent Alpenglow message {}", sent);
-                } else {
-                    eprintln!("fd_quic_stream_send failed: {}", send_rc);
-                }
+            if fd_quic_test_stream_send(
+                conn,
+                FD_QUIC_STREAM_TYPE_UNI_CLIENT as u64 + 4 * sent,
+                wire.as_ptr() as *const c_void,
+                wire.len() as u64,
+                std::ptr::null_mut(),
+            ) != 0
+            {
+                sent += 1;
+                eprintln!("Sent Alpenglow message {}", sent);
+            } else {
+                eprintln!("fd_quic_test_stream_send failed");
             }
             next_send += Duration::from_millis(200);
         }
