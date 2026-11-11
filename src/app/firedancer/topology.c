@@ -1637,8 +1637,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       if( !snapsv_address[0] ) snapsv_address = config->tiles.rpc.rpc_listen_address;
       fd_ip6_addr_t snapsv_addr;
       parse_listen_addr( snapsv_address, "snapshots.server.http_listen_address", &snapsv_addr );
-      if(      config->tiles.rpc.enabled && !fd_ip6_addr_is_loopback( rpc_addr.addr ) ) tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
-      else if( !fd_ip6_addr_is_loopback( snapsv_addr.addr ) )                          tile->gossip.ports.rpc = (ushort)config->firedancer.snapshots.server.http_listen_port;
+      if( config->tiles.rpc.enabled && !fd_ip6_addr_is_loopback( rpc_addr.addr ) ) {
+        tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
+      } else if( !fd_ip6_addr_is_loopback( snapsv_addr.addr ) ) {
+        tile->gossip.ports.rpc = (ushort)config->firedancer.snapshots.server.http_listen_port;
+      }
     }
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
