@@ -169,17 +169,21 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   int const active = builder && fd_bundle_conn_status( builder )==FD_BUNDLE_STATE_CONNECTED;
   if( ctx->active_fseq && FD_UNLIKELY( fd_fseq_query( ctx->active_fseq )!=(ulong)active ) ) fd_fseq_update( ctx->active_fseq, (ulong)active );
 
-  fd_bundle_tpu_t tpu = {0};
+  fd_bundle_tpu_t tpu   = {0};
+  ulong           shred = 0UL;
   for( ulong i=0UL; i<ctx->conn_cnt; i++ ) {
     fd_bundle_conn_t const * conn = &ctx->conn[ i ];
-    if( conn->tpu.ip4 && fd_bundle_conn_status( conn )==FD_BUNDLE_STATE_CONNECTED ) {
-      tpu = conn->tpu;
-      break;
-    }
+    if( fd_bundle_conn_status( conn )!=FD_BUNDLE_STATE_CONNECTED ) continue;
+    if( !tpu.ip4 ) tpu   = conn->tpu;
+    if( !shred   ) shred = conn->shred;
   }
   if( FD_UNLIKELY( memcmp( &tpu, &ctx->tpu_advertised, sizeof(fd_bundle_tpu_t) ) ) ) {
     ctx->tpu_advertised = tpu;
     ctx->tpu_dirty      = 1;
+  }
+  if( FD_UNLIKELY( shred!=ctx->shred_forwarded ) ) {
+    ctx->shred_forwarded = shred;
+    ctx->shred_dirty     = 1;
   }
 }
 
@@ -367,6 +371,12 @@ after_credit( fd_bundle_tile_t *  ctx,
     fd_stem_publish( stem, ctx->tpu_out.idx, 0UL, ctx->tpu_out.chunk, sizeof(fd_bundle_tpu_t), 0UL, 0UL, 0UL );
     ctx->tpu_out.chunk = fd_dcache_compact_next( ctx->tpu_out.chunk, sizeof(fd_bundle_tpu_t), ctx->tpu_out.chunk0, ctx->tpu_out.wmark );
     ctx->tpu_dirty = 0;
+    *charge_busy = 1;
+  }
+
+  if( FD_UNLIKELY( ctx->shred_dirty ) && ctx->forward_shreds ) {
+    fd_stem_publish( stem, ctx->shred_out_idx, ctx->shred_forwarded, 0UL, 0UL, 0UL, 0UL, 0UL );
+    ctx->shred_dirty = 0;
     *charge_busy = 1;
   }
 }
@@ -656,6 +666,9 @@ unprivileged_init( fd_topo_t const *      topo,
   if( tpu_out_idx!=ULONG_MAX ) {
     ctx->tpu_out = bundle_out_link( topo, &topo->links[ tile->out_link_id[ tpu_out_idx ] ], tpu_out_idx );
   }
+
+  ctx->shred_out_idx  = fd_topo_find_tile_out_link( topo, tile, "bundle_shred", tile->kind_id );
+  ctx->forward_shreds = ctx->shred_out_idx!=ULONG_MAX;
 
   ulong active_obj_id = fd_pod_query_ulong( topo->props, "bundle_active", ULONG_MAX );
   if( active_obj_id!=ULONG_MAX ) {

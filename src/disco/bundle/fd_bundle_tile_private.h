@@ -119,6 +119,9 @@ struct fd_bundle_conn {
   uchar strategy_set  : 1;
   uchar strategy_wait : 1;
 
+  /* GetBlockEngineEndpoints, sent once per connection */
+  uchar endpoints_sent : 1;
+
   /* Session state specific to the protocol */
   union {
     /* Harmonic block stream, reset at the start of each leader slot */
@@ -145,6 +148,10 @@ struct fd_bundle_conn {
   /* TPU the server offers for gossip, kept across reconnects, zero if
      none */
   fd_bundle_tpu_t tpu;
+
+  /* Shred receiver the server offers (fd_bundle_shred_sig), kept
+     across reconnects, 0 if none */
+  ulong shred;
 
   /* Endpoint */
   uint   is_ssl : 1;
@@ -271,6 +278,15 @@ struct fd_bundle_tile {
   uchar               tpu_dirty;
   fd_bundle_out_ctx_t tpu_out;
 
+  /* shred_forwarded is the last shred receiver published to the shred
+     tiles, from a healthy conn that offers one (0 for none), shred_dirty
+     is set until it is.  forward_shreds is set if the topology has the
+     bundle_shred link, at shred_out_idx. */
+  ulong               shred_forwarded;
+  uchar               shred_dirty;
+  uchar               forward_shreds;
+  ulong               shred_out_idx;
+
   /* Check engine light */
   uchar bundle_status_recent;  /* most recently observed 'check engine light' */
   uchar bundle_status_plugin;  /* last 'plugin' update written */
@@ -328,6 +344,7 @@ struct fd_bundle_tile {
 #define FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig              12
 #define FD_BUNDLE_CLIENT_REQ_Relayer_SubscribePackets         13
 #define FD_BUNDLE_CLIENT_REQ_Relayer_GetTpuConfigs            14
+#define FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockEngineEndpoints    15
 
 FD_PROTOTYPES_BEGIN
 

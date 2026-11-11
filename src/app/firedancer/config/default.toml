@@ -1707,6 +1707,11 @@ telemetry = true
         # and the vote TPU is not changed.
         advertise_tpu = false
 
+        # True to also send the shreds we produce as leader to the shred
+        # receiver the block builder offers, while its connection is
+        # healthy.
+        forward_shreds = false
+
         # The scheduling strategy the block builder runs for our leader
         # slots.  Only used with the "harmonic" builder protocol.  One of:
         #

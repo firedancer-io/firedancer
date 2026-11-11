@@ -937,6 +937,16 @@ fd_topo_initialize( config_t * config ) {
       /**/               fd_topob_tile_in(  topo, "gossip", 0UL,           "metric_in", "bundle_tpu",     0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
     }
 
+    if( config->tiles.bundle.forward_shreds ) {
+      fd_topob_wksp( topo, "bundle_shred" );
+
+      /* The shred receiver is in the sig, see fd_bundle_shred_sig */
+      /**/               fd_topob_link( topo, "bundle_shred", "bundle_shred", 4UL,                                      0UL,                       1UL );
+
+      /**/               fd_topob_tile_out( topo, "bundle", 0UL,                        "bundle_shred",   0UL                                                );
+      FOR(shred_tile_cnt) fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "bundle_shred",   0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    }
+
     /**/                 fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "bundle_sign",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/                 fd_topob_tile_out( topo, "bundle", 0UL,                        "bundle_sign",    0UL                                                );
     /**/                 fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "sign_bundle",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );

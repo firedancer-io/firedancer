@@ -59,6 +59,7 @@ struct fd_bundle_protocol {
   int                 builder;                   /* a block builder, which pack follows */
   char const *        subs[ FD_BUNDLE_SUB_CNT ]; /* path of each FD_BUNDLE_SUB_* stream, NULL if none, all required for a healthy connection */
   fd_bundle_request_t poll;                      /* block builder info, or for the relayer its TPU, polled while it is valid */
+  fd_bundle_request_t endpoints;                 /* the shred receiver, requested once per connection when forwarding shreds, or none */
   int                 set_strategy;              /* SetStrategy, acknowledged before subscribing */
   ulong               login_cutoff_slots;        /* the server refuses logins this close to our leader slot, or 0 */
 
@@ -107,6 +108,7 @@ static fd_bundle_protocol_t const fd_bundle_protocols[] = {
                             [ FD_BUNDLE_SUB_BUNDLES ] = BLOCK_ENGINE "SubscribeBundles2",
                             [ FD_BUNDLE_SUB_BLOCKS  ] = BLOCK_ENGINE "SubscribeBlocks2" },
     .poll               = { FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, BLOCK_ENGINE "GetBlockBuilderFeeInfo" },
+    .endpoints          = { FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockEngineEndpoints, BLOCK_ENGINE "GetBlockEngineEndpoints" },
     .set_strategy       = 1,
     SESSION( jito ),
     .leader_update      = fd_bundle_client_harmonic_leader_update,
@@ -194,8 +196,9 @@ fd_bundle_client_jito_reset( fd_bundle_conn_t * conn ) {
 
   fd_bundle_auther_reset( &conn->auther );
   conn->builder       = (fd_bundle_builder_t){0};
-  conn->strategy_set  = 0;
-  conn->strategy_wait = 0;
+  conn->strategy_set   = 0;
+  conn->strategy_wait  = 0;
+  conn->endpoints_sent = 0;
   fd_memset( conn->sub, 0, sizeof(conn->sub) );
 }
 
@@ -360,26 +363,33 @@ fd_bundle_builder_due( fd_bundle_builder_t const * builder,
   return !builder->wait && now>=builder->next;
 }
 
-static void
-fd_bundle_client_request_builder_info( fd_bundle_conn_t * conn ) {
-  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( conn->grpc_client ) ) ) return;
+/* fd_bundle_client_request starts the unary request req with an empty
+   message.  Returns 1 if it was started. */
 
-  fd_bundle_request_t const * poll = &fd_bundle_conn_protocol( conn )->poll;
+static int
+fd_bundle_client_request( fd_bundle_conn_t *          conn,
+                          fd_bundle_request_t const * req ) {
+  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( conn->grpc_client ) ) ) return 0;
+
   fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       conn->grpc_client,
-      poll->path, strlen( poll->path ),
-      poll->id,
+      req->path, strlen( req->path ),
+      req->id,
       (uchar const *)"", 0UL, /* empty request message */
       conn->auther.access_token, conn->auther.access_token_sz,
       0 /* is_streaming */
   );
-  if( FD_UNLIKELY( !request ) ) return;
+  if( FD_UNLIKELY( !request ) ) return 0;
   fd_grpc_client_deadline_set(
       request,
       FD_GRPC_DEADLINE_RX_END,
       fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
+  return 1;
+}
 
-  conn->builder.wait = 1;
+static void
+fd_bundle_client_request_builder_info( fd_bundle_conn_t * conn ) {
+  conn->builder.wait = (uchar)fd_bundle_client_request( conn, &fd_bundle_conn_protocol( conn )->poll );
 }
 
 /* fd_bundle_client_subscribe subscribes conn to the FD_BUNDLE_SUB_*
@@ -909,6 +919,12 @@ fd_bundle_client_jito_step( fd_bundle_conn_t * conn,
   /* Request block builder info */
   if( FD_UNLIKELY( fd_bundle_builder_due( &conn->builder, now ) ) ) {
     fd_bundle_client_request_builder_info( conn );
+    return 1;
+  }
+
+  /* Request the shred receiver to forward shreds to */
+  if( FD_UNLIKELY( ctx->forward_shreds && protocol->endpoints.path && !conn->endpoints_sent ) ) {
+    if( fd_bundle_client_request( conn, &protocol->endpoints ) ) conn->endpoints_sent = 1;
     return 1;
   }
 
@@ -1941,6 +1957,7 @@ fd_bundle_client_bam_handle_config( fd_bundle_conn_t * conn,
   fd_pb_inbuf_t bam_cfg    [1] = {{0}};
   fd_pb_inbuf_t tpu_sock   [1] = {{0}};
   fd_pb_inbuf_t fwd_sock   [1] = {{0}};
+  fd_pb_inbuf_t shred_sock [1] = {{0}};
   char          pubkey[ 64 ]   = {0};
   ulong         commission     = 0UL;
   int const has_builder = fd_bundle_client_pb_submsg( in, 1U, builder_cfg ); /* block_engine_config */
@@ -1949,7 +1966,8 @@ fd_bundle_client_bam_handle_config( fd_bundle_conn_t * conn,
                    fd_bundle_client_pb_cstr  ( *builder_cfg, 1U, pubkey, sizeof(pubkey) )<0 || /* builder_pubkey */
                    fd_bundle_client_pb_varint( *builder_cfg, 2U, &commission            )<0 || /* builder_commission */
                    fd_bundle_client_pb_submsg( *bam_cfg,     3U, tpu_sock               )<0 || /* tpu_sock */
-                   fd_bundle_client_pb_submsg( *bam_cfg,     4U, fwd_sock               )<0 ) ) { /* tpu_fwd_sock */
+                   fd_bundle_client_pb_submsg( *bam_cfg,     4U, fwd_sock               )<0 ||   /* tpu_fwd_sock */
+                   fd_bundle_client_pb_submsg( *bam_cfg,     5U, shred_sock             )<0 ) ) { /* shred_socks */
     ctx->metrics.decode_fail_cnt++;
     FD_LOG_WARNING(( "Protobuf decode of (bam_api.ConfigResponse) failed" ));
     return;
@@ -1965,6 +1983,48 @@ fd_bundle_client_bam_handle_config( fd_bundle_conn_t * conn,
       fd_bundle_client_socket( *fwd_sock, &tpu.fwd_ip4, &tpu.fwd_port ) ) {
     conn->tpu = tpu;
   }
+
+  /* As in jito-solana, a config without one clears the shred receiver.
+     We forward to one of them (the last). */
+  uint   shred_ip4  = 0U;
+  ushort shred_port = 0;
+  conn->shred = fd_bundle_client_socket( *shred_sock, &shred_ip4, &shred_port ) ? fd_bundle_shred_sig( shred_ip4, shred_port ) : 0UL;
+}
+
+/* Handle a GetBlockEngineEndpointResponse: the global endpoint's
+   ShredStream receiver, a host:port, is the shred receiver. */
+
+static void
+fd_bundle_client_handle_endpoints( fd_bundle_conn_t * conn,
+                                   fd_pb_inbuf_t      in ) {
+  fd_bundle_tile_t * ctx = conn->ctx;
+  fd_pb_inbuf_t endpoint[1]  = {{0}};
+  char          addr[ 256 ] = {0};
+  if( FD_UNLIKELY( fd_bundle_client_pb_submsg( in,        1U, endpoint           )<0 ||   /* global_endpoint */
+                   fd_bundle_client_pb_cstr  ( *endpoint, 2U, addr, sizeof(addr) )<0 ) ) { /* shredstream_receiver_address */
+    ctx->metrics.decode_fail_cnt++;
+    FD_LOG_WARNING(( "Protobuf decode of (block_engine.GetBlockEngineEndpointResponse) failed" ));
+    return;
+  }
+  char * colon = strrchr( addr, ':' );
+  ulong  port  = colon ? fd_cstr_to_ulong( colon+1 ) : 0UL;
+  if( FD_UNLIKELY( !port || port>USHORT_MAX ) ) {
+    FD_LOG_WARNING(( "Invalid shred receiver `%s`", addr ));
+    return;
+  }
+  *colon = '\0';
+
+  fd_addrinfo_t hints = {0};
+  hints.ai_family = AF_INET;
+  fd_addrinfo_t * res = NULL;
+  uchar scratch[ 4096 ];
+  void * pscratch = scratch;
+  int err = fd_getaddrinfo( addr, &hints, &res, &pscratch, sizeof(scratch) );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "fd_getaddrinfo `%s` failed (%d-%s)", addr, err, fd_gai_strerror( err ) ));
+    return;
+  }
+  conn->shred = fd_bundle_shred_sig( ((struct sockaddr_in *)res->ai_addr)->sin_addr.s_addr, (ushort)port );
 }
 
 /* Handle a GetTpuConfigsResponse from the relayer.  Only a valid pair
@@ -2056,6 +2116,9 @@ fd_bundle_client_grpc_rx_msg(
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
     fd_bundle_client_handle_builder_fee_info( conn, *in );
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockEngineEndpoints:
+    fd_bundle_client_handle_endpoints( conn, *in );
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks:
     fd_bundle_client_handle_block( conn, *in );
@@ -2303,6 +2366,8 @@ fd_bundle_request_ctx_cstr( ulong request_ctx ) {
     return "SubscribeBundles";
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
     return "GetBlockBuilderFeeInfo";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockEngineEndpoints:
+    return "GetBlockEngineEndpoints";
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks:
     return "SubscribeBlocks2";
   case FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy:

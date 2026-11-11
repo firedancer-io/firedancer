@@ -413,6 +413,7 @@ struct fd_config {
       int  builder_protocol_enum;
       char relayer_url[ FD_URL_MAX ];
       int  advertise_tpu;
+      int  forward_shreds;
       char strategy[ 8 ];
       int  strategy_enum;
       char builder_slot_end[ 8 ];

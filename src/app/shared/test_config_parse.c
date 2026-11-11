@@ -175,6 +175,7 @@ main( int     argc,
                                 "builder_protocol = \"harmonic\"\n"
                                 "relayer_url = \"%s\"\n"
                                 "advertise_tpu = true\n"
+                                "forward_shreds = true\n"
                                 "strategy = \"mrev\"\n"
                                 "builder_slot_end = \"txns\"\n"
                                 "[tiles.shred]\n"
@@ -193,6 +194,7 @@ main( int     argc,
   FD_TEST( !strcmp( config->tiles.bundle.builder_protocol, "harmonic" ) );
   FD_TEST( !strcmp( config->tiles.bundle.relayer_url, endpoint ) );
   FD_TEST( config->tiles.bundle.advertise_tpu );
+  FD_TEST( config->tiles.bundle.forward_shreds );
   FD_TEST( !strcmp( config->tiles.bundle.strategy, "mrev" ) );
   FD_TEST( !strcmp( config->tiles.bundle.builder_slot_end, "txns" ) );
   FD_TEST( config->tiles.shred.additional_shred_destinations_retransmit_cnt==1UL &&

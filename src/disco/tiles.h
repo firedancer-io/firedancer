@@ -107,6 +107,16 @@ struct fd_bundle_tpu {
 };
 typedef struct fd_bundle_tpu fd_bundle_tpu_t;
 
+/* fd_bundle_shred_sig packs the shred receiver the bundle tile
+   publishes to the shred tiles into a frag's sig: an IPv4 address in
+   network byte order and a port in host byte order, or 0 for none. */
+
+static inline ulong
+fd_bundle_shred_sig( uint   ip4,
+                     ushort port ) {
+  return (ulong)ip4 | ((ulong)port<<32);
+}
+
 /* fd_txn_ns_dt contains nanosecond offsets for an executed solana
    transaction relative to the publish event by pack for its
    corresponding microblock.  These states align with the struct

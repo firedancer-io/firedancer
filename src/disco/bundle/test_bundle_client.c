@@ -1101,6 +1101,48 @@ FD_UNIT_TEST( bundle_client_harmonic_set_strategy ) {
   test_bundle_env_destroy( env );
 }
 
+/* Verify that a Harmonic client forwarding shreds asks for the block
+   engine's endpoints once per connection, and takes the global
+   endpoint's ShredStream receiver as its shred receiver */
+
+FD_UNIT_TEST( bundle_client_harmonic_endpoints ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * const state = env->state;
+  state->conn->protocol = FD_BUNDLE_PROTOCOL_HARMONIC;
+  state->forward_shreds = 1;
+
+  int charge_busy = 0;
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->endpoints_sent );
+  FD_TEST( state->conn->grpc_client->stream_pool[ 2 ].request_ctx==FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockEngineEndpoints );
+  uchar req[ 256 ];
+  FD_TEST( !expect_request( wire_rx( env ), state->conn->grpc_client->stream_ids[ 2 ], "/block_engine.BlockEngineValidator/GetBlockEngineEndpoints", req ) );
+
+  char const * addrs[] = { "1.2.3.4:1002", "1.2.3.4", "1.2.3.4:65536", "5.6.7.8:0" };
+  for( ulong i=0UL; i<sizeof(addrs)/sizeof(addrs[0]); i++ ) {
+    uchar           buf[ 128 ];
+    fd_pb_encoder_t enc[1]; fd_pb_encoder_init( enc, buf, sizeof(buf) );
+    FD_TEST( fd_pb_submsg_open( enc, 1U ) );                    /* global_endpoint */
+    FD_TEST( fd_pb_push_cstr  ( enc, 1U, "https://x" ) );       /* block_engine_url */
+    FD_TEST( fd_pb_push_cstr  ( enc, 2U, addrs[ i ] ) );        /* shredstream_receiver_address */
+    FD_TEST( fd_pb_submsg_close( enc ) );
+    fd_bundle_client_grpc_rx_msg( state->conn, buf, fd_pb_encoder_out_sz( enc ), FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockEngineEndpoints );
+    /* Only the first is valid, and the rest keep it */
+    FD_TEST( state->conn->shred==fd_bundle_shred_sig( FD_IP4_ADDR( 1, 2, 3, 4 ), 1002 ) );
+  }
+
+  /* It is not asked again until the next connection: the next step
+     sets the strategy */
+  fd_bundle_client_step( state, &charge_busy );
+  FD_TEST( state->conn->strategy_wait );
+  fd_bundle_conn_reset( state->conn );
+  FD_TEST( !state->conn->endpoints_sent );
+
+  test_bundle_env_destroy( env );
+}
+
 /* Verify that a Harmonic client subscribes to blocks, and that the
    connection is only healthy while the block stream is live */
 
@@ -1639,9 +1681,24 @@ FD_UNIT_TEST( bam_client_tpu ) {
     FD_TEST( state->conn->tpu.fwd_ip4==FD_IP4_ADDR( 5, 6, 7, 8 ) && state->conn->tpu.fwd_port==9000 );
   }
 
-  /* A config without a BamConfig keeps the TPU */
+  /* The last shred socket is the shred receiver */
+  uchar           buf[ 512 ];
+  fd_pb_encoder_t enc[1]; fd_pb_encoder_init( enc, buf, sizeof(buf) );
+  FD_TEST( fd_pb_submsg_open( enc, 2U ) );                                 /* bam_config */
+  for( uint i=0U; i<2U; i++ ) {
+    FD_TEST( fd_pb_submsg_open( enc, 5U ) );                               /* shred_socks */
+    FD_TEST( fd_pb_push_cstr  ( enc, 1U, i ? "5.6.7.8" : "1.2.3.4" ) );    /* ip */
+    FD_TEST( fd_pb_push_uint32( enc, 2U, 9000U+i ) );                      /* port */
+    FD_TEST( fd_pb_submsg_close( enc ) );
+  }
+  FD_TEST( fd_pb_submsg_close( enc ) );
+  fd_bundle_client_grpc_rx_msg( state->conn, buf, fd_pb_encoder_out_sz( enc ), FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig );
+  FD_TEST( state->conn->shred==fd_bundle_shred_sig( FD_IP4_ADDR( 5, 6, 7, 8 ), 9001 ) );
+
+  /* A config without a BamConfig keeps the TPU, and clears the shred
+     receiver */
   fd_bundle_client_grpc_rx_msg( state->conn, NULL, 0UL, FD_BUNDLE_CLIENT_REQ_Bam_GetBuilderConfig );
-  FD_TEST( state->conn->tpu.ip4==FD_IP4_ADDR( 1, 2, 3, 4 ) );
+  FD_TEST( state->conn->tpu.ip4==FD_IP4_ADDR( 1, 2, 3, 4 ) && !state->conn->shred );
 
   test_bundle_env_destroy( env );
 }
@@ -1922,6 +1979,7 @@ FD_UNIT_TEST( bundle_client_two_conns ) {
   bam->builder.avail           = 1;
   fd_grpc_client_h2_conn( bam->grpc_client )->flags = 0;
   bam->tpu = (fd_bundle_tpu_t){ .ip4 = FD_IP4_ADDR( 1, 2, 3, 4 ), .port = 8000, .fwd_ip4 = FD_IP4_ADDR( 1, 2, 3, 4 ), .fwd_port = 8001 };
+  bam->shred = fd_bundle_shred_sig( FD_IP4_ADDR( 1, 2, 3, 4 ), 9000 );
   bam->bam.stream         = fd_grpc_client_stream_acquire( bam->grpc_client, FD_BUNDLE_CLIENT_REQ_Bam_InitSchedulerStream );
   bam->bam.heartbeat_seen = 1;
   FD_TEST( bam->bam.stream );
@@ -1932,6 +1990,7 @@ FD_UNIT_TEST( bundle_client_two_conns ) {
   state->keyswitch = fd_keyswitch_join( fd_keyswitch_new( keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
   fd_bundle_tile_housekeeping( state );
   FD_TEST( state->tpu_dirty && fd_memeq( &state->tpu_advertised, &bam->tpu, sizeof(fd_bundle_tpu_t) ) );
+  FD_TEST( state->shred_dirty && state->shred_forwarded==bam->shred );
 
   /* A reset of the block engine conn keeps the builder's session */
   fd_bundle_conn_reset( engine );
@@ -1946,6 +2005,7 @@ FD_UNIT_TEST( bundle_client_two_conns ) {
   fd_bundle_tile_housekeeping( state );
   fd_bundle_tpu_t const zero = {0};
   FD_TEST( fd_memeq( &state->tpu_advertised, &zero, sizeof(zero) ) );
+  FD_TEST( !state->shred_forwarded );
 
   FD_TEST( 0==close( sockpair[0] ) );
   fd_wksp_free_laddr( fd_keyswitch_delete( fd_keyswitch_leave( state->keyswitch ) ) );

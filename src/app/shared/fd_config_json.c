@@ -587,6 +587,7 @@ fd_config_to_json( fd_config_t const * config,
       jw_str  ( &w, "builder_protocol",              config->tiles.bundle.builder_protocol );
       jw_url  ( &w, "relayer_url",                   config->tiles.bundle.relayer_url );
       jw_bool ( &w, "advertise_tpu",                 config->tiles.bundle.advertise_tpu );
+      jw_bool ( &w, "forward_shreds",                config->tiles.bundle.forward_shreds );
       jw_str  ( &w, "strategy",                      config->tiles.bundle.strategy );
       jw_str  ( &w, "builder_slot_end",              config->tiles.bundle.builder_slot_end );
       jw_str  ( &w, "tls_domain_name",               config->tiles.bundle.tls_domain_name );
