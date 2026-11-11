@@ -264,7 +264,8 @@ struct fd_snapshot_manifest {
 
   fd_snapshot_manifest_rent_t rent_params;
 
-  /* The slot number for this snapshot */
+  /* The slot number for this snapshot (this slot was fully replayed and
+     then the snapshot was taken) */
   ulong slot;
 
   /* The number of blocks that have been built since genesis.  This is
@@ -272,6 +273,9 @@ struct fd_snapshot_manifest {
      landed block, but it does not increment for skipped slots, so the
      block_height will always be less than or equal to the slot. */
   ulong block_height;
+
+  /* Leader node identity of the snapshot slot */
+  uchar leader_id[ 32UL ];
 
   /* TODO: Document */
   ulong collector_fees;
@@ -295,10 +299,8 @@ struct fd_snapshot_manifest {
      a snapshot. */
   uchar accounts_hash[ 32UL ];
 
-  /* The merkle-based hash of modified accounts for the slot the
-     snapshot is created.  The accounts_delta_hash is computed at
-     the end of every slot and included into each bank hash.  It is
-     computed by hashing all modified account state together. */
+  /* The legacy Merkle-based hash of modified accounts in the snapshot
+     slot. */
   uchar accounts_delta_hash[ 32UL ];
 
   /* The lattice hash of all account state on chain. */

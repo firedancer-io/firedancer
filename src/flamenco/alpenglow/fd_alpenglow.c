@@ -402,6 +402,13 @@ vote_account_open( fd_bank_t *                 bank,
                    fd_pubkey_t const *         pk,
                    fd_vote_state_versioned_t * vs,
                    fd_acc_t *                  acc ) {
+  /* A signer's vote account can be closed and recreated with any data,
+     so reject accounts that can't be vote accounts before copying their
+     data. */
+  ulong data_len = fd_accdb_data_len( accdb, bank->accdb_fork_id, pk->uc );
+  if( FD_UNLIKELY( data_len!=FD_VOTE_STATE_V2_SZ && data_len!=FD_VOTE_STATE_V3_SZ &&
+                   data_len!=FD_VOTE_STATE_V4_SZ && data_len!=FD_VOTE_STATE_V5_SZ ) ) return 0;
+
   *acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pk->uc );
   if( acc->prior_lamports &&
       fd_vsv_is_correct_size_owner_and_init( acc->prior_owner, acc->prior_data, acc->prior_data_len ) &&

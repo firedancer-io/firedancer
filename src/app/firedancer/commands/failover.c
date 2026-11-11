@@ -152,7 +152,7 @@ failover_request( fd_adminctl_t *                    adminctl,
 /* Exit codes. */
 
 #define FAILOVER_EXIT_OTHER   (1) /* any other failure, as FD_LOG_ERR exits */
-#define FAILOVER_EXIT_REFUSED (2) /* refused, no validator changed identity */
+#define FAILOVER_EXIT_REFUSED (2) /* refused, this command changed no identity */
 #define FAILOVER_EXIT_UNKNOWN (3) /* the outcome is unknown */
 #define FAILOVER_EXIT_NOBODY  (4) /* nobody runs the identity */
 
@@ -171,7 +171,7 @@ static failover_result_t const failover_results[] = {
   { FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS, "no_holder_address", "gossip did not show a validator running the identity",                                            FAILOVER_EXIT_REFUSED, 1 },
   { FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER,        "not_holder",        "the validator at the address does not run the identity",                                          FAILOVER_EXIT_REFUSED, 1 },
   { FD_FAILOVER_CONTROL_RESULT_NO_PEER,           "no_peer",           "no validator running the identity answered at the address before the deadline",                   FAILOVER_EXIT_REFUSED, 1 },
-  { FD_FAILOVER_CONTROL_RESULT_HANDED_OFF,        "handed_off",        "the local validator handed the identity off and waits for the remote validator's answer",         FAILOVER_EXIT_REFUSED, 1 },
+  { FD_FAILOVER_CONTROL_RESULT_HANDED_OFF,        "handed_off",        "the local validator handed the identity off and the remote validator has not confirmed",          FAILOVER_EXIT_REFUSED, 1 },
   { FD_FAILOVER_CONTROL_RESULT_NO_FINAL_HISTORY,  "no_final_history",  "the remote validator has no vote history for its last vote yet",                                  FAILOVER_EXIT_REFUSED, 1 },
   { FD_FAILOVER_CONTROL_RESULT_REPLAY_BEHIND,     "replay_behind",     "the local validator's replay is too far behind the finality anchor of the vote history to adopt", FAILOVER_EXIT_REFUSED, 1 },
   { FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER,       "holds_other",       "the local validator runs a staked identity other than the one in the keypair",                    FAILOVER_EXIT_REFUSED, 0 },
@@ -237,7 +237,7 @@ fail_result( char const * cmd,
     exit( FAILOVER_EXIT_OTHER );
   }
   int code = failover_exit_code( result, handoff );
-  char const * state = code==FAILOVER_EXIT_REFUSED ? "no validator changed identity" :
+  char const * state = code==FAILOVER_EXIT_REFUSED ? "this command changed no identity" :
                        code==FAILOVER_EXIT_NOBODY  ? "nobody runs the identity" :
                                                      "the outcome is unknown, check both validators with `firedancer get-identity`";
   FD_LOG_ERR_NOEXIT(( "`%s` failed (%s), %s, %s", cmd, row->name, row->meaning, state ));

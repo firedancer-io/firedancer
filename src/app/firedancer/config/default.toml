@@ -1965,9 +1965,7 @@ telemetry = true
         gui_listen_port = 80
 
         # Maximum number of simultaneous HTTP connections which can be
-        # open.  The server closes an HTTP connection after each
-        # request.  When no more connections are free, evicts the oldest
-        # first.
+        # open.
         max_http_connections = 1024
 
         # Maximum number of simultaneous WebSocket connections which can

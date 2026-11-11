@@ -249,11 +249,6 @@ snapshot_load_topo( config_t * config ) {
 }
 
 static void
-snapshot_load_topo1( config_t * config ) {
-  snapshot_load_topo( config );
-}
-
-static void
 snapshot_load_args( int *    pargc,
                     char *** pargv,
                     args_t * args ) {
@@ -734,12 +729,13 @@ transpile_programs( config_t *               config,
   free( ljoin );
 }
 
-/* fixup_config applies command-line arguments to config, overriding
-   defaults / config file */
+/* snapshot_load_apply_args applies command-line arguments to config,
+   overriding defaults / config file.  Called by boot before the
+   topology is built, so the topology picks these values up directly. */
 
 static void
-fixup_config( config_t *     config,
-              args_t const * args ) {
+snapshot_load_apply_args( args_t const * args,
+                          config_t *     config ) {
   if( args->snapshot_load.snapshot_dir[0] ) {
     fd_cstr_ncpy( config->paths.snapshots, args->snapshot_load.snapshot_dir, sizeof(config->paths.snapshots) );
   }
@@ -767,18 +763,11 @@ fixup_config( config_t *     config,
     config->firedancer.snapshots.sources.gossip.allow_any      = 0;
     config->firedancer.snapshots.sources.gossip.allow_list_cnt = 0;
   }
-
-  /* FIXME Unfortunately, the fdctl boot procedure constructs the
-           topology before parsing command-line arguments.  So, here,
-           we construct the topology again (a third time ... sigh). */
-  snapshot_load_topo( config );
 }
 
 static void
 snapshot_load_cmd_fn( args_t *   args,
                       config_t * config ) {
-  fixup_config( config, args );
-
   transpile_list_t transpile_list = {0};
   if( args->snapshot_load.transpile      ) transpile_list_add_cstr( &transpile_list, args->snapshot_load.transpile      );
   if( args->snapshot_load.transpile_list ) transpile_list_add_file( &transpile_list, args->snapshot_load.transpile_list );
@@ -1031,9 +1020,10 @@ snapshot_load_args_help( fd_action_help_t * help ) {
 
 action_t fd_action_snapshot_load = {
   .name        = NAME,
-  .topo        = snapshot_load_topo1,
+  .topo        = snapshot_load_topo,
   .perm        = dev_cmd_perm,
   .args        = snapshot_load_args,
+  .apply_args  = snapshot_load_apply_args,
   .fn          = snapshot_load_cmd_fn,
   .description = "Load a snapshot into a database and optionally inspect it",
   .detail      = "Boots a reduced topology that downloads (or reads from disk) a full and\n"

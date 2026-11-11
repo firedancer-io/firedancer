@@ -150,7 +150,10 @@ sync_session( fd_failover_tile_ctx_t * ctx ) {
   ctx->request.sent             = 0;
   ctx->session.close_after_send = 0;
   /* invalidate the previous session's FD_FAILOVER_MSG_HANDOFF_RESULT */
-  if( ctx->tx.valid && ctx->tx.type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESULT ) ctx->tx.valid = 0;
+  if( ctx->tx.valid && ( ctx->tx.type==(ushort)FD_FAILOVER_MSG_HANDOFF_RESULT ||
+                       ( ctx->tx.type==(ushort)FD_FAILOVER_MSG_DEMOTED && ctx->action!=FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) ) ) {
+    ctx->tx.valid = 0;
+  }
   if( FD_LIKELY( state!=FD_FAILOVER_SESSION_PAIRED ) ) return;
   fd_failover_hello_t const * peer = fd_failover_channel_peer_hello( ctx->channel );
   ctx->session.peer_boot_id = peer->boot_id;
@@ -582,10 +585,19 @@ step_demote_switch( fd_failover_tile_ctx_t * ctx,
 /* DEMOTED is sent out and the peer answers with either PROMOTE_ACK or PROMOTE_REJECTED. */
 static void
 step_demote_wait_ack( fd_failover_tile_ctx_t * ctx ) {
-  if( FD_UNLIKELY( ctx->handoff.delivery==FD_FAILOVER_DELIVERY_PENDING && !ctx->tx.valid ) ) (void)queue_demoted( ctx );
-  if( FD_UNLIKELY( is_overdue( ctx ) && !ctx->stuck ) ) {
-    FD_LOG_WARNING(( "handoff %lu: the peer has not answered, this machine runs the junk key", ctx->handoff.id ));
+  if( FD_UNLIKELY( is_overdue( ctx ) ) ) {
+    FD_LOG_WARNING(( "handoff %lu: the peer has not answered, this machine runs the junk key, run `failover promote` to retry", ctx->handoff.id ));
     ctx->stuck = 1;
+    if( FD_UNLIKELY( ctx->tx.valid && ctx->tx.type==(ushort)FD_FAILOVER_MSG_DEMOTED ) ) {
+      ctx->tx.valid = 0;
+    }
+
+    /* reset to idle */
+    set_action( ctx, FD_FAILOVER_ACTION_IDLE );
+    return;
+  }
+  if( FD_UNLIKELY( ctx->handoff.delivery==FD_FAILOVER_DELIVERY_PENDING && !ctx->tx.valid ) ) {
+    (void)queue_demoted( ctx );
   }
 }
 
@@ -750,6 +762,9 @@ start_promotion( fd_failover_tile_ctx_t *   ctx,
                  fd_failover_peer_t const * peer,
                  ulong                      handoff_id,
                  ulong                      flags ) {
+  if( FD_UNLIKELY( ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE ) ) {
+    resolve_handoff( ctx, FD_FAILOVER_HANDOFF_CANCELLED );
+  }
   fd_memset( &ctx->promotion, 0, sizeof(ctx->promotion) );
   if( source==FD_FAILOVER_SOURCE_PEER ) ctx->promotion.adopt = ctx->peer_history;
   else                                  ctx->promotion.adopt.tip = FD_FAILOVER_SLOT_NULL;
@@ -922,7 +937,7 @@ on_handoff_request_msg( fd_failover_tile_ctx_t * ctx,
       return 1;
     }
     result = ctx->handoff.result==FD_FAILOVER_HANDOFF_TAKEN ? FD_ADMINCTL_RESULT_SUCCESS : FD_FAILOVER_CONTROL_RESULT_HANDOFF_ABORTED;
-  } else if( ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) || ctx->tx.valid || ctx->session.close_after_send ) {
+  } else if( ctx->action!=FD_FAILOVER_ACTION_IDLE || is_switch_pending( ctx ) || ctx->tx.valid || ctx->session.close_after_send || ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE ) {
     result = FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
   } else if( !holds_identity( ctx ) ) {
     result = FD_FAILOVER_CONTROL_RESULT_NOT_HOLDER;
@@ -1055,7 +1070,6 @@ static int
 is_holder_live( fd_failover_tile_ctx_t const * ctx,
                 long                           now ) {
   if( fd_failover_channel_state( ctx->channel )==FD_FAILOVER_SESSION_PAIRED && fd_failover_channel_peer_hello( ctx->channel )->holds ) return 1;
-  if( ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK ) return 1;
   if( now>=ctx->target_since && now-ctx->target_since<FD_FAILOVER_GOSSIP_FRESH_NANOS ) return 1;
   return is_holder_fresh( ctx, now ) || is_recent( ctx->holder_seen_at, now );
 }
@@ -1067,7 +1081,11 @@ poll_peer( fd_failover_tile_ctx_t * ctx,
            int *                    charge_busy ) {
   sync_session( ctx );
   if( FD_UNLIKELY( ctx->request.id && ctx->request.until && now>=ctx->request.until && is_requesting( ctx ) ) ) {
-    if( ctx->request.send_cnt )           pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_TIMEOUT,           "no answer before the deadline" );
+    if( ctx->action==FD_FAILOVER_ACTION_HANDOFF_WAIT_RESULT && holds_identity( ctx ) && !is_switch_pending( ctx ) ) {
+      FD_LOG_WARNING(( "handoff %lu: the peer did not confirm our answer before the deadline, ending the request", ctx->request.id ));
+      end_request( ctx, now, FD_FAILOVER_HANDOFF_TAKEN );
+    }
+    else if( ctx->request.send_cnt )      pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_TIMEOUT,           "no answer before the deadline" );
     else if( !ctx->request.addr )         pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_NO_HOLDER_ADDRESS, "gossip did not show the identity before the deadline" );
     else if( !ctx->request.peer.boot_id ) pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_NO_PEER,           "no peer authenticated before the deadline" );
     else                                  pause_request( ctx, now, FD_FAILOVER_CONTROL_RESULT_TIMEOUT,           "no handoff request sent before the deadline" );
@@ -1214,9 +1232,12 @@ run_promote_cmd( fd_failover_tile_ctx_t *           ctx,
   if( FD_UNLIKELY( !fd_memeq( req->target, no_target, 32UL ) && !fd_memeq( req->target, ctx->hello.staked_pubkey, 32UL ) ) ) return FD_FAILOVER_CONTROL_RESULT_IDENTITY_CHANGED;
   ulong result = check_promotion( ctx );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) return result;
+  if( FD_UNLIKELY( !force && ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE ) ) {
+    return FD_FAILOVER_CONTROL_RESULT_HANDED_OFF;
+  }
   if( FD_UNLIKELY( !force && is_holder_live( ctx, now ) ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDER_LIVE;
   if( ctx->request.id && is_requesting( ctx ) ) end_request( ctx, now, FD_FAILOVER_HANDOFF_CANCELLED );
-  int gave_up = ctx->action==FD_FAILOVER_ACTION_DEMOTE_WAIT_ACK;
+  int gave_up = ctx->handoff.delivery!=FD_FAILOVER_DELIVERY_NONE;
   if( gave_up ) {
     ctx->peer_history.valid = 0;
     resolve_handoff( ctx, FD_FAILOVER_HANDOFF_CANCELLED );

@@ -523,6 +523,7 @@ test_manifest_roundtrip( fd_svm_mini_t * mini,
 
   FD_TEST( manifest->slot==bank->f.slot );
   FD_TEST( manifest->block_height==bank->f.block_height );
+  FD_TEST( !memcmp( manifest->leader_id, &identities[0], 32UL ) );
   FD_TEST( manifest->capitalization==bank->f.capitalization );
   FD_TEST( manifest->transaction_count==bank->f.parent_txn_count+bank->f.txn_count );
   FD_TEST( manifest->ticks_per_slot==bank->f.ticks_per_slot );

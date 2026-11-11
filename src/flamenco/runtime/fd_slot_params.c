@@ -1,5 +1,7 @@
 #include "fd_slot_params.h"
 #include "fd_bank.h"
+#include "fd_runtime_const.h"
+#include "../genesis/fd_genesis_parse.h"
 #include "../features/fd_features.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../util/bits/fd_sat.h"
@@ -37,6 +39,31 @@ fd_slot_params_feature_effective_slot( fd_features_t const *       features,
   ulong activation_slot = fd_features_get_activation_slot_from_offset( features, gate->feature_off );
   if( activation_slot==FD_FEATURE_DISABLED ) return ULONG_MAX;
   return feature_effective_slot( epoch_schedule, activation_slot );
+}
+
+fd_slot_params_t
+fd_slot_params_from_genesis( fd_genesis_t const * genesis ) {
+  uint128          tick_ns = (uint128)genesis->poh.tick_duration_secs*1000000000UL + (uint128)genesis->poh.tick_duration_ns;
+  fd_slot_params_t params  = FD_SLOT_PARAMS_400MS;
+  params.ns_per_slot          = (ulong)( tick_ns * genesis->poh.ticks_per_slot );
+  params.ns_per_slot_adjusted = fd_ulong_sat_sub( params.ns_per_slot, FD_TARGET_SLOT_ADJUSTMENT_NS );
+  params.slots_per_year       = SECONDS_PER_YEAR * (1000000000.0 / (double)tick_ns) / (double)genesis->poh.ticks_per_slot;
+  params.hashes_per_tick      = genesis->poh.hashes_per_tick;
+  return params;
+}
+
+int
+fd_slot_params_any_reduction_effective( fd_features_t const *       features,
+                                        fd_epoch_schedule_t const * epoch_schedule,
+                                        ulong                       slot,
+                                        ulong                       ns_per_slot ) {
+  for( ulong i=0UL; i<FD_SLOT_TIME_GATE_CNT; i++ ) {
+    fd_slot_time_gate_t const * gate = &fd_slot_time_gates[ i ];
+    if( gate->params->ns_per_slot > ns_per_slot ) continue;
+    ulong eff = fd_slot_params_feature_effective_slot( features, epoch_schedule, gate );
+    if( eff!=ULONG_MAX && eff<=slot ) return 1;
+  }
+  return 0;
 }
 
 fd_slot_params_t

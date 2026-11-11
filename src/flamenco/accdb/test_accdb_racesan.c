@@ -2575,7 +2575,7 @@ test_step14_orphan_no_hang( void ) {
    recycled.  The pin CAS transiently bumps refcnt on a line the reader
    no longer owns; the ABA recheck then fails and unpins.  Historically
    the free-list pop (acquire_cache_line priority 1) and the
-   uncommitted-destination cleanup (release_inner) mutated refcnt with
+   uncommitted staging-line cleanup (release_inner) mutated refcnt with
    plain stores, which wiped such a transient pin; the stray's later
    decrement then dropped the new owner's refcnt to 0 (or underflowed it
    to EVICT_SENTINEL), letting CLOCK steal a line still in use.
@@ -2590,8 +2590,8 @@ test_step14_orphan_no_hang( void ) {
      2. Main evicts L (L -> free list, gen=UINT_MAX, refcnt=0).
      3. R resumes to accdb_try_pin:post_cas: its CAS pinned the
         free-listed L (refcnt 0->1); R now holds the stray pin.
-     4. Writer W (new account Q) pops L as its class-0 destination and
-        must WAIT at accdb_freepop:refcnt_wait (a plain refcnt=1 store
+     4. Writer W (new account Q) pops L at release as its class-0 final
+        line (release_take_line) and must WAIT at accdb_freepop:refcnt_wait (a plain refcnt=1 store
         here would let R's later unpin zero out W's pin).
      5. R resumes: ABA recheck fails (gen==UINT_MAX), unpins,
         cold-loads P from disk, completes.
@@ -2627,7 +2627,7 @@ test_stray_pin_vs_freepop( void ) {
      recheck. */
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* W pops L as its class-0 destination and must wait for the stray
+  /* W pops L at release as its class-0 final line and must wait for the stray
      pin to drop.  A regression to the plain store never reaches this
      hook (W runs to exit) and the FD_TEST fails. */
   fd_racesan_async_t * w = fiber_release_write( &g_fiber[1], accdb, root0, key_Q, 400UL );
@@ -2668,11 +2668,11 @@ test_stray_pin_vs_freepop( void ) {
   test_teardown( accdb, fd );
 }
 
-/* test_stray_pin_vs_release_cleanup proves the uncommitted-destination
-   cleanup in release_inner waits out a stray pin on a destination line
+/* test_stray_pin_vs_release_cleanup proves the uncommitted staging-line
+   cleanup in release_inner waits out a stray pin on the staging line
    instead of plain-storing refcnt=0 over it.  A writable acquire only
    materializes its class-7 staging line (the final class's line is
-   taken at release), so the destination here is a class-7 line:
+   taken at release):
      1. P resident in class-7 line L; reader R suspends at
         accdb_acquire:pre_try_pin having captured L.
      2. Main evicts L (free list).
@@ -2680,8 +2680,8 @@ test_stray_pin_vs_freepop( void ) {
         pops L as its class-7 staging line (refcnt 0->1) and parks at
         accdb_acquire:pre_step7_meta, mid-bracket.
      4. R resumes to accdb_try_pin:post_cas: CAS 1->2, stray pin on
-        W's destination line.
-     5. W resumes into release (no commit): the destination cleanup
+        W's staging line.
+     5. W resumes into release (no commit): the staging-line cleanup
         must WAIT at accdb_release:dest_refcnt_wait (a plain refcnt=0
         store here would be underflowed to EVICT_SENTINEL by R's
         later unpin).
@@ -2723,11 +2723,11 @@ test_stray_pin_vs_release_cleanup( void ) {
   fd_racesan_async_new( wf->async, wf_stack, READ_FIBER_STACK_SZ, read_fiber_exec, wf );
   FD_TEST( fd_racesan_async_step_until( wf->async, "accdb_acquire:pre_step7_meta", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* R pins W's destination line (stray pin: refcnt 1->2), suspends
+  /* R pins W's staging line (stray pin: refcnt 1->2), suspends
      before the ABA recheck. */
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_try_pin:post_cas", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* W: release without commit; the destination cleanup must wait for
+  /* W: release without commit; the staging-line cleanup must wait for
      the stray pin.  A regression to the plain store never reaches
      this hook. */
   FD_TEST( fd_racesan_async_step_until( wf->async, "accdb_release:dest_refcnt_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
@@ -2769,7 +2769,7 @@ test_stray_pin_vs_release_cleanup( void ) {
 /* ------------------------------------------------------------------ */
 
 /* When an overwrite commit discards the original cache line (class-7
-   destination, or a size-class change), release tries to claim the line
+   result, or a size-class change), release tries to claim the line
    for freeing; if a concurrent reader still holds a transient
    cache_try_pin pin, the claim fails and the line is abandoned for
    CLOCK to reclaim later.
@@ -2827,7 +2827,7 @@ test_overwrite_discard_stray_pin_cls7( void ) {
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
   /* Evict L (X flushed to disk, L to the class-7 free list), then
-     commit P: its class-7 destination pops L, so P lives in L, dirty.
+     commit P: its class-7 staging line pops L, so P lives in L, dirty.
      The overwrite below takes the new_size_class==7 discard branch. */
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 7UL, idx )!=UINT_MAX );
   seq_write_data( accdb, root0, key_P, 100UL, owner_P, BIG_DATA, 0xA1 );
@@ -2907,8 +2907,8 @@ test_overwrite_discard_stray_pin_xclass( void ) {
   fd_racesan_async_t * ar = fiber_acquire_expect( &g_fiber[0], accdb_r, root0, key_X, 500UL );
   FD_TEST( fd_racesan_async_step_until( ar, "accdb_acquire:pre_try_pin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
-  /* Evict L, then commit P (100 bytes -> class 0): its class-0
-     destination pops L, so P lives in L, dirty. */
+  /* Evict L, then commit P (100 bytes -> class 0): its class-0 final
+     line (taken at release) pops L, so P lives in L, dirty. */
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, 0UL, idx )!=UINT_MAX );
   seq_write_data( accdb, root0, key_P, 100UL, owner_P, 100UL, 0xA1 );
   {
@@ -3432,7 +3432,7 @@ test_clock_claim_vs_freed( void ) {
   uchar owner[ 32UL ] = { 7, 0 };
   fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
 
-  /* Each commit keeps its destination line, so cache_class_max writes
+  /* Each commit keeps its final line, so cache_class_max writes
      leave every class-0 line resident with an empty free list. */
   ulong max0 = g_shmem->cache_class_max[ 0 ];
   FD_TEST( max0>=2UL );
@@ -3443,8 +3443,8 @@ test_clock_claim_vs_freed( void ) {
   FD_TEST( !free_cnt_total( 0UL ) );
   FD_TEST( FD_VOLATILE_CONST( g_shmem->cache_class_init[ 0 ].val )>=max0 );
 
-  /* W: writable acquire of a NEW account, so its class-0 destination
-     comes from the CLOCK sweep. */
+  /* W: write of a NEW account, so its class-0 final line (taken at
+     release) comes from the CLOCK sweep. */
   uchar key_Q[ 32UL ]; mk_key( 800001UL, key_Q );
   fd_racesan_async_t * w = fiber_release_write( &g_fiber[0], jw, root, key_Q, 400UL );
 
@@ -4297,6 +4297,362 @@ test_reservation_wait_yields( void ) {
   test_shmem_delete();
 }
 
+/* ====================================================================
+   Root / purge request protocol.
+
+   T1 updates the fork tree and publishes requests without blocking; T2
+   applies them in passes (background_requests).  These tests drive T1
+   and T2 at the protocol's interleaving points. */
+
+/* catch_up runs T2 passes until every request is applied and the
+   retired batch is released (no reader holds an epoch here). */
+
+static void
+catch_up( fd_accdb_t * jb ) {
+  for( ulong i=0UL; fd_accdb_requests_pending( jb ); i++ ) {
+    FD_TEST( i<1024UL );
+    drain_background( jb );
+  }
+}
+
+/* T1 fibers, woven against T2: purge, advance_root, initial root
+   attach (result in probe.fork_id) and reset. */
+
+static void
+fiber_purge_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  fd_accdb_purge( f->accdb, f->probe.fork_id );
+}
+
+static void
+fiber_advance_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  fd_accdb_advance_root( f->accdb, f->probe.fork_id );
+}
+
+static void
+fiber_initial_root_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  f->probe.fork_id = fd_accdb_attach_child( f->accdb, SENTINEL );
+}
+
+static void
+fiber_reset_exec( void * _ctx ) {
+  fiber_t * f = _ctx;
+  fd_accdb_reset( f->accdb );
+}
+
+static fd_racesan_async_t *
+fiber_t1( fiber_t *          fiber,
+          void (*            exec)( void * ),
+          fd_accdb_t *       accdb,
+          fd_accdb_fork_id_t fork_id ) {
+  fiber->accdb         = accdb;
+  fiber->probe.fork_id = fork_id;
+  fd_racesan_async_new( fiber->async, fiber->stack, FIBER_STACK_MAX, exec, fiber );
+  return fiber->async;
+}
+
+/* test_root_lag_reads: T1 roots several levels ahead of T2 and keeps
+   attaching and writing.  Reads on the requested root and its children
+   must be correct before, during and after T2 catches up. */
+
+static void
+test_root_lag_reads( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 8000UL, K );
+  uchar L[ 32UL ]; mk_key( 8001UL, L );
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  seq_write( ctl, r, K, 1UL, NULL );
+  seq_write( ctl, r, L, 1UL, NULL );
+
+  for( ulong i=0UL; i<64UL; i++ ) {
+    /* Each level has a winner writing K and a loser writing L. */
+    fd_accdb_fork_id_t w = fd_accdb_attach_child( ctl, r );
+    fd_accdb_fork_id_t l = fd_accdb_attach_child( ctl, r );
+    seq_write( ctl, w, K, 100UL+i, NULL );
+    seq_write( ctl, l, L, 999UL,   NULL );
+    fd_accdb_advance_root( ctl, w );
+    FD_TEST( fd_accdb_lamports( ctl, w, K )==100UL+i );
+    FD_TEST( fd_accdb_lamports( ctl, w, L )==1UL );
+    r = w;
+    if( (i%8UL)==7UL ) {
+      /* T2 applies part of the backlog. */
+      drain_background( jb );
+      FD_TEST( fd_accdb_lamports( ctl, r, K )==100UL+i );
+      FD_TEST( fd_accdb_lamports( ctl, r, L )==1UL );
+    }
+  }
+  catch_up( jb );
+  FD_TEST( g_shmem->root_fork_id.val==r.val );
+  FD_TEST( fd_accdb_lamports( ctl, r, K )==163UL );
+  FD_TEST( fd_accdb_lamports( ctl, r, L )==1UL );
+
+  join_delete( ctl );
+  join_delete( jb );
+  test_shmem_delete();
+}
+
+/* test_purge_then_root_vs_pass: T1 roots A, detaching and purging its
+   older sibling B, while T2 runs.  B is older
+   than A, so once A is rooted B's accounts would be visible to every
+   reader by generation: T2 must purge B no later than the pass that
+   roots A.  The reader on A1 must never see B's (or purged P's) value. */
+
+static void
+test_purge_then_root_vs_pass( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+  fd_accdb_t * jr  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 8100UL, K );
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  seq_write( ctl, r, K, 1UL, NULL );
+
+  for( ulong i=0UL; i<ITER_DEFAULT/4UL; i++ ) {
+    fd_accdb_fork_id_t B  = fd_accdb_attach_child( ctl, r );
+    fd_accdb_fork_id_t A  = fd_accdb_attach_child( ctl, r );
+    fd_accdb_fork_id_t A1 = fd_accdb_attach_child( ctl, A );
+    fd_accdb_fork_id_t P  = fd_accdb_attach_child( ctl, A1 );
+    seq_write( ctl, B, K, 2UL, NULL );
+    seq_write( ctl, P, K, 3UL, NULL );
+    ulong want = fd_accdb_lamports( ctl, r, K );
+    if( i&1UL ) { want = 4UL+i; seq_write( ctl, A, K, want, NULL ); }
+
+    /* T2 may pick up the purge of P before, with or after the root
+       of A (which detaches B). */
+    fd_accdb_purge( ctl, P );
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_acquire_expect( &g_fiber[0], jr, A1, K, want ) );
+    fd_racesan_weave_add( w, fiber_compact_loop( &g_fiber[1], jb, 2 ) );
+    fd_racesan_weave_add( w, fiber_t1( &g_fiber[2], fiber_advance_exec, ctl, A ) );
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( (i+0x5151UL) ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+    fd_racesan_weave_delete( w );
+    for( ulong f=0UL; f<3UL; f++ ) fiber_done( &g_fiber[ f ] );
+
+    catch_up( jb );
+    FD_TEST( g_shmem->root_fork_id.val==A.val );
+    FD_TEST( fd_accdb_lamports( ctl, A1, K )==want );
+    FD_TEST( fd_accdb_lamports( ctl, A,  K )==want );
+    fd_accdb_advance_root( ctl, A1 );
+    catch_up( jb );
+    r = A1;
+  }
+
+  join_delete( ctl );
+  join_delete( jb );
+  join_delete( jr );
+  test_shmem_delete();
+}
+
+/* test_purge_vs_pass: a purge races T2 applying an earlier one.  Every
+   purged fork must be purged exactly once (a lost or doubled purge
+   would leak or double-free the slot). */
+
+static void
+test_purge_vs_pass( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 8200UL, K );
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  for( ulong i=0UL; i<ITER_DEFAULT/4UL; i++ ) {
+    fd_accdb_fork_id_t a = fd_accdb_attach_child( ctl, r );
+    fd_accdb_fork_id_t b = fd_accdb_attach_child( ctl, r );
+    seq_write( ctl, a, K, 2UL, NULL );
+    seq_write( ctl, b, K, 3UL, NULL );
+    fd_accdb_purge( ctl, a );
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_compact_loop( &g_fiber[0], jb, 2 ) );
+    fd_racesan_weave_add( w, fiber_t1( &g_fiber[1], fiber_purge_exec, ctl, b ) );
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( (i+0x7171UL) ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+    fd_racesan_weave_delete( w );
+    for( ulong f=0UL; f<2UL; f++ ) fiber_done( &g_fiber[ f ] );
+
+    catch_up( jb );
+    FD_TEST( fd_accdb_lamports( ctl, r, K )==0UL );
+    FD_TEST( g_shmem->shmetrics->accounts_total==0UL );
+  }
+
+  /* Every slot but the root's is free, each exactly once. */
+  fd_accdb_fork_id_t got[ T_MAX_LIVE_SLOTS ];
+  for( ulong n=0UL; n<T_MAX_LIVE_SLOTS-1UL; n++ ) {
+    got[ n ] = fd_accdb_attach_child( ctl, r );
+    FD_TEST( got[ n ].val!=r.val );
+    for( ulong j=0UL; j<n; j++ ) FD_TEST( got[ j ].val!=got[ n ].val );
+  }
+
+  join_delete( ctl );
+  join_delete( jb );
+  test_shmem_delete();
+}
+
+/* test_initial_root_vs_pass: T2 runs while T1 creates the initial root
+   (snapin after reset, genesis).  T2 must not root anything. */
+
+static void
+test_initial_root_vs_pass( void ) {
+  for( ulong i=0UL; i<16UL; i++ ) {
+    test_shmem_new();
+    fd_accdb_t * ctl = join_new();
+    fd_accdb_t * jb  = join_new();
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_compact_loop( &g_fiber[0], jb, 2 ) );
+    fd_racesan_weave_add( w, fiber_t1( &g_fiber[1], fiber_initial_root_exec, ctl, SENTINEL ) );
+    fd_racesan_weave_exec_rand( w, fd_ulong_hash( (i+0x9191UL) ^ g_seed_base ), STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+    fd_racesan_weave_delete( w );
+    fd_accdb_fork_id_t r = g_fiber[1].probe.fork_id;
+    for( ulong f=0UL; f<2UL; f++ ) fiber_done( &g_fiber[ f ] );
+
+    catch_up( jb );
+    FD_TEST( g_shmem->root_fork_id.val==r.val );
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( ctl, r );
+    uchar K[ 32UL ]; mk_key( 8250UL, K );
+    seq_write( ctl, c, K, 7UL, NULL );
+    fd_accdb_advance_root( ctl, c );
+    catch_up( jb );
+    FD_TEST( g_shmem->root_fork_id.val==c.val );
+
+    join_delete( ctl );
+    join_delete( jb );
+    test_shmem_delete();
+  }
+}
+
+/* test_slot_reuse_descends: a retired slot keeps its bit in the
+   descends_set of forks that descended from it.  Reusing the slot for
+   a fork that is not their ancestor must clear that bit, else readers
+   on those forks would see the new fork's writes.  Covers both a live
+   descendant (Y) and requested roots T2 has not applied yet (F, G):
+   applying F unlinks older versions of K it deletes, testing F's
+   descends_set, so a stale bit would make T2 unlink Z's newer K. */
+
+static void
+test_slot_reuse_descends( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+  fd_accdb_t * jr  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 8300UL, K );
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  seq_write( ctl, r, K, 1UL, NULL );
+
+  for( ulong i=0UL; i<ITER_DEFAULT/16UL; i++ ) {
+    fd_accdb_fork_id_t X = fd_accdb_attach_child( ctl, r );
+    seq_write( ctl, X, K, 100UL+i, NULL );
+    fd_accdb_fork_id_t Y = fd_accdb_attach_child( ctl, X );
+    fd_accdb_fork_id_t F = fd_accdb_attach_child( ctl, Y );
+    seq_write( ctl, F, K, 0UL, NULL );
+    fd_accdb_fork_id_t G = fd_accdb_attach_child( ctl, F );
+    fd_accdb_advance_root( ctl, X );
+    fd_accdb_advance_root( ctl, Y );
+    catch_up( jb ); /* X's slot is free again */
+    fd_accdb_advance_root( ctl, F ); /* requested, not applied */
+    fd_accdb_advance_root( ctl, G ); /* requested, not applied */
+
+    /* A reader on Y walks K's chain while X's slot is reused under G
+       for a fork Z that writes K. */
+    fd_racesan_async_t * rd = fiber_acquire_expect( &g_fiber[0], jr, Y, K, 100UL+i );
+    FD_TEST( fd_racesan_async_step_until( rd, "accdb_acquire:post_next", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+    /* Attach until X's slot comes back. */
+    fd_accdb_fork_id_t extra[ T_MAX_LIVE_SLOTS ]; ulong extra_cnt = 0UL;
+    fd_accdb_fork_id_t Z;
+    for(;;) {
+      Z = fd_accdb_attach_child( ctl, G );
+      if( Z.val==X.val ) break;
+      FD_TEST( extra_cnt<T_MAX_LIVE_SLOTS );
+      extra[ extra_cnt++ ] = Z;
+    }
+    seq_write( ctl, Z, K, 555UL, NULL );
+    async_finish( rd );
+    fiber_done( &g_fiber[0] );
+
+    catch_up( jb );
+    FD_TEST( g_shmem->root_fork_id.val==G.val );
+    FD_TEST( fd_accdb_lamports( ctl, G, K )==0UL   );
+    FD_TEST( fd_accdb_lamports( ctl, Z, K )==555UL );
+
+    for( ulong j=0UL; j<extra_cnt; j++ ) fd_accdb_purge( ctl, extra[ j ] );
+    fd_accdb_advance_root( ctl, Z );
+    catch_up( jb );
+    FD_TEST( fd_accdb_lamports( ctl, Z, K )==555UL );
+    r = Z;
+  }
+
+  join_delete( ctl );
+  join_delete( jb );
+  join_delete( jr );
+  test_shmem_delete();
+}
+
+/* test_reset_vs_pass: T2 is parked at the end of a pass that retired
+   fork c when T1 resets the database (snapin's full snapshot retry).
+   Reset must wait for the pass to finish and for its batch, which
+   names a slot of the old pool, to be released, rather than let T2
+   release it into the rebuilt pool later.  Afterwards every fork of
+   the rebuilt database owns its slot. */
+
+static void
+test_reset_vs_pass( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jb  = join_new();
+
+  uchar K[ 32UL ]; mk_key( 8400UL, K );
+  fd_accdb_fork_id_t r = fd_accdb_attach_child( ctl, SENTINEL );
+  fd_accdb_fork_id_t c = fd_accdb_attach_child( ctl, r );
+  seq_write( ctl, c, K, 5UL, NULL );
+  fd_accdb_purge( ctl, c );
+
+  fd_racesan_async_t * bg = fiber_compact_loop( &g_fiber[0], jb, 2 );
+  FD_TEST( fd_racesan_async_step_until( bg, "accdb_requests:pre_done", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  fd_racesan_async_t * rs = fiber_t1( &g_fiber[1], fiber_reset_exec, ctl, SENTINEL );
+  for( ulong i=0UL; i<4UL; i++ ) FD_TEST( fd_racesan_async_step_until( rs, "accdb_wait_idle:spin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* The pass is done but its batch is held: reset still waits. */
+  FD_TEST( fd_racesan_async_step_until( bg, "accdb_release:pre_done", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  for( ulong i=0UL; i<4UL; i++ ) FD_TEST( fd_racesan_async_step_until( rs, "accdb_wait_idle:spin", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  async_finish( bg );
+  async_finish( rs );
+  fiber_done( &g_fiber[0] );
+  fiber_done( &g_fiber[1] );
+
+  /* Rebuild, then run passes that would release a stale batch. */
+  r = fd_accdb_attach_child( ctl, SENTINEL );
+  fd_accdb_fork_id_t a = fd_accdb_attach_child( ctl, r );
+  seq_write( ctl, a, K, 999UL, NULL );
+  catch_up( jb );
+
+  fd_accdb_fork_id_t got[ T_MAX_LIVE_SLOTS ];
+  for( ulong n=0UL; n<T_MAX_LIVE_SLOTS-2UL; n++ ) {
+    got[ n ] = fd_accdb_attach_child( ctl, r );
+    FD_TEST( got[ n ].val!=r.val && got[ n ].val!=a.val );
+    for( ulong j=0UL; j<n; j++ ) FD_TEST( got[ j ].val!=got[ n ].val );
+    FD_TEST( fd_accdb_lamports( ctl, got[ n ], K )==0UL );
+  }
+  FD_TEST( fd_accdb_lamports( ctl, a, K )==999UL );
+
+  join_delete( ctl );
+  join_delete( jb );
+  test_shmem_delete();
+}
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -4350,6 +4706,12 @@ main( int     argc,
     TEST( test_pd_parent_read_vs_child_write ),
     TEST( test_pd_parent_hold_vs_advance_root ),
     TEST( test_coldload_evict_vs_snapshot_capture ),
+    TEST( test_root_lag_reads ),
+    TEST( test_purge_then_root_vs_pass ),
+    TEST( test_purge_vs_pass ),
+    TEST( test_initial_root_vs_pass ),
+    TEST( test_slot_reuse_descends ),
+    TEST( test_reset_vs_pass ),
     TEST( test_hint_lost_update ),
     TEST( test_res_trim_vs_steal ),
     TEST( test_release_take_vs_reader ),

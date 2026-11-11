@@ -278,7 +278,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_txncache_attach_child             mock_txncache_attach_child_fn
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
-#define fd_accdb_cmd_pending(a)              ( (a) ? (fd_accdb_cmd_pending)(a) : 0 )
 #define fd_txncache_cancel_fork(tc,f)        ((void)(tc),(void)(f))
 #define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
@@ -286,7 +285,6 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_txncache_metrics_snap(t,o)        do { if( t ) (fd_txncache_metrics_snap)(t,o); else memset( (o), 0, sizeof(*(o)) ); } while(0)
 #define fd_accdb_metrics(a)                  ( (a) ? (fd_accdb_metrics)(a) : &mock_accdb_metrics )
 #define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
-#define fd_sched_block_start_pending(s)      ( (s) ? (fd_sched_block_start_pending)(s) : 0 )
 #define fd_sched_fec_waits_for_lane(s,p,f)  ( (s) ? (fd_sched_fec_waits_for_lane)(s,p,f) : mock_sched_lane_wait )
 #define fd_sched_block_start_writes(s,b,a,c) do { if( (s) ) (fd_sched_block_start_writes)(s,b,a,c); } while(0)
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
@@ -453,6 +451,21 @@ setup_node_info( fd_replay_tile_t * ctx ) {
   static fd_node_info_box_t node_info_box[ 1 ];
   ctx->node_info = fd_node_info_box_join( fd_node_info_box_new( node_info_box ) );
   FD_TEST( ctx->node_info );
+}
+
+/* setup_genesis gives ctx a parsed genesis with 400ms slots (64 ticks
+   of 6.25ms), as the snapshot boot path reads the genesis slot
+   params. */
+
+static void
+setup_genesis( fd_replay_tile_t * ctx ) {
+  static uchar genesis_mem[ 4096 ] __attribute__((aligned(64)));
+  FD_TEST( fd_genesis_footprint( 0UL )<=sizeof(genesis_mem) );
+  ctx->genesis = fd_genesis_new( genesis_mem, 0UL );
+  FD_TEST( ctx->genesis );
+  ctx->genesis->poh.ticks_per_slot   = 64UL;
+  ctx->genesis->poh.tick_duration_ns = 6250000UL;
+  ctx->genesis->poh.hashes_per_tick  = 4UL;
 }
 
 /* setup_mleaders fills the leader cache for epochs 0 and 1 (128-slot
@@ -1428,6 +1441,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   setup_timing( ctx, wksp );
   setup_stem( ctx, wksp );
   setup_node_info( ctx );
+  setup_genesis( ctx );
 
   ulong const bank_cnt = 4UL;
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, 8UL, 8UL, 8UL ), 1UL );
@@ -1481,6 +1495,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ctx->initial_block_id = root_id;
   ctx->manifest_block_id = root_id;
   ctx->has_manifest_block_id = 1;
+  ctx->manifest_leader_id = *(fd_multi_epoch_leaders_get_leader_for_slot)( ctx->mleaders, root->f.slot );
 
   root->accdb_fork_id        = (fd_accdb_fork_id_t){ .val=37U };
   root->parent_accdb_fork_id = root->accdb_fork_id;
@@ -4231,6 +4246,7 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
   setup_timing( ctx, wksp );
   setup_stem( ctx, wksp );
   setup_node_info( ctx );
+  setup_genesis( ctx );
 
   ulong const bank_cnt = 4UL;
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( bank_cnt, bank_cnt, 8UL, 8UL ), 1UL );
@@ -4284,6 +4300,7 @@ setup_snapshot_test_ctx( fd_replay_tile_t *   ctx,
   ctx->initial_block_id               = root_id;
   ctx->manifest_block_id              = root_id;
   ctx->has_manifest_block_id          = 1;
+  ctx->manifest_leader_id             = *(fd_multi_epoch_leaders_get_leader_for_slot)( ctx->mleaders, snapshot_slot );
   ctx->has_expected_genesis_timestamp = 1;
   root->accdb_fork_id                 = (fd_accdb_fork_id_t){ .val=37U };
   root->parent_accdb_fork_id          = root->accdb_fork_id;

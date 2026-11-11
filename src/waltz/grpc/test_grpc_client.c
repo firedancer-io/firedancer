@@ -433,6 +433,19 @@ FD_UNIT_TEST( rx_headers ) {
   FD_TEST( client->stream_cnt==0 );
 }
 
+FD_UNIT_TEST( non_grpc_headers ) {
+  for( uint status=200U; status<=500U; status+=300U ) {
+    fd_grpc_client_reset( client );
+    test_grpc_client_mock_conn( client );
+    fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 1234UL );
+    stream->hdrs.h2_status = status;
+    ulong const ended = g_rx_end_cnt;
+    ulong const started = g_rx_start_cnt;
+    fd_grpc_h2_cb_headers( client->conn, &stream->s, NULL, 0UL, FD_H2_FLAG_END_HEADERS );
+    FD_TEST( !client->stream_cnt && g_rx_end_cnt==ended+1UL && g_rx_start_cnt==started );
+  }
+}
+
 FD_UNIT_TEST( compression_flags ) {
   uchar const flags[] = {0,1,2,255};
   for( ulong i=0UL; i<sizeof(flags); i++ ) for( int fragmented=0; fragmented<2; fragmented++ ) {

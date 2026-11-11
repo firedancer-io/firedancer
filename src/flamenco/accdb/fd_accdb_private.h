@@ -53,6 +53,36 @@ typedef struct fd_accdb_txn fd_accdb_txn_t;
 #define SET_IMPL_STYLE 1
 #include "../../util/tmpl/fd_set_dynamic.c"
 
+/* fd_accdb_req_t is the root / purge request word (T1 -> T2) and
+   fd_accdb_done_t the matching progress word (T2 -> T1).  Each is
+   written by a single thread with one 8-byte store, so a reader always
+   sees a consistent set of fields. */
+
+union __attribute__((aligned(8))) fd_accdb_req {
+  struct {
+    uint               root_gen;   /* generation of the latest requested root */
+    ushort             purge_seq;  /* purges requested so far, mod 2^16 */
+    fd_accdb_fork_id_t purge_fork; /* latest purged fork */
+  };
+  ulong u;
+};
+
+typedef union fd_accdb_req fd_accdb_req_t;
+
+union __attribute__((aligned(8))) fd_accdb_done {
+  struct {
+    uint   root_gen;  /* generation of root_fork_id */
+    ushort purge_seq; /* purges applied so far, mod 2^16 */
+    ushort retiring;  /* 1 while a retired batch awaits release */
+  };
+  ulong u;
+};
+
+typedef union fd_accdb_done fd_accdb_done_t;
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_req_t )==sizeof(ulong), req  );
+FD_STATIC_ASSERT( sizeof(fd_accdb_done_t)==sizeof(ulong), done );
+
 struct fd_accdb_fork_shmem {
   uint generation;
 
@@ -475,13 +505,11 @@ struct fd_accdb_shmem_private {
   ulong cache_free_low_water[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* cache_class_used[i].val holds the number of reserved cache
-     slots in size class i.  Acquire atomically increments; if the
-     result exceeds cache_class_max[i] the reservation overflowed
-     and the thread subtracts back and retries.  Release atomically
-     decrements.  Each element is on its own cacheline to avoid
-     false sharing between classes.  The count includes the joins' idle
-     credits (join_cred), so used[i].val + available[i] ==
-     cache_class_max[i] at all times. */
+     slots in size class i, taken and returned in chunks by the joins'
+     reservation credits (fd_accdb.c res_*).  Each element is on its
+     own cacheline to avoid false sharing between classes.  The count
+     includes the joins' idle credits (join_cred), so used[i].val +
+     available[i] == cache_class_max[i] at all times. */
   struct __attribute__((aligned(64))) { ulong val; } cache_class_used[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* Per-layer write heads.  whead[0] is the hot (execution) write
@@ -551,18 +579,37 @@ struct fd_accdb_shmem_private {
 
   fd_accdb_shmem_metrics_t shmetrics[1];
 
-  /* Command slot for T1 -> T2 offloading of advance_root / purge.
-     Padded to its own cache line to avoid false sharing with the
-     hot epoch / joiner_epochs fields above. */
+  /* Root / purge requests (T1 -> T2).
 
-#define FD_ACCDB_CMD_IDLE            (0U)
-#define FD_ACCDB_CMD_ADVANCE_ROOT    (1U)
-#define FD_ACCDB_CMD_PURGE           (2U)
-#define FD_ACCDB_CMD_CLEAR_DEFERRED  (3U)
-#define FD_ACCDB_CMD_DRAIN_DEFERRED  (4U)
+     T1 (replay or snapin) owns the fork tree: it alone writes fork
+     parent / child / sibling links and descends_sets.  advance_root and
+     purge update the tree immediately and leave the index work to T2
+     (the accdb tile), which never blocks T1.
 
-  uint   cmd_op       __attribute__((aligned(64))); /* FD_ACCDB_CMD_* */
-  ushort cmd_fork_id;                               /* argument       */
+     req.root_gen is the generation of the latest requested root.  Every
+     fork from root_fork_id up to the requested root's parent has a
+     single child, and generations increase along that path, so T2
+     roots root_fork_id's child_id until root_fork_id has root_gen.
+     Attaching the initial root requests it as the root, so there is
+     nothing to root.  Generations are never reused (reset keeps
+     counting), so done never matches a request it has not applied.
+
+     req.purge_fork is the latest purged (detached) fork.  Each purged
+     fork links to the one purged before it through its sibling_id (a
+     detached fork has no siblings).  T2 applies the newest
+     req.purge_seq-done.purge_seq forks of that chain.  Each unapplied
+     purge holds a fork slot, so fewer than 2^16 are ever pending and
+     their links are never recycled.
+
+     done is T2's progress, stored last in a pass.  T2 has work when
+     done.root_gen or done.purge_seq differ from req.  done.retiring is
+     set while T2 holds a batch of retired accounts / fork slots it
+     will release to the pools once concurrent readers drain.  When
+     done matches req and retiring is clear, T2 does not touch the
+     fork, acc or txn pools until the next request. */
+
+  fd_accdb_req_t  req  __attribute__((aligned(64)));
+  fd_accdb_done_t done __attribute__((aligned(64)));
 
   /* T2-only side buffer for deferred acc unlinks.  Holds the indices of
      accs that have been CAS-unlinked from their map chains in the
@@ -571,8 +618,8 @@ struct fd_accdb_shmem_private {
      union alias.  After wait_for_epoch_drain the list is materialized
      into pool.next links and released via acc_pool_release_chain.
 
-     T2 is the sole writer (advance_root and purge both run on T2 via
-     the cmd offload above), so cnt is plain.  Capacity is
+     T2 is the sole writer (it applies all root / purge requests), so
+     cnt is plain.  Capacity is
      txn_max = max_live_slots * max_account_writes_per_slot, the same
      bound used to size txn_pool.  Stored as a byte offset from shmem
      base. */
@@ -580,7 +627,14 @@ struct fd_accdb_shmem_private {
   ulong deferred_acc_buf_off;
   ulong deferred_acc_buf_cnt;
   ulong deferred_acc_buf_max;
-  ulong deferred_acc_epoch;
+  ulong deferred_epoch; /* epoch tag of the retired batch (accs and fork slots) */
+
+  /* T2-only chain (through pool.next) of fork pool slots retired with
+     the batch above.  Their IDs may still be referenced by concurrent
+     readers (via descends_set_test or a root_fork_id snapshot).
+     USHORT_MAX when empty. */
+  fd_accdb_fork_id_t deferred_fork_head;
+  fd_accdb_fork_id_t deferred_fork_tail;
 
   acc_pool_shmem_t  acc_pool [1];
   fork_pool_shmem_t fork_pool[1];
@@ -611,5 +665,48 @@ struct fd_accdb_shmem_private {
 
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };
+
+/* fd_accdb_shmem_cache_alloc_reset empties the cache line allocator: no
+   line used yet, every free list empty, no idle reservation credits.
+   cache_class_max, cache_min_reserved and joiner_cnt_max must be set.
+   If a class has enough lines for every joiner's worst case at once
+   (cache_min_reserved per joiner), no reservation can overflow, and
+   the cache_class_used sentinel ULONG_MAX tells acquire/release to skip
+   the counter. */
+
+static inline void
+fd_accdb_shmem_cache_alloc_reset( fd_accdb_shmem_t * shmem ) {
+  ulong worst = shmem->cache_min_reserved*shmem->joiner_cnt_max;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    shmem->clock_hand      [ c ].val = 0UL;
+    shmem->cache_class_init[ c ].val = 0UL;
+    shmem->cache_class_used[ c ].val = fd_ulong_if( shmem->cache_class_max[ c ]>=worst, ULONG_MAX, 0UL );
+    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
+      shmem->cache_free_have  [ c ].bits[ w ] = 0UL;
+      shmem->cache_free_hungry[ c ].bits[ w ] = 0UL;
+    }
+  }
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+      shmem->cache_free    [ j ].ver_top[ c ] = (ulong)UINT_MAX;
+      shmem->cache_free_cnt[ j ].val    [ c ] = 0UL;
+      shmem->join_cred     [ j ].val    [ c ] = 0UL;
+    }
+  }
+}
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_accdb_set_preevict_interval sets the minimum ticks between this
+   join's background pre-eviction watermark scans (default ~100000; 0
+   scans on every fd_accdb_background call).  For tests: a
+   single-threaded test that calls fd_accdb_background once to refill
+   the free lists sets 0. */
+
+void
+fd_accdb_set_preevict_interval( fd_accdb_t * accdb,
+                                long         ticks );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_private_h */

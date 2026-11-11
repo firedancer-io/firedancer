@@ -1439,6 +1439,94 @@ test_flushing_full_file_done_incremental_source( void ) {
 }
 
 static void
+test_incremental_failure_no_peer( void ) {
+  static struct {
+    char const * name;
+    int          state;
+    int          download_enabled;
+    uint         num_retries;
+    long         deadline_nanos;
+    int          expected_state; /* -1: fatal exit */
+  } const cases[] = {
+    { "file reset retries",              FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET, 1, 0U, 0L,       FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL  },
+    { "http reset retries",              FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET, 1, 0U, 0L,       FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL  },
+    { "file reset without download",     FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET, 0, 0U, 0L,       -1                                            },
+    { "reset at the retry limit",        FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET, 1, 5U, 0L,       -1                                            },
+    { "no peer waits",                   FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL,    1, 0U, 0L,       FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL },
+    { "no peer without download",        FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL,    0, 0U, 0L,       -1                                            },
+    { "waiting before the deadline",     FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL,   1, 0U, LONG_MAX, FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL },
+    { "waiting past the deadline",       FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL,   1, 0U, 0L,       -1                                            },
+  };
+
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx = scratch;
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    fd_memset( ctx, 0, sizeof(*ctx) );
+    test_ctx_wake_init( ctx );
+    ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+    FD_TEST( ctx->selector );
+
+    ctx->state                               = cases[ i ].state;
+    ctx->download_enabled                    = cases[ i ].download_enabled;
+    ctx->load_incremental                    = 1;
+    ctx->deadline_nanos                      = cases[ i ].deadline_nanos;
+    ctx->config.max_retry_abort              = 5U;
+    ctx->config.wait_for_peers_timeout_nanos = 30L*1000L*1000L*1000L;
+    ctx->metrics.incremental.num_retries     = cases[ i ].num_retries;
+    ctx->predicted_incremental.full_slot     = 100UL;
+    ctx->predicted_incremental.committed     = 1;
+    ctx->local_in.full_snapshot_slot         = 100UL;
+    ctx->local_in.incremental_snapshot_slot  = 200UL;
+    fd_cstr_ncpy( ctx->local_in.incremental_snapshot_path, "/snapshots/incremental-snapshot-100-200.tar.zst", PATH_MAX );
+
+    int busy = 0;
+    if( cases[ i ].expected_state==-1 ) {
+      pid_t pid = fork();
+      FD_TEST( pid>=0 );
+      if( !pid ) {
+        after_credit( ctx, NULL, NULL, &busy );
+        _exit( 0 );
+      }
+      int status;
+      FD_TEST( waitpid( pid, &status, 0 )==pid );
+      if( FD_UNLIKELY( !WIFEXITED( status ) || WEXITSTATUS( status )!=1 ) ) {
+        FD_LOG_ERR(( "case `%s`: expected a fatal exit", cases[ i ].name ));
+      }
+      continue;
+    }
+
+    long now = fd_clock_tile_now( ctx->clock );
+    after_credit( ctx, NULL, NULL, &busy );
+
+    if( FD_UNLIKELY( ctx->state!=cases[ i ].expected_state ) ) {
+      FD_LOG_ERR(( "case `%s`: state %i, expected %i", cases[ i ].name, ctx->state, cases[ i ].expected_state ));
+    }
+    switch( cases[ i ].state ) {
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET: {
+      int file = cases[ i ].state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET;
+      FD_TEST( ctx->metrics.incremental.num_retries==cases[ i ].num_retries+1U );
+      FD_TEST( !ctx->predicted_incremental.committed );
+      /* Only a failed local file stops being a candidate. */
+      FD_TEST( ctx->local_in.incremental_snapshot_slot==( file ? ULONG_MAX : 200UL ) );
+      break;
+    }
+    case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL:
+      FD_TEST( ctx->deadline_nanos>=now+ctx->config.wait_for_peers_timeout_nanos );
+      break;
+    default:
+      break;
+    }
+  }
+
+  free( sel );
+  free( scratch );
+  FD_LOG_NOTICE(( "pass: test_incremental_failure_no_peer" ));
+}
+
+static void
 test_flushing_full_file_done_wfs_floor( void ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
   fd_snapct_tile_t * ctx = scratch;
@@ -1823,6 +1911,7 @@ main( int     argc,
   test_log_download_peer_churn( ssping );
   test_wfs_init_no_download();
   test_flushing_full_file_done_incremental_source();
+  test_incremental_failure_no_peer();
   test_flushing_full_file_done_wfs_floor();
   test_incremental_selection_wfs_floor();
   test_collecting_peers_wfs_selection();

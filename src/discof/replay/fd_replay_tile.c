@@ -1637,7 +1637,6 @@ try_become_leader( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_replay ) ) return 0;
   if( !ctx->supports_leader ) return 0;
-  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0; /* leader bank attaches an accdb fork */
 
   /* Don't become leader if the slot is not scheduled for the identity.
      This can only happen in cases where the identity just switched. */
@@ -2183,32 +2182,32 @@ publish_boot_slot( fd_replay_tile_t *  ctx,
 }
 
 /* Determine the default slot params to use for slots where no
-   reduce_slot_time feature gate is in effect. This is important for
-   the inflation calculations, which use the slot times for
-   historical slots as input. Therefore we need the same semantics
-   as Agave, even after the reduce_slot_time feature gates are
-   active. */
+   reduce_slot_time feature gate is in effect.  This is important for
+   the inflation calculations, which use the slot times for historical
+   slots as input.  Therefore we need the same semantics as Agave, even
+   after the reduce_slot_time feature gates are active.
+   https://github.com/anza-xyz/agave/blob/4f8937b9568f7672ce0edcf67501666a95df015b/runtime/src/bank.rs#L2919-L2942 */
 static fd_slot_params_t
-restore_default_slot_params( fd_bank_t const * bank ) {
+restore_default_slot_params( fd_bank_t const *    bank,
+                             fd_genesis_t const * genesis ) {
+  fd_slot_params_t genesis_params = fd_slot_params_from_genesis( genesis );
 
-  /* A reduction is effective if the effective ns_per_slot is less than
-     the 400ms value.
-     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L332-L350 */
-  int reduction_effective = fd_slot_params_lookup( &FD_SLOT_PARAMS_400MS,
-                                                   &bank->f.features,
-                                                   &bank->f.epoch_schedule,
-                                                   bank->f.slot ).ns_per_slot < FD_SLOT_PARAMS_400MS.ns_per_slot;
+  /* A reduction is effective if any reduce_slot_time gate with a slot
+     time no greater than the genesis slot time is effective.
+     https://github.com/anza-xyz/agave/blob/4f8937b9568f7672ce0edcf67501666a95df015b/runtime/src/slot_params.rs#L332-L349 */
+  int reduction_effective = fd_slot_params_any_reduction_effective( &bank->f.features,
+                                                                    &bank->f.epoch_schedule,
+                                                                    bank->f.slot,
+                                                                    genesis_params.ns_per_slot );
 
-  /* In order to behave correctly in real networks, if a reduction is
-     effective then we use the 400ms slot params as the default. */
-  if( reduction_effective ) {
-    return FD_SLOT_PARAMS_400MS;
-  }
+  /* If a reduction is effective, the restored bank's slot params no
+     longer describe the pre-reduction slots, so use the genesis slot
+     params as the default. */
+  if( reduction_effective ) return genesis_params;
 
-  /* If a reduction is not effective, then we can rely on the slot
-     times having remained constant throughout the lifetime of the
-     cluster, and can use the slot params from the manifest. Note that
-     in test clusters these may differ from the 400ms values. */
+  /* If a reduction is not effective, use the slot params from the
+     manifest.  These may differ from genesis for values changed by
+     older feature gates (e.g. hashes_per_tick). */
   return bank->f.slot_params;
 }
 
@@ -2259,7 +2258,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      manifest. These assertions match Agave:
      https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4839-L4869 */
   fd_slot_params_t manifest_params = bank->f.slot_params;
-  bank->f.slot_params_default      = restore_default_slot_params( bank );
+  bank->f.slot_params_default      = restore_default_slot_params( bank, ctx->genesis );
   bank->f.slot_params              = fd_slot_params_at_slot( bank, bank->f.slot );
   FD_TEST( bank->f.slot_params.ns_per_slot    == manifest_params.ns_per_slot  );
   FD_TEST( bank->f.slot_params.slots_per_year == manifest_params.slots_per_year );
@@ -2278,6 +2277,16 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, bank->f.slot );
   FD_TEST( leader );
   bank->leader = *leader;
+
+  /* Agave asserts that the manifest leader_id matches the computed slot
+     leader.  At slot 0, Agave uses the highest staked node instead.
+     https://github.com/anza-xyz/agave/blob/v4.2.0/runtime/src/bank.rs#L2056-L2082 */
+  if( FD_UNLIKELY( bank->f.slot && !fd_pubkey_eq( leader, &ctx->manifest_leader_id ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( ctx->manifest_leader_id.uc, manifest_b58 );
+    FD_BASE58_ENCODE_32_BYTES( leader->uc,                 computed_b58 );
+    FD_LOG_ERR(( "invalid snapshot: leader_id %s does not match computed slot leader %s at slot %lu",
+                 manifest_b58, computed_b58, bank->f.slot ));
+  }
 
   fd_progcache_reset( ctx->progcache );
   bank->progcache_fork_id = fd_progcache_fork_id_initial();
@@ -2730,6 +2739,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       ctx->expected_genesis_timestamp     = manifest->creation_time_seconds;
       ctx->has_manifest_block_id          = manifest->has_block_id;
       if( manifest->has_block_id ) memcpy( ctx->manifest_block_id.uc, manifest->block_id, 32UL );
+      memcpy( ctx->manifest_leader_id.uc, manifest->leader_id, 32UL );
       if( FD_UNLIKELY( msg==FD_SSMSG_MANIFEST_FULL ) ) {
         ctx->snapmk.base_slot = manifest->slot;
       }
@@ -2921,10 +2931,6 @@ try_replay( fd_replay_tile_t *  ctx,
   /* Hold off executing until the computed shred version is known, so
      footer certs verify under it. */
   if( FD_UNLIKELY( !ctx->shred_version ) ) return 0;
-
-  /* Starting a block attaches an accdb fork, which would spin on a
-     pending root.  Nothing of the block dispatches before its start. */
-  if( FD_UNLIKELY( fd_sched_block_start_pending( ctx->sched ) && fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
 
   int charge_busy = 0;
   fd_sched_task_t task[ 1 ];
@@ -3287,17 +3293,8 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
 
-  /* accdb pauses advance_root while producing a snapshot, so submitting
-     one would stall the next wait_cmd until the snapshot completes. */
+  /* accdb does not root while producing a snapshot. */
   if( FD_UNLIKELY( ctx->snapmk.active ) ) return 0;
-
-  /* Don't spin in advance_root on the previous root, replay instead and
-     retry next iteration. */
-  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
-
-  /* Let a waiting block start take the idle accdb first, else it would
-     wait out the whole drain. */
-  if( FD_UNLIKELY( fd_sched_block_start_pending( ctx->sched ) ) ) return 0;
 
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
@@ -3436,10 +3433,6 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
 
 static int
 try_prune_bank( fd_replay_tile_t * ctx ) {
-  /* A cancellation purges accdb, which would spin on a pending root.
-     Check before popping the bank so the cancel info isn't lost. */
-  if( FD_UNLIKELY( fd_accdb_cmd_pending( ctx->accdb ) ) ) return 0;
-
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
 
   int pruned = fd_banks_prune_one_bank( ctx->banks, cancel_info );
@@ -4261,6 +4254,10 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_SNAP: {
+      /* Booting from the snapshot needs the parsed genesis (see
+         restore_default_slot_params).  genesi_out and snapin_manif are
+         independent links, so hold DONE until genesis has arrived. */
+      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE && !ctx->has_genesis_hash ) ) return 1;
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       maybe_verify_cluster_type( ctx );
       maybe_verify_shred_version( ctx );

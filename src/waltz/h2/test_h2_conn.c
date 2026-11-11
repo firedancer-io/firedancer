@@ -742,6 +742,11 @@ FD_UNIT_TEST( h2_ping_tx ) {
   uchar rbuf_rx_b[128] = {0};
   fd_h2_rbuf_t rbuf_rx[1];
   fd_h2_rbuf_init( rbuf_rx, rbuf_rx_b, sizeof(rbuf_rx_b) );
+  ping_ack.payload = 1UL;
+  fd_h2_rbuf_push( rbuf_rx, &ping_ack, sizeof(fd_h2_ping_t) );
+  fd_h2_rx( conn, rbuf_rx, rbuf_tx, scratch, sizeof(scratch), cb );
+  FD_TEST( conn->ping_tx==1 && test_h2_ping_tx_ack_cnt==0UL );
+  ping_ack.payload = 0UL;
   fd_h2_rbuf_push( rbuf_rx, &ping_ack, sizeof(fd_h2_ping_t) );
   FD_TEST( conn->ping_tx==1 );
   FD_TEST( test_h2_ping_tx_ack_cnt==0UL );

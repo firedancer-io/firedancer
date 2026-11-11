@@ -176,6 +176,28 @@ run_resolve( char const *       full_resp,
   *best_full = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
   *best_incr = fd_sspeer_selector_best( selector, 1, rec->full_slot, 0UL );
 
+  if( rec->called ) {
+    long now = fd_log_wallclock() + (long)6e9;
+    fd_http_resolver_advance( resolver, now, selector );
+    for( ulong i=0UL; i<2048UL; i++ ) {
+      serve( lfd, conns, &conns_len,
+             "HTTP/1.1 500 Error\r\nContent-Length: 0\r\n\r\n",
+             "HTTP/1.1 500 Error\r\nContent-Length: 0\r\n\r\n" );
+      fd_http_resolver_advance( resolver, now+(long)i, selector );
+    }
+    fd_sspeer_selector_process_cluster_slot( selector );
+    FD_TEST( !fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL ).addr.l );
+
+    now += (long)6e9;
+    for( ulong i=0UL; i<2048UL && rec->called==1; i++ ) {
+      fd_http_resolver_advance( resolver, now+(long)i, selector );
+      serve( lfd, conns, &conns_len, full_resp, incr_resp );
+    }
+    FD_TEST( rec->called==2 );
+    fd_sspeer_selector_process_cluster_slot( selector );
+    FD_TEST( fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL ).addr.l==best_full->addr.l );
+  }
+
   for( ulong i=0UL; i<conns_len; i++ ) FD_TEST( 0==close( conns[ i ].fd ) );
   FD_TEST( 0==close( lfd ) );
   FD_TEST( 0==close( epoll_fd ) );
@@ -203,7 +225,7 @@ test_full_only_peer( void ) {
     fd_sspeer_t      best_full, best_incr;
     run_resolve( FULL_303, absent[ i ], 1 /* fetch incremental */, &rec, &best_full, &best_incr );
 
-    FD_TEST( rec.called==1 );
+    FD_TEST( rec.called==2 );
     FD_TEST( rec.full_slot==100UL );
     FD_TEST( rec.incr_slot==FD_SSPEER_SLOT_UNKNOWN );
     FD_TEST( rec.incr_hash_null );
@@ -221,7 +243,7 @@ test_full_and_incremental_peer( void ) {
   fd_sspeer_t      best_full, best_incr;
   run_resolve( FULL_303, INCR_303, 1, &rec, &best_full, &best_incr );
 
-  FD_TEST( rec.called==1 );
+  FD_TEST( rec.called==2 );
   FD_TEST( rec.full_slot==100UL );
   FD_TEST( rec.incr_slot==200UL );
   FD_TEST( !rec.incr_hash_null );
@@ -261,7 +283,7 @@ test_incremental_on_older_full( void ) {
   fd_sspeer_t      best_full, best_incr;
   run_resolve( FULL_303_NEWER, INCR_303, 1, &rec, &best_full, &best_incr );
 
-  FD_TEST( rec.called==1 );
+  FD_TEST( rec.called==2 );
   FD_TEST( rec.full_slot==300UL );
   FD_TEST( rec.incr_slot==FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( rec.incr_hash_null );
@@ -279,7 +301,7 @@ test_no_incremental_fetch( void ) {
   fd_sspeer_t      best_full, best_incr;
   run_resolve( FULL_303, INCR_303, 0 /* no incremental fetch */, &rec, &best_full, &best_incr );
 
-  FD_TEST( rec.called==1 );
+  FD_TEST( rec.called==2 );
   FD_TEST( rec.full_slot==100UL );
   FD_TEST( rec.incr_slot==FD_SSPEER_SLOT_UNKNOWN );
 

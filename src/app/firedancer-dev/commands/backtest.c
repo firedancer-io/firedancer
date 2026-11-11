@@ -528,18 +528,8 @@ backtest_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 }
 
 static void
-fixup_config( config_t * config ) {
-
-  /* FIXME Unfortunately, the fdctl boot procedure constructs the
-           topology before parsing command-line arguments.  So, here,
-           we construct the topology again (a third time ... sigh). */
-  backtest_topo( config );
-}
-
-static void
 backtest_cmd_fn( args_t *   args,
                  config_t * config ) {
-  fixup_config( config );
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
 

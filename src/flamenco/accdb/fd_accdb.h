@@ -45,9 +45,11 @@ struct fd_accdb_entry {
   ulong   _original_size_class;
   ulong   _original_cache_idx;
 
-  struct {
-    ulong destination_cache_idx[ 8UL ];
-  } _write;
+  /* Writable only.  _staging_cache_idx is the 10 MiB line the account
+     is written in.  _final_cache_idx is the line of the account's final
+     size class, taken at release (ULONG_MAX if none). */
+  ulong   _staging_cache_idx;
+  ulong   _final_cache_idx;
 };
 
 typedef struct fd_accdb_entry fd_acc_t;
@@ -176,9 +178,9 @@ fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
 /* fd_accdb_snapshot_revert_whead restores the layer-0 write head to a
    previously saved position.
 
-   It internally waits for the pending background purge command to
-   complete on T2 before releasing partitions, so the caller does not
-   need to insert a separate wait_cmd barrier.
+   It waits for the accdb tile to apply pending root / purge requests
+   (including the purge of the incremental fork) and release what they
+   retired before releasing partitions.
 
    Previously allocated partitions (with indices in the range
    [saved_partition_max, current partition_max)) are released back
@@ -204,31 +206,39 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
    already been attached.  The ancestry must form a tree and it is
    undefined behavior to create cycles.
 
-   If the fork pool is full but contains deferred forks, this call
-   blocks until reader epochs drain and a deferred slot can be reused.
-   The caller should never call this function unless there are either
-   free fork ids or deferred ones. */
+   Forks removed by advance_root or purge hold their pool slot until
+   the accdb tile has applied the request and concurrent readers have
+   drained.  If the pool is full, this call blocks until the accdb tile
+   has applied all pending requests and released retired slots (which
+   waits on concurrent readers).  It is a fatal error if the pool is
+   still full afterwards. */
 
 fd_accdb_fork_id_t
 fd_accdb_attach_child( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t parent_fork_id );
 
 /* fd_accdb_advance_root advances the root of the accounts database to
-   the given fork_id.  fork_id must be a direct child of the current
-   root (i.e. fork->parent_id equals the current root_fork_id).
+   the given fork_id.  fork_id must be a direct child of the root most
+   recently passed to advance_root (or the initial root).
 
    Any competing sibling forks (and their entire subtrees) are removed.
    For accounts updated on the newly rooted fork, any older versions on
    ancestor forks are tombstoned for later compaction.
 
-   Completion is asynchronous; use fd_accdb_cmd_pending to check it.
-   The old root fork slot is recycled after reader epochs drain.
+   Does not block.  The fork tree is updated immediately (fork_id may
+   be advanced past right away); the index work is done asynchronously
+   by the accdb tile.  Reads on fork_id and its descendants are correct
+   before that work completes.  The old root fork slot is recycled
+   after the accdb tile applies the request and reader epochs drain.
 
    IMPORTANT: The caller must guarantee that all outstanding
    acquire/release pairs on every sibling of fork_id (and their entire
    subtrees) have completed before calling advance_root.  advance_root
    implicitly purges those sibling subtrees, which frees their fork pool
-   slots for recycling.
+   slots for recycling.  Acquires on any ancestor of fork_id must also
+   have completed: rooting fork_id unlinks the ancestor versions it
+   replaces from the index.  Read-only acquires on fork_id and its
+   descendants may continue.
 
    Once a fork is rooted, its generation becomes the new
    root_generation.  Concurrent acquires that observe the new root will
@@ -242,12 +252,12 @@ void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id );
 
-/* fd_accdb_cmd_pending returns 1 if the accdb tile has not finished
-   the last submitted background command (e.g. advance_root), so the
-   next advance_root or purge would block, 0 otherwise. */
+/* fd_accdb_requests_pending returns 1 if the accdb tile has not yet
+   applied every advance_root / purge request and released the
+   accounts and fork slots they retired, 0 otherwise. */
 
 int
-fd_accdb_cmd_pending( fd_accdb_t const * accdb );
+fd_accdb_requests_pending( fd_accdb_t const * accdb );
 
 /* fd_accdb_purge removes the provided fork and all of its descendants
    from the accounts database.
@@ -256,6 +266,11 @@ fd_accdb_cmd_pending( fd_accdb_t const * accdb );
    grandchild forks are removed from the index, and their disk
    space is freed for compaction.  The ancestry information for all
    purged forks is also removed.
+
+   Does not block; like advance_root, the index work is done
+   asynchronously by the accdb tile.  fork_id must not be the root or
+   one of its ancestors, and no fork may be attached under a purged
+   fork afterwards.
 
    IMPORTANT: The caller must guarantee that all outstanding
    acquire/release pairs on the purged fork and every descendant
@@ -526,8 +541,12 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
    fd_accdb_new.  All in-memory index state is cleared and all pool
    joins are re-established.  The on-disk file is not truncated.
 
-   The caller must guarantee that no other thread is concurrently
-   accessing the accdb (no outstanding acquires, no background work). */
+   Waits for the accdb tile to apply pending root / purge requests and
+   release what they retired.  The caller must guarantee that no other
+   thread is concurrently accessing the accdb (no outstanding
+   acquires).  It is a fatal error to reset while partitions are
+   queued for compaction; they are only queued once a snapshot load
+   has ended. */
 
 void
 fd_accdb_reset( fd_accdb_t * accdb );
@@ -609,9 +628,9 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
    The accdb API is split across three thread roles:
 
      T1 (replay): calls attach_child, advance_root, purge, acquire, and
-         release.  attach_child runs inline on T1. advance_root and
-         purge submit a command into a shared- memory slot and return
-         immediately; the heavy work is deferred to T2.
+         release.  T1 alone updates the fork tree.  advance_root and
+         purge update it, publish a request and return immediately; the
+         index work is deferred to T2.
 
      T2 (accdb tile / background): calls fd_accdb_background repeatedly.
          This is the only function T2 should call.
@@ -621,15 +640,17 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
    acquire and release may be called concurrently from T1 and any number
    of T3 threads.
 
-   Read-only acquire/release on a fork F may run concurrently with
-   advance_root(F) (rooting F itself).
+   Read-only acquire/release on a fork F or its descendants may run
+   concurrently with advance_root(F) and with T2 applying it, but not
+   acquires on an ancestor of F.
 
    fd_accdb_background must be called from exactly one thread (T2). It
    must not be called concurrently with itself.
 
    BEHAVIOR
 
-   Processes pending commands and snapshot state changes first.  During
+   Applies pending root / purge requests and snapshot state changes
+   first.  During
    snapshot production, pre-evicts cache lines without compacting.  Otherwise
    pre-evicts, grows the file if needed, and attempts compaction at each
    layer.  Sets *charge_busy when work is done. */
@@ -691,16 +712,6 @@ void
 fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
                                  ulong *      free_target,
                                  ulong *      free_low_water );
-
-/* fd_accdb_set_preevict_interval sets the minimum ticks between this
-   join's background pre-eviction watermark scans (default ~100000; 0
-   scans on every fd_accdb_background call).  For tests: a
-   single-threaded test that calls fd_accdb_background once to refill
-   the free lists sets 0. */
-
-void
-fd_accdb_set_preevict_interval( fd_accdb_t * accdb,
-                                long         ticks );
 
 /* FD_ACCDB_METRICS_WRITE publishes the per-joiner accdb runtime metrics
    for tile prefix TILE.  TILE must be a tile that declares the

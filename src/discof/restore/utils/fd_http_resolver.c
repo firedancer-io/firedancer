@@ -414,10 +414,12 @@ remove_peer( fd_http_resolver_t * resolver,
 }
 
 static inline void
-unresolve_peer( fd_http_resolver_t *  resolver,
-                fd_ssresolve_peer_t * peer,
-                long                  now ) {
+unresolve_peer( fd_http_resolver_t *   resolver,
+                fd_sspeer_selector_t * selector,
+                fd_ssresolve_peer_t *  peer,
+                long                   now ) {
   FD_TEST( peer->state==PEER_STATE_UNRESOLVED || peer->state==PEER_STATE_REFRESHING );
+  fd_sspeer_selector_remove( selector, &peer->key );
   remove_peer( resolver, peer->fd.idx );
   deadline_list_ele_remove( resolver->resolving, peer, resolver->pool );
   peer->state          = PEER_STATE_INVALID;
@@ -447,18 +449,19 @@ update_events( fd_http_resolver_t * resolver,
 }
 
 static inline int
-poll_resolve( fd_http_resolver_t *  resolver,
-              struct pollfd *       pfd,
-              fd_ssresolve_peer_t * peer,
-              fd_ssresolve_t *      ssresolve,
-              ulong                 idx,
-              long                  now ) {
+poll_resolve( fd_http_resolver_t *   resolver,
+              fd_sspeer_selector_t * selector,
+              struct pollfd *        pfd,
+              fd_ssresolve_peer_t *  peer,
+              fd_ssresolve_t *       ssresolve,
+              ulong                  idx,
+              long                   now ) {
   FD_TEST( !fd_ssresolve_is_done( ssresolve ) );
   if( FD_LIKELY( pfd->revents & POLLOUT ) ) {
     int res = fd_ssresolve_advance_poll_out( ssresolve );
 
     if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_ERROR ) ) {
-      unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ idx ] ), now );
+      unresolve_peer( resolver, selector, peer_pool_ele( resolver->pool, resolver->fds_idx[ idx ] ), now );
       return -1;
     }
   }
@@ -468,7 +471,7 @@ poll_resolve( fd_http_resolver_t *  resolver,
     int res = fd_ssresolve_advance_poll_in( ssresolve, &resolve_result );
 
     if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_ERROR ) ) {
-      unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ idx ] ), now );
+      unresolve_peer( resolver, selector, peer_pool_ele( resolver->pool, resolver->fds_idx[ idx ] ), now );
       return -1;
     } else if( FD_UNLIKELY( res==FD_SSRESOLVE_ADVANCE_AGAIN ) ) {
       update_events( resolver, pfd, ssresolve );
@@ -494,8 +497,9 @@ poll_resolve( fd_http_resolver_t *  resolver,
 }
 
 static inline void
-poll_advance( fd_http_resolver_t * resolver,
-              long                 now ) {
+poll_advance( fd_http_resolver_t *   resolver,
+              fd_sspeer_selector_t * selector,
+              long                   now ) {
   if( FD_LIKELY( !resolver->fds_len ) ) return;
 
   int nfds = fd_syscall_poll( resolver->fds, (uint)resolver->fds_len, 0 );
@@ -516,7 +520,7 @@ poll_advance( fd_http_resolver_t * resolver,
        coexist with POLLHUP when the server sends a response and then
        closes the connection (common for HTTP HEAD redirects). */
     if( FD_LIKELY( !fd_ssresolve_is_done( ssresolve ) ) ) {
-      int res = poll_resolve( resolver, pfd, peer, ssresolve, i, now );
+      int res = poll_resolve( resolver, selector, pfd, peer, ssresolve, i, now );
       if( FD_UNLIKELY( res ) ) continue;
     }
 
@@ -524,7 +528,7 @@ poll_advance( fd_http_resolver_t * resolver,
        yet.  After a redirect is parsed the server often closes the
        connection, which is harmless. */
     if( FD_UNLIKELY( (pfd->revents & (POLLERR|POLLHUP)) && !fd_ssresolve_is_done( ssresolve ) ) ) {
-      unresolve_peer( resolver, peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] ), now );
+      unresolve_peer( resolver, selector, peer_pool_ele( resolver->pool, resolver->fds_idx[ i ] ), now );
       continue;
     }
 
@@ -635,5 +639,5 @@ fd_http_resolver_advance( fd_http_resolver_t *   resolver,
     }
   }
 
-  poll_advance( resolver, now );
+  poll_advance( resolver, selector, now );
 }

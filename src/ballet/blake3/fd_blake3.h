@@ -161,9 +161,9 @@
 #define FD_BLAKE3_ROW_CNT (32UL)
 
 /* FD_BLAKE3_INPUT_MAX_SZ is the max supported message size of
-   fd_blake3, derived by FD_BLAKE3_ROW_CNT.  (About 4.40 terabytes) */
+   fd_blake3, derived by FD_BLAKE3_ROW_CNT.  (2 TiB) */
 
-#define FD_BLAKE3_INPUT_MAX_SZ ((1UL<<FD_BLAKE3_ROW_CNT)<<FD_BLAKE3_CHUNK_LG_SZ)
+#define FD_BLAKE3_INPUT_MAX_SZ ((1UL<<(FD_BLAKE3_ROW_CNT-1UL))<<FD_BLAKE3_CHUNK_LG_SZ)
 
 /* FD_BLAKE3_COL_CNT is the max number of adjacent tree nodes to be
    buffered per hash state.  Used for parallel processing.

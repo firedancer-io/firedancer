@@ -86,8 +86,8 @@ fd_blake3_ref_compress1( uchar * restrict       out, /* align==1 len==32 */
                          uint                   msg_sz,
                          ulong                  counter,
                          uint                   flags,
-                         uchar * restrict       out_chain,  /* optional, 16 byte output chaining value of last block */
-                         uchar const * restrict in_chain ); /* optional, 16 byte input chaining value of first block (default IV) */
+                         uchar * restrict       out_chain,  /* optional, 32 byte output chaining value of last block */
+                         uchar const * restrict in_chain ); /* optional, 32 byte input chaining value of first block (default IV) */
 
 #if FD_HAS_SSE
 

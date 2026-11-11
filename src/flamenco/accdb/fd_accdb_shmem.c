@@ -356,20 +356,6 @@ fd_accdb_shmem_new( void * shmem,
   accdb->snapshot_loading = 0;
   accdb->bundle_enabled   = bundle_enabled;
 
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->clock_hand[ c ].val = 0UL;
-  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
-    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-      accdb->cache_free    [ j ].ver_top[ c ] = (ulong)UINT_MAX;
-      accdb->cache_free_cnt[ j ].val    [ c ] = 0UL;
-    }
-  }
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
-      accdb->cache_free_have  [ c ].bits[ w ] = 0UL;
-      accdb->cache_free_hungry[ c ].bits[ w ] = 0UL;
-    }
-  }
-
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     ulong max_c       = cache_class_max[ c ];
     ulong floor_c     = fd_ulong_min( cache_min_reserved, max_c );
@@ -414,15 +400,17 @@ fd_accdb_shmem_new( void * shmem,
   accdb->deferred_acc_buf_off = (ulong)_deferred_acc_buf - (ulong)shmem;
   accdb->deferred_acc_buf_cnt = 0UL;
   accdb->deferred_acc_buf_max = txn_max;
-  accdb->deferred_acc_epoch   = 0UL;
+  accdb->deferred_epoch       = 0UL;
+  accdb->deferred_fork_head   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
+  accdb->deferred_fork_tail   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
 
   accdb->epoch          = 1UL;
   accdb->snapshot_sync  = FD_ACCDB_SNAPSHOT_SYNC_IDLE;
   accdb->joiner_cnt     = 0UL;
   for( ulong i=0UL; i<FD_ACCDB_MAX_JOINERS; i++ ) accdb->joiner_epochs[ i ].val = ULONG_MAX;
 
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_class_init[ c ].val = 0UL;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_class_max[ c ] = cache_class_max[ c ];
+  fd_accdb_shmem_cache_alloc_reset( accdb );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_region_off[ c ] = (ulong)_cache_regions[ c ] - (ulong)shmem;
 
   /* Pre-initialize every cache slot's metadata to the "empty" sentinel
@@ -446,18 +434,6 @@ fd_accdb_shmem_new( void * shmem,
     }
   }
 
-  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
-    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->join_cred[ j ].val[ c ] = 0UL;
-  }
-
-  /* If a class has enough slots for every joiner's worst case
-     simultaneously (cache_min_reserved per joiner), no reservation can
-     ever overflow.  Sentinel ULONG_MAX tells acquire/release to skip
-     the atomic counters entirely. */
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    accdb->cache_class_used[ c ].val = fd_ulong_if( cache_class_max[ c ]>=cache_min_reserved*joiner_cnt, ULONG_MAX, 0UL );
-  }
-
   accdb->delta.seed       = seed+1UL;
   accdb->delta.chain_off  = (ulong)_delta_map - (ulong)shmem;
   accdb->delta.chain_cnt  = (uint)delta_chain_cnt;
@@ -469,8 +445,8 @@ fd_accdb_shmem_new( void * shmem,
   memset( accdb->shmetrics, 0, sizeof( fd_accdb_shmem_metrics_t ) );
   accdb->shmetrics->accounts_capacity = max_accounts;
 
-  accdb->cmd_op      = FD_ACCDB_CMD_IDLE;
-  accdb->cmd_fork_id = USHORT_MAX;
+  accdb->req  = (fd_accdb_req_t ){ .root_gen = 0U, .purge_seq = 0U, .purge_fork = { .val = USHORT_MAX } };
+  accdb->done = (fd_accdb_done_t){ .root_gen = 0U, .purge_seq = 0U, .retiring = 0U };
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( accdb->magic ) = FD_ACCDB_SHMEM_MAGIC;

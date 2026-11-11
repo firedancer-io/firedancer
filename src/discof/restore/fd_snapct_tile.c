@@ -434,9 +434,12 @@ best_incremental_peer( fd_snapct_tile_t * ctx ) {
   return best;
 }
 
-/* No server has an incremental for the full we just loaded, and with
-   gossip off no other server will appear.  Boot from the full alone
-   and let replay catch up. */
+/* Before NEXT, full_only decides whether to boot from the full alone:
+   that happens only when no gossip peer is allowed as a snapshot
+   source, no configured server has an incremental for it, and none is
+   on disk for that full.  Once the full is committed with NEXT, an
+   incremental is required, since the decision cannot be reverted (no
+   control message can finish the load with the full alone). */
 
 static int
 full_only( fd_snapct_tile_t * ctx ) {
@@ -1323,7 +1326,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         set_state( ctx, FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET );
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from local file `%s`",
+        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from local file `%s`. "
+                         "if the file is damaged, remove it, or later boots may select it again.",
                          ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
         break;
       }
@@ -1342,7 +1346,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         set_state( ctx, FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET );
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from local file `%s`",
+        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from local file `%s`. "
+                         "if the file is damaged, remove it, or later boots may select it again.",
                          ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
         break;
       }
@@ -1573,6 +1578,13 @@ after_credit( fd_snapct_tile_t *  ctx,
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
+      /* Once the full is committed with NEXT, an incremental is
+         required.  The incremental load resets the full's status cache
+         and may already have replaced its manifest in replay, so
+         reverting would mean restoring both.  It would also require
+         the incremental's partial account state to be rolled back.
+         Booting from the full alone may never catch up either.  Every
+         path from here loads an incremental or aborts. */
       if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
 
       if( ctx->metrics.incremental.num_retries>=ctx->config.max_retry_abort ) {
@@ -1590,7 +1602,9 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( !ctx->download_enabled ) {
         /* if we are unable to download new snapshots and unable to load
            our local snapshot, we must shutdown the validator. */
-        FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting.", ctx->local_in.incremental_snapshot_path ));
+        FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting. "
+                     "if the file is damaged, remove it before restarting, or the next boot will select it again.",
+                     ctx->local_in.incremental_snapshot_path ));
       } else {
         if( ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
         ctx->predicted_incremental.committed = 0; /* the source is undecided again */
@@ -1626,7 +1640,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         set_state( ctx, FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET );
-        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from local file `%s`",
+        FD_LOG_WARNING(( "failed to load incremental snapshot at slot %lu from local file `%s`. "
+                         "if the file is damaged, remove it, or later boots may select it again.",
                          ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
         break;
       }
