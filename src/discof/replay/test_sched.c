@@ -1773,6 +1773,28 @@ txn_task_payer_is( fd_sched_t *            sched,
   return !memcmp( addrs->b, acct->uc, sizeof(fd_acct_addr_t) );
 }
 
+/* Like lthash_drive_hold for transaction tasks, but the one held is the
+   first paid by payer.  Any other transaction completes. */
+static int
+lthash_drive_hold_payer( fd_sched_t *        sched,
+                         test_lthash_ctx_t * ctx,
+                         ulong               max_steps,
+                         fd_pubkey_t const * payer,
+                         fd_sched_task_t *   held ) {
+  for( ulong i=0UL; i<max_steps; i++ ) {
+    while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+    fd_sched_task_t task[ 1 ];
+    if( !fd_sched_task_next_ready( sched, task ) ) break;
+    if( task->task_type==FD_SCHED_TT_TXN_EXEC && txn_task_payer_is( sched, task, payer ) ) {
+      *held = *task;
+      return 1;
+    }
+    lthash_drive_task( sched, task, ctx );
+  }
+  while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+  return 0;
+}
+
 /* Hands out and completes tasks with throwaway results and no account
    bookkeeping until the scheduler hands out nothing, for blocks too
    wide for test_lthash_ctx_t to track. */
@@ -2807,6 +2829,70 @@ run_lthash_spec_ready_first_case( void ) {
   FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* both guesses stood */
   FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
   lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=2UL, .spec=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .spec_applied=2UL, .frozen=2UL } );
+  char * state = fd_sched_get_state_cstr( sched );
+  FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
+
+  delete_sched( sched );
+}
+
+/* Speculation while the block is blocked on conflicts.  T1 and T2 write
+   A and T3 writes B, in one FEC set that is not the last.  T1 is held
+   on its tile, so T2 waits on it, and T3 completes.  B's writer is
+   done, so B is guessed while T1 is still out and T2 still queued.
+   Once T1 completes, T2 runs ahead of any further guess, and A is
+   guessed after it.  An empty last FEC set ends the block with both
+   guesses standing. */
+static void
+run_lthash_spec_blocked_conflicts_case( void ) {
+  fd_sched_t * sched = new_sched( 4UL );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+
+  fd_pubkey_t acct[ 2 ];
+  lthash_test_keys( acct, acct+1 );
+  uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct,   NULL, 0UL, 0x01 );
+  uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct,   NULL, 0UL, 0x02 );
+  uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_legacy_test_txn( t3, acct+1, NULL, 0UL, 0x03 );
+  uchar const * txns[ 3 ] = { t1, t2, t3 };
+  ulong txn_sz[ 3 ] = { t1_sz, t2_sz, t3_sz };
+  uchar encoded[ 8192 ]; ulong sz = encode_lthash_batch( encoded, txns, txn_sz, 3UL );
+
+  fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x7b8c9dae0f102132UL );
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 1, 0 );
+  fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+  static test_lthash_ctx_t ctx[ 1 ]; fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
+  fd_sched_task_t held[ 1 ];
+  FD_TEST( lthash_drive_hold_payer( sched, ctx, 100UL, acct, held ) );
+  lthash_drive( sched, ctx, 100UL );
+
+  /* T3, PoH, sigverify and both subtractions ran.  T2 waits on T1, and
+     the idle tiles went to guessing B. */
+  FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==2UL && ctx->add_cnt==1UL && !ctx->block_end_cnt );
+  lthash_check_acct( ctx, 2UL, acct+1, 1UL, 1UL, 1UL );
+  lthash_check_acct( ctx, 2UL, acct,   1UL, 0UL, 0UL );
+  FD_TEST( !fd_sched_is_drained( sched ) );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .first_write=2UL, .coalesced=1UL, .add_created=1UL, .spec=1UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=1UL, .add_dispatched=1UL, .add_task=1UL, .add_applied=1UL, .spec_applied=1UL } );
+
+  /* T1 completes.  T2 is ready and outranks the next guess. */
+  lthash_drive_task( sched, held, ctx );
+  fd_sched_task_t task[ 1 ];
+  FD_TEST( fd_sched_task_next_ready( sched, task ) );
+  FD_TEST( task->task_type==FD_SCHED_TT_TXN_EXEC && txn_task_payer_is( sched, task, acct ) );
+  lthash_drive_task( sched, task, ctx );
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==3UL && ctx->sub_cnt==2UL && ctx->add_cnt==2UL && !ctx->block_end_cnt );
+  lthash_check_acct( ctx, 2UL, acct, 1UL, 1UL, 2UL );
+  FD_TEST( fd_sched_is_drained( sched ) );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .first_write=2UL, .coalesced=1UL, .add_created=2UL, .spec=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .spec_applied=2UL } );
+
+  ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, NULL, 0UL, 0, 1 );
+  lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->txn_exec_cnt==3UL && ctx->block_end_cnt==1UL && ctx->add_cnt==2UL );
+  fd_lthash_value_t expected[ 1 ]; lthash_expected_delta( expected, ctx, 2UL, acct, 2UL );
+  FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
+  FD_TEST( fd_lthash_eq( ctx->delta, ctx->handed ) ); /* both guesses stood */
+  FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
+  lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .first_write=2UL, .coalesced=1UL, .add_created=2UL, .spec=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .spec_applied=2UL, .frozen=2UL } );
   char * state = fd_sched_get_state_cstr( sched );
   FD_TEST( strstr( state, "lthash_ready_bitset[ 0 ] 0xf," ) );
 
@@ -4992,6 +5078,7 @@ main( int     argc,
   run_lthash_speculate_case( 0 );
   run_lthash_speculate_case( 1 );
   run_lthash_spec_ready_first_case();
+  run_lthash_spec_blocked_conflicts_case();
   run_lthash_spec_result_dropped_case();
   run_lthash_spec_given_up_case();
   run_lthash_spec_given_up_complete_case( 0 );
