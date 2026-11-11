@@ -1711,12 +1711,21 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L836 */
       fd_borrowed_account_drop( &buffer );
 
-      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L849-L850 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/bpf_loader/src/lib.rs#L614 */
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata );
 
-      /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L846-L874 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/bpf_loader/src/lib.rs#L613-L636 */
       /* Update the ProgramData account, record the upgraded data, and zero the rest in a local scope */
       do {
+        /* Replace the data with a zeroed header before growing it.
+           https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/bpf_loader/src/lib.rs#L623-L625 */
+        uchar const zero_header[ PROGRAMDATA_METADATA_SIZE ] = {0};
+        err = fd_borrowed_account_set_data_from_slice( &programdata, zero_header, PROGRAMDATA_METADATA_SIZE );
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+          return err;
+        }
+
+        /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/bpf_loader/src/lib.rs#L627-L631 */
         err = fd_borrowed_account_set_data_length( &programdata, programdata_len );
         if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
