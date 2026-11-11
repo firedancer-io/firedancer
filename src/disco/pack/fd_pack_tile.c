@@ -175,10 +175,32 @@ static char const * const schedule_strategy_strings[3] = { "PRF", "BAL", "AUC" }
 #define FD_PACK_PARENT_SWITCH_NONE     (0) /* not switching parent */
 #define FD_PACK_PARENT_SWITCH_DRAINING (1) /* microblocks of the old bank may still run */
 #define FD_PACK_PARENT_SWITCH_DRAINED  (2) /* prefix_drained sent, waiting for the new bank */
+
+/* FD_PACK_PREFIX_TXN_MAX is how many txns pack keeps from a slot's
+   prefix (fast leader handover): the txns it sent to an execle while
+   the slot's parent was unconfirmed, to insert again if the slot
+   switches parent.  On mainnet, the first slot of our window has at
+   most ~2,400 txns start executing in its first 100 ms (p99 ~760). */
+
+#define FD_PACK_PREFIX_TXN_MAX (4096UL)
+
 typedef struct {
   fd_acct_addr_t commission_pubkey[1];
   ulong          commission;
 } block_builder_info_t;
+
+/* fd_pack_prefix_txn is a txn of the prefix: the fd_txn_e_t pack sent
+   to the execle, with what fd_pack dropped when it scheduled it.  The
+   first txn of a bundle has bundle_txn_cnt>0 and the bundle's
+   metadata, the bundle's other txns follow with bundle_txn_cnt==0. */
+
+struct fd_pack_prefix_txn {
+  fd_txn_e_t           txn[1];
+  ulong                expires_at; /* as inserted, see fd_pack_sched_info_t */
+  ulong                bundle_txn_cnt;
+  block_builder_info_t bundle_meta[1];
+};
+typedef struct fd_pack_prefix_txn fd_pack_prefix_txn_t;
 
 typedef struct {
   long time;
@@ -241,6 +263,16 @@ typedef struct {
      is drained, so none of its microblocks precede the UpdateParent.
      Its slot is ULONG_MAX until it arrives. */
   fd_became_leader_t       update_parent_bank[1];
+
+  /* The prefix: while the slot's parent is unconfirmed
+     (prefix_recording), each txn and bundle sent to an execle is copied
+     to prefix[i] (i<prefix_txn_cnt), so that if the slot switches parent
+     they can be inserted again for the new bank.  Once FD_PACK_PREFIX_TXN_MAX are kept, recording stops, and a
+     bundle is kept whole or not at all.  Pack's own initializer bundle
+     is not kept: the new bank cranks again. */
+  fd_pack_prefix_txn_t *   prefix; /* FD_PACK_PREFIX_TXN_MAX */
+  ulong                    prefix_txn_cnt;
+  int                      prefix_recording;
 
   /* Fast leader handover: the slot is built on an optimistic parent
      replay has not confirmed (fd_became_leader_t parent_unconfirmed).
@@ -480,6 +512,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
                                                                         BUNDLE_META_SZ,
                                                                         tile->pack.execle_tile_count,
                                                                         limits                               ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_pack_prefix_txn_t), FD_PACK_PREFIX_TXN_MAX*sizeof(fd_pack_prefix_txn_t)  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -607,6 +640,72 @@ auction_end( fd_pack_ctx_t * ctx,
   fd_pack_auction_end( ctx->pack );
 }
 
+/* prefix_record copies the txn_cnt txns of a microblock pack just sent
+   to an execle to the prefix (see prefix), with what fd_pack
+   dropped when it scheduled them (info).  A bundle is kept whole or not
+   at all.  An initializer bundle is pack's own crank for the bank and
+   is not kept. */
+
+static void
+prefix_record( fd_pack_ctx_t *              ctx,
+               fd_txn_e_t const *           txns,
+               ulong                        txn_cnt,
+               fd_pack_sched_info_t const * info ) {
+  if( FD_UNLIKELY( txns[ 0 ].txnp->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE ) ) return;
+  if( FD_UNLIKELY( ctx->prefix_txn_cnt+txn_cnt>FD_PACK_PREFIX_TXN_MAX ) ) {
+    FD_MCNT_INC( PACK, PREFIX_TXN_DROPPED, txn_cnt );
+    ctx->prefix_recording = 0; /* keep the prefix in order: nothing after a gap */
+    return;
+  }
+
+  int is_bundle = !!(txns[ 0 ].txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_pack_prefix_txn_t * rec = ctx->prefix + ctx->prefix_txn_cnt + i;
+    fd_memcpy( rec->txn, txns+i, sizeof(fd_txn_e_t) );
+    rec->expires_at     = info->expires_at[ i ];
+    rec->bundle_txn_cnt = fd_ulong_if( is_bundle & (i==0UL), txn_cnt, 0UL );
+    if( FD_UNLIKELY( is_bundle & (i==0UL) ) ) fd_memcpy( rec->bundle_meta, info->bundle_meta, sizeof(block_builder_info_t) );
+  }
+  ctx->prefix_txn_cnt += txn_cnt;
+  FD_MCNT_INC( PACK, PREFIX_TXN_RECORDED, txn_cnt );
+}
+
+/* prefix_reinsert inserts the prefix again, for the slot's new bank
+   after it switched parent: the txns and bundles pack sent to an
+   execle on the old bank, as if they had just arrived.  Their flags
+   are cleared, so nothing pack or the execle set carries over, and
+   their cost, rewards and bundle order are computed again.  Like any
+   insert, one may be rejected (e.g. expired) or evict another. */
+
+static void
+prefix_reinsert( fd_pack_ctx_t * ctx ) {
+  long now = fd_clock_tile_now( ctx->clock );
+  for( ulong i=0UL; i<ctx->prefix_txn_cnt; ) {
+    fd_pack_prefix_txn_t const * rec = ctx->prefix + i;
+    ulong txn_cnt = fd_ulong_max( rec->bundle_txn_cnt, 1UL );
+    FD_TEST( i+txn_cnt<=ctx->prefix_txn_cnt );
+
+    fd_txn_e_t *  spot[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+    fd_txn_e_t * const * bundle = rec->bundle_txn_cnt ? fd_pack_insert_bundle_init( ctx->pack, spot, txn_cnt ) : NULL;
+    if( FD_LIKELY( !bundle ) ) spot[ 0 ] = fd_pack_insert_txn_init( ctx->pack );
+    for( ulong j=0UL; j<txn_cnt; j++ ) {
+      fd_txn_e_t * dst = bundle ? bundle[ j ] : spot[ 0 ];
+      fd_memcpy( dst, rec[ j ].txn, sizeof(fd_txn_e_t) );
+      dst->txnp->flags                        = 0U;
+      dst->txnp->scheduler_arrival_time_nanos = now;
+    }
+
+    ulong deleted;
+    int   result = bundle ? fd_pack_insert_bundle_fini( ctx->pack, bundle, txn_cnt, rec->expires_at, 0, rec->bundle_meta, &deleted )
+                          : fd_pack_insert_txn_fini   ( ctx->pack, spot[ 0 ],             rec->expires_at,                      &deleted );
+    FD_MCNT_INC( PACK, TXN_EVICTED, deleted );
+    ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += txn_cnt;
+    i += txn_cnt;
+  }
+  FD_MCNT_INC( PACK, PREFIX_TXN_REINSERTED, ctx->prefix_txn_cnt );
+  ctx->prefix_txn_cnt = 0UL;
+}
+
 /* end_slot ends our leader slot: it publishes done packing to motor,
    with reason (FD_PACK_END_SLOT_REASON_*), and drains the execles. */
 
@@ -633,6 +732,8 @@ end_slot( fd_pack_ctx_t *     ctx,
   ctx->leader_bank_seq     = ULONG_MAX; /* late rebates for the bank are dropped */
   ctx->slot_microblock_cnt = 0UL;
   ctx->slot_end_held       = 0;
+  ctx->prefix_recording    = 0;
+  ctx->prefix_txn_cnt      = 0UL;
   remove_ib( ctx );
 }
 
@@ -951,8 +1052,10 @@ after_credit( fd_pack_ctx_t *     ctx,
 
     fd_pack_out_ctx_t * execle_out = &ctx->execle_out[ i ];
     fd_txn_e_t * microblock_dst = fd_chunk_to_laddr( execle_out->mem, execle_out->chunk );
+    fd_pack_sched_info_t sched_info[1];
     long schedule_duration = -fd_tickcount();
-    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, (ulong)i, flags, microblock_dst );
+    ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, (ulong)i, flags, microblock_dst,
+                                                           ctx->prefix_recording ? sched_info : NULL );
     schedule_duration      += fd_tickcount();
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
@@ -990,6 +1093,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       ctx->pack_idx += fd_uint_if( trailer->is_bundle, (uint)schedule_cnt, 1U );
       ctx->pack_txn_cnt += schedule_cnt;
       ctx->slot_bundle_txn_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 0UL );
+      if( FD_UNLIKELY( ctx->prefix_recording ) ) prefix_record( ctx, microblock_dst, schedule_cnt, sched_info );
 
       ctx->execle_idle_bitset = fd_ulong_pop_lsb( ctx->execle_idle_bitset );
       ctx->skip_cnt           = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)execle_cnt/2L, 1L );
@@ -1211,6 +1315,7 @@ update_parent_kill( fd_pack_ctx_t * ctx,
   ctx->parent_switch           = FD_PACK_PARENT_SWITCH_DRAINING;
   ctx->slot_parent_unconfirmed = 0;
   ctx->slot_end_held           = 0;
+  ctx->prefix_recording        = 0; /* nothing more goes to the old bank, keep what was sent */
 
   auction_end( ctx, now, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
   remove_ib( ctx );
@@ -1239,6 +1344,8 @@ begin_slot( fd_pack_ctx_t * ctx,
   if( FD_LIKELY( !resume ) ) {
     ctx->slot_pack_start_ns  = now_ns;
     ctx->slot_bundle_txn_cnt = 0UL;
+    ctx->prefix_txn_cnt      = 0UL;
+    ctx->prefix_recording    = !!ctx->_became_leader->parent_unconfirmed;
   } else {
     /* The old bank's block accounting is not the new bank's.  A slot
        start does not need this, the last slot's end cleared it.  The
@@ -1310,6 +1417,11 @@ begin_slot( fd_pack_ctx_t * ctx,
   /* If there is currently an auction running from a previous slot, end it. */
   auction_end( ctx, now_ticks, FD_METRICS_ENUM_PACK_AUCTION_END_REASON_V_SLOT_END_IDX );
 
+  /* The slot switched parent: what went to the old bank goes in again
+     for the new one, now that its height expires stale txns and no
+     auction holds them back. */
+  if( FD_UNLIKELY( resume ) ) prefix_reinsert( ctx );
+
   ctx->slot_end_ns                   = ctx->_became_leader->slot_end_ns;
   if( FD_LIKELY( !resume ) ) ctx->leader_slot_start_tick = now_ticks + (long)((double)( ctx->_became_leader->slot_start_ns - now_ns )*tick_per_ns);
   ctx->leader_slot_end_tick          = end_ticks;
@@ -1367,6 +1479,8 @@ after_frag( fd_pack_ctx_t *     ctx,
       if( FD_UNLIKELY( sig==REPLAY_SIG_CONFIRM_LEADER ) ) {
         if( FD_UNLIKELY( ctx->_leader_confirmation->slot!=ctx->leader_slot ) ) return;
         ctx->slot_parent_unconfirmed = 0;
+        ctx->prefix_recording        = 0; /* the slot can no longer switch parent */
+        ctx->prefix_txn_cnt          = 0UL;
         if( FD_UNLIKELY( ctx->slot_end_held ) ) end_slot( ctx, stem, now, ctx->slot_end_held_reason, "confirmed" );
         return;
       }
@@ -1517,6 +1631,9 @@ unprivileged_init( fd_topo_t const *      topo,
                                          fd_type_pun_const( tile->pack.acct_blocklist ), tile->pack.acct_blocklist_cnt,
                                          rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
+  ctx->prefix           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_pack_prefix_txn_t), FD_PACK_PREFIX_TXN_MAX*sizeof(fd_pack_prefix_txn_t) );
+  ctx->prefix_txn_cnt   = 0UL;
+  ctx->prefix_recording = 0;
 
   fd_pack_set_block_limits( ctx->pack, limits_lower );
 

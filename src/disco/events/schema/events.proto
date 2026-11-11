@@ -10263,6 +10263,12 @@ message MetricsPack {
   MetricsPackAuctionEnded auction_ended = 55;
   // Duration that batch auctions ran for
   MetricsPackAuctionDurationNanos auction_duration_nanos = 56;
+  // Transactions sent to an execle while the slot's parent was unconfirmed that pack kept, to insert again if the slot switches parent
+  uint64 prefix_txn_recorded = 280277852;
+  // Transactions sent to an execle while the slot's parent was unconfirmed that pack did not keep because its prefix was full
+  uint64 prefix_txn_dropped = 498003265;
+  // Transactions pack kept from a slot's prefix and inserted again for the slot's new bank after it switched parent; TxnInsertAttempted counts their results
+  uint64 prefix_txn_reinserted = 372804248;
 }
 
 // Metrics of one execle tile instance, one row per sweep

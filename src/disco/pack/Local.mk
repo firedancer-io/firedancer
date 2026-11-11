@@ -20,6 +20,8 @@ ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_compute_budget_program_parse,fuzz_compute_budget_program_parse,fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_chkdup,fuzz_chkdup,fd_ballet fd_util)
 $(call make-unit-test,test_pack,test_pack,fd_disco fd_ballet fd_util)
+$(call make-unit-test,test_pack_tile,test_pack_tile,fd_disco fd_flamenco fd_tango fd_ballet fd_util)
+$(call run-unit-test,test_pack_tile)
 $(call run-unit-test,test_pack)
 endif
 ifdef FD_HAS_AVX

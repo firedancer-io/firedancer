@@ -799,7 +799,7 @@ static fd_metrics_sample_field_t const fields_resolv[ 81 ] = {
   { FD_METRICS_COUNTER_RESOLV_ACCDB_COPIED_BYTES_OFF, 34U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_pack[ 316 ] = {
+static fd_metrics_sample_field_t const fields_pack[ 319 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -980,6 +980,9 @@ static fd_metrics_sample_field_t const fields_pack[ 316 ] = {
   { FD_METRICS_COUNTER_PACK_TXN_DROPPED_PARTIAL_BUNDLE_OFF, 3U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
   { FD_METRICS_COUNTER_PACK_TXN_EVICTED_OFF, 35U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_PACK_PREFIX_TXN_RECORDED_OFF, 280277852U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_PACK_PREFIX_TXN_DROPPED_OFF, 498003265U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_PACK_PREFIX_TXN_REINSERTED_OFF, 372804248U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_PACK_TXN_PENDING_USED_OFF, 36U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_GAUGE_PACK_TXN_PENDING_USED_REGULAR_OFF, 1U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_PACK_TXN_PENDING_USED_VOTE_OFF, 2U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4720,7 +4723,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "verify", 27U, fields_verify, 45UL, 574UL },
   { "dedup", 28U, fields_dedup, 43UL, 552UL },
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
-  { "pack", 30U, fields_pack, 316UL, 3355UL },
+  { "pack", 30U, fields_pack, 319UL, 3400UL },
   { "execle", 31U, fields_execle, 247UL, 2599UL },
   { "shred", 32U, fields_shred, 177UL, 1962UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
