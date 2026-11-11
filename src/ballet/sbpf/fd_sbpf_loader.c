@@ -1628,9 +1628,9 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
     ulong vaddr_end          = text_section_vaddr;
 
     /* Validate bounds and text section addrs / offsets.
-       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L632-L638 */
+       https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/elf.rs#L737-L741 */
     if( FD_UNLIKELY( ( config->reject_broken_elfs && text_shdr.sh_addr!=text_shdr.sh_offset ) ||
-                       vaddr_end>FD_SBPF_MM_STACK_ADDR ) ) {
+                       vaddr_end>=FD_SBPF_MM_STACK_ADDR ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
   }
