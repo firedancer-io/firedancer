@@ -24,15 +24,18 @@ HTTP/2 priority hints are ignored.
 
 **HPACK dynamic table**
 
-The HPACK dynamic table is not supported (disabled via SETTINGS).
+The decoder implements the HPACK dynamic table (`fd_hpack_dtable_t`).
+The encoder only uses the static table.
 
-This may cause compatibility issues when running as a server.  The
-dynamic table provides stateful HTTP header compression.  Unfortunately,
-there is a race condition between disabling the dynamic table and the
-client's first few requests.  A conforming client may generate multiple
-requests before seeing our SETTINGS.  The second request might reuse a
-header from the first request via HPACK, but fd_h2 does not understand
-this.
+A conn has no table unless the app attaches one (`conn->rx_dtable`)
+and advertises its size as `SETTINGS_HEADER_TABLE_SIZE`
+(`self_settings.header_table_size`).  fd_grpc_server does so with the
+HTTP/2 default of 4096, because a client may send its first request
+before it has read the server's SETTINGS.  With a table, every field
+block is delivered to the headers callback, including those of refused
+or released streams (with a NULL stream), so the app keeps the table in
+sync.  Without a table, such blocks are validated by `fd_hpack_skip`
+and dropped.
 
 **END_STREAM / CONTINUATION state**
 

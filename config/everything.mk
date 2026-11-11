@@ -673,6 +673,11 @@ LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/test_vectors-%p.profraw" \
 LOG_PATH="$(OBJDIR)/log/fd-test-vectors-report" \
 contrib/test/run_test_vectors.sh
 
+run-dragon-tests: bin unit-test
+	OBJDIR=$(OBJDIR) \
+	MACHINE=$(MACHINE) \
+	contrib/test/run_dragon_tests.sh
+
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -print0 | xargs -0 -n 1 $(PYTHON) contrib/codegen/generate_filters.py
 
