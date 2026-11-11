@@ -264,7 +264,9 @@ after_frag( fd_bundle_tile_t *  ctx,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_LEADER ) ) {
+    int new_slot = ctx->leader_state_staged->slot!=ctx->leader_state->slot;
     *ctx->leader_state = *ctx->leader_state_staged;
+    if( FD_UNLIKELY( fd_bundle_client_leader_state_update( ctx, new_slot ) ) ) ctx->next_step_deadline = 0L;
     return;
   }
 
@@ -417,6 +419,7 @@ fd_bundle_tile_add_conn( fd_bundle_tile_t *     ctx,
   fd_bundle_conn_t * conn = &ctx->conn[ ctx->conn_cnt++ ];
   conn->ctx             = ctx;
   conn->protocol        = tile->bundle.conn[ idx ].protocol;
+  conn->strategy        = tile->bundle.strategy;
   conn->grpc_client_mem = grpc_mem;
   conn->tcp_sock        = -1;
   fd_bundle_auther_init( &conn->auther );
@@ -503,7 +506,7 @@ privileged_init( fd_topo_t const *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   for( ulong i=0UL; i<tile->bundle.conn_cnt; i++ ) {
-    if( FD_UNLIKELY( tile->bundle.conn[ i ].protocol!=FD_BUNDLE_PROTOCOL_JITO ) ) FD_LOG_ERR(( "[tiles.bundle.builder_url] is not supported yet" ));
+    if( FD_UNLIKELY( tile->bundle.conn[ i ].protocol==FD_BUNDLE_PROTOCOL_BAM ) ) FD_LOG_ERR(( "[tiles.bundle.builder_protocol] \"bam\" is not supported yet" ));
   }
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );

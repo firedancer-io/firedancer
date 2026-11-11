@@ -428,6 +428,10 @@ fd_config_fill( fd_config_t * config,
     }
   }
 
+  if(      FD_LIKELY( !strcmp( config->tiles.bundle.strategy, "fba"  ) ) ) config->tiles.bundle.strategy_enum = FD_BUNDLE_STRATEGY_FBA;
+  else if( FD_LIKELY( !strcmp( config->tiles.bundle.strategy, "fifo" ) ) ) config->tiles.bundle.strategy_enum = FD_BUNDLE_STRATEGY_FIFO;
+  else if( FD_LIKELY( !strcmp( config->tiles.bundle.strategy, "mrev" ) ) ) config->tiles.bundle.strategy_enum = FD_BUNDLE_STRATEGY_MREV;
+  else FD_LOG_ERR(( "[tiles.bundle.strategy] %s not recognized", config->tiles.bundle.strategy ));
 
   fd_config_fill_net( config );
   fd_config_fillf( config );

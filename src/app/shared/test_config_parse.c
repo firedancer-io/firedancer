@@ -173,11 +173,13 @@ main( int     argc,
                                 "url = \"%s\"\n"
                                 "builder_url = \"%s\"\n"
                                 "builder_protocol = \"harmonic\"\n"
+                                "relayer_url = \"%s\"\n"
                                 "advertise_tpu = true\n"
+                                "strategy = \"mrev\"\n"
                                 "[tiles.shred]\n"
                                 "additional_shred_destinations_retransmit = [\"%s\"]\n"
                                 "additional_shred_destinations_leader = [\"%s\"]\n",
-                                endpoint, endpoint, endpoint, endpoint+8UL, endpoint+8UL ) );
+                                endpoint, endpoint, endpoint, endpoint, endpoint+8UL, endpoint+8UL ) );
 
   memset( config, 0, sizeof(config_t) );
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
@@ -188,7 +190,9 @@ main( int     argc,
   FD_TEST( !strcmp( config->tiles.bundle.url, endpoint ) );
   FD_TEST( !strcmp( config->tiles.bundle.builder_url, endpoint ) );
   FD_TEST( !strcmp( config->tiles.bundle.builder_protocol, "harmonic" ) );
+  FD_TEST( !strcmp( config->tiles.bundle.relayer_url, endpoint ) );
   FD_TEST( config->tiles.bundle.advertise_tpu );
+  FD_TEST( !strcmp( config->tiles.bundle.strategy, "mrev" ) );
   FD_TEST( config->tiles.shred.additional_shred_destinations_retransmit_cnt==1UL &&
            !strcmp( config->tiles.shred.additional_shred_destinations_retransmit[ 0 ], endpoint+8UL ) );
   FD_TEST( config->tiles.shred.additional_shred_destinations_leader_cnt==1UL &&

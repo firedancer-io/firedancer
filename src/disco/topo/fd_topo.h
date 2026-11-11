@@ -39,7 +39,7 @@ FD_STATIC_ASSERT( FD_SLEEP_OUT_MAX ==FD_TOPO_MAX_TILE_OUT_LINKS, sleep_limits );
 #define FD_TOPO_ADTL_DESTS_MAX ( 32UL)
 
 /* Maximum number of bundle servers the bundle tile connects to at once */
-#define FD_TOPO_BUNDLE_CONN_MAX (  2UL)
+#define FD_TOPO_BUNDLE_CONN_MAX (  3UL)
 
 #define FD_TOPO_CORE_DUMP_LEVEL_DISABLED (0)
 #define FD_TOPO_CORE_DUMP_LEVEL_MINIMAL  (1)
@@ -355,6 +355,7 @@ struct fd_topo_tile {
         int   protocol; /* FD_BUNDLE_PROTOCOL_* */
       } conn[ FD_TOPO_BUNDLE_CONN_MAX ];
       ulong conn_cnt;
+      int   strategy; /* FD_BUNDLE_STRATEGY_* */
       char  identity_key_path[ PATH_MAX ];
       char  key_log_path[ PATH_MAX ];
       ulong buf_sz;

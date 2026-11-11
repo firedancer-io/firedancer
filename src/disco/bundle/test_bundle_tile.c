@@ -436,8 +436,9 @@ test_tls_keylog( void ) {
   FD_TEST( !memcmp( actual, expected, actual_sz ) );
 }
 
-/* The tile keeps the latest pack leader state message whole.  The
-   sleep mode replay state is left alone. */
+/* Jito ignores pack leader state.  Other protocols keep the latest
+   message whole, and Harmonic queues a leader window notice once per
+   slot.  The sleep mode replay state is left alone. */
 
 static void
 inject_pack_leader_state( fd_bundle_tile_t *             ctx,
@@ -477,6 +478,7 @@ test_pack_leader_state( void ) {
   ctx->reset_slot         = 100UL;
   ctx->leader_state->slot = ULONG_MAX;
   ctx->next_step_deadline = LONG_MAX;
+  ctx->conn_cnt           = 1UL;
 
   fd_pack_leader_state_t state = {
     .slot          = 500UL,
@@ -486,17 +488,38 @@ test_pack_leader_state( void ) {
     .cus_remaining = 48000000UL
   };
 
+  /* Jito keeps the leader state, but sends nothing */
+  ctx->conn->protocol = FD_BUNDLE_PROTOCOL_JITO;
+  inject_pack_leader_state( ctx, in_idx, &state );
+  FD_TEST( ctx->leader_state->slot==500UL );
+  FD_TEST( !ctx->conn->leader_pending );
+  FD_TEST( ctx->next_step_deadline==LONG_MAX );
+  ctx->leader_state->slot = ULONG_MAX;
+
+  ctx->conn->protocol = FD_BUNDLE_PROTOCOL_HARMONIC;
   inject_pack_leader_state( ctx, in_idx, &state );
   FD_TEST( !memcmp( ctx->leader_state, &state, sizeof(fd_pack_leader_state_t) ) );
-  FD_TEST( ctx->next_step_deadline==LONG_MAX );
+  FD_TEST( ctx->conn->leader_pending );
+  FD_TEST( ctx->next_step_deadline==0L );
 
-  /* Later updates replace the whole message */
+  /* Later updates for the same slot replace the progress fields, but do
+     not queue another leader window notice or wake the client */
+  ctx->conn->leader_pending = 0;
+  ctx->next_step_deadline   = LONG_MAX;
   state.tick          = 20UL;
   state.cus_remaining = 1000000UL;
   inject_pack_leader_state( ctx, in_idx, &state );
   FD_TEST( !memcmp( ctx->leader_state, &state, sizeof(fd_pack_leader_state_t) ) );
+  FD_TEST( !ctx->conn->leader_pending );
+  FD_TEST( ctx->next_step_deadline==LONG_MAX );
   FD_TEST( ctx->next_leader_slot==500UL );
   FD_TEST( ctx->reset_slot==100UL );
+
+  state.slot        = 501UL;
+  state.slot_end_ns = 3000L;
+  inject_pack_leader_state( ctx, in_idx, &state );
+  FD_TEST( ctx->leader_state->slot==501UL );
+  FD_TEST( ctx->conn->leader_pending );
 
   free( wksp );
 }

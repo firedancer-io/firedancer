@@ -2042,6 +2042,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
     fd_bundle_tile_add_server( tile, config->tiles.bundle.url,         config->tiles.bundle.tls_domain_name, FD_BUNDLE_PROTOCOL_JITO                     );
     fd_bundle_tile_add_server( tile, config->tiles.bundle.builder_url, "",                                   config->tiles.bundle.builder_protocol_enum );
+    fd_bundle_tile_add_server( tile, config->tiles.bundle.relayer_url, "",                                   FD_BUNDLE_PROTOCOL_RELAYER                  );
+    tile->bundle.strategy = config->tiles.bundle.strategy_enum;
     fd_cstr_ncpy( tile->bundle.identity_key_path, identity_key_path, sizeof(tile->bundle.identity_key_path) );
     fd_cstr_ncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
     tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;

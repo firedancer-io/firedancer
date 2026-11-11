@@ -10,6 +10,7 @@
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/ed25519/fd_x25519.h"
+#include "../../ballet/pb/fd_pb_encode.h"
 #include "../../ballet/pb/fd_pb_tokenize.h"
 #include "../../util/net/fd_ip4.h"
 
@@ -31,7 +32,9 @@
    conn: a Jito session (fd_bundle_client_jito_*) logs in and subscribes
    to streams.  step drives it and returns 1 if it did work, status
    returns its FD_BUNDLE_STATE_*, deadline when it next needs a step
-   (absent any fd event), and reset clears it. */
+   (absent any fd event), and reset clears it.  leader_update, if any,
+   queues the session's notice of a leader state update from pack, and
+   returns 1 if it queued one. */
 
 struct fd_bundle_request {
   ulong        id; /* FD_BUNDLE_CLIENT_REQ_* */
@@ -43,12 +46,14 @@ typedef struct fd_bundle_request fd_bundle_request_t;
 struct fd_bundle_protocol {
   char const *        name;
   char const *        subs[ FD_BUNDLE_SUB_CNT ]; /* path of each FD_BUNDLE_SUB_* stream, NULL if none, all required for a healthy connection */
-  fd_bundle_request_t poll;                      /* block builder info, polled while it is valid */
+  fd_bundle_request_t poll;                      /* block builder info, or for the relayer its TPU, polled while it is valid */
+  int                 set_strategy;              /* SetStrategy, acknowledged before subscribing */
 
-  int  (* step    )( fd_bundle_conn_t * conn, long now );
-  int  (* status  )( fd_bundle_conn_t const * conn );
-  long (* deadline)( fd_bundle_conn_t const * conn, long now );
-  void (* reset   )( fd_bundle_conn_t * conn );
+  int  (* step         )( fd_bundle_conn_t * conn, long now );
+  int  (* status       )( fd_bundle_conn_t const * conn );
+  long (* deadline     )( fd_bundle_conn_t const * conn, long now );
+  void (* reset        )( fd_bundle_conn_t * conn );
+  int  (* leader_update)( fd_bundle_conn_t * conn, int new_slot );
 };
 
 typedef struct fd_bundle_protocol fd_bundle_protocol_t;
@@ -58,6 +63,8 @@ static int  fd_bundle_client_jito_status  ( fd_bundle_conn_t const * conn );
 static long fd_bundle_client_jito_deadline( fd_bundle_conn_t const * conn, long now );
 static void fd_bundle_client_jito_reset   ( fd_bundle_conn_t *       conn );
 
+static int fd_bundle_client_harmonic_leader_update( fd_bundle_conn_t * conn, int new_slot );
+
 #define BLOCK_ENGINE "/block_engine.BlockEngineValidator/"
 #define SESSION( kind ) .step     = fd_bundle_client_##kind##_step,     \
                         .status   = fd_bundle_client_##kind##_status,   \
@@ -66,10 +73,27 @@ static void fd_bundle_client_jito_reset   ( fd_bundle_conn_t *       conn );
 
 static fd_bundle_protocol_t const fd_bundle_protocols[] = {
   [ FD_BUNDLE_PROTOCOL_JITO ] = {
-    .name = "jito",
-    .subs = { [ FD_BUNDLE_SUB_PACKETS ] = BLOCK_ENGINE "SubscribePackets",
-              [ FD_BUNDLE_SUB_BUNDLES ] = BLOCK_ENGINE "SubscribeBundles" },
-    .poll = { FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, BLOCK_ENGINE "GetBlockBuilderFeeInfo" },
+    .name          = "jito",
+    .subs          = { [ FD_BUNDLE_SUB_PACKETS ] = BLOCK_ENGINE "SubscribePackets",
+                       [ FD_BUNDLE_SUB_BUNDLES ] = BLOCK_ENGINE "SubscribeBundles" },
+    .poll          = { FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, BLOCK_ENGINE "GetBlockBuilderFeeInfo" },
+    SESSION( jito ),
+  },
+  [ FD_BUNDLE_PROTOCOL_HARMONIC ] = {
+    .name          = "harmonic",
+    .subs          = { [ FD_BUNDLE_SUB_PACKETS ] = BLOCK_ENGINE "SubscribePackets",
+                       /* Harmonic serves bundles on SubscribeBundles2 only */
+                       [ FD_BUNDLE_SUB_BUNDLES ] = BLOCK_ENGINE "SubscribeBundles2",
+                       [ FD_BUNDLE_SUB_BLOCKS  ] = BLOCK_ENGINE "SubscribeBlocks2" },
+    .poll          = { FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, BLOCK_ENGINE "GetBlockBuilderFeeInfo" },
+    .set_strategy  = 1,
+    SESSION( jito ),
+    .leader_update = fd_bundle_client_harmonic_leader_update,
+  },
+  [ FD_BUNDLE_PROTOCOL_RELAYER ] = {
+    .name               = "relayer",
+    .subs               = { [ FD_BUNDLE_SUB_RELAYER ] = "/relayer.Relayer/SubscribePackets" },
+    .poll               = { FD_BUNDLE_CLIENT_REQ_Relayer_GetTpuConfigs, "/relayer.Relayer/GetTpuConfigs" },
     SESSION( jito ),
   },
 };
@@ -81,9 +105,12 @@ static fd_bundle_protocol_t const fd_bundle_protocols[] = {
 
 static struct {
   ulong request_ctx;
+  int   version; /* the request carries our version and commit hash */
 } const fd_bundle_subs[ FD_BUNDLE_SUB_CNT ] = {
-  [ FD_BUNDLE_SUB_PACKETS ] = { FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets },
-  [ FD_BUNDLE_SUB_BUNDLES ] = { FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles },
+  [ FD_BUNDLE_SUB_PACKETS ] = { FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets,  0 },
+  [ FD_BUNDLE_SUB_BUNDLES ] = { FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles,  0 },
+  [ FD_BUNDLE_SUB_BLOCKS  ] = { FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks,   1 },
+  [ FD_BUNDLE_SUB_RELAYER ] = { FD_BUNDLE_CLIENT_REQ_Relayer_SubscribePackets, 0 },
 };
 
 /* fd_bundle_sub_idx returns the FD_BUNDLE_SUB_* of a subscription
@@ -116,8 +143,21 @@ fd_bundle_now( fd_bundle_tile_t const * ctx ) {
 
 static void
 fd_bundle_client_jito_reset( fd_bundle_conn_t * conn ) {
+  fd_bundle_tile_t * ctx = conn->ctx;
+
+  /* A reset while our block is streaming can lose part of it, and a new
+     stream does not say where it resumes, so the rest is dropped */
+  if( FD_UNLIKELY( conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live &&
+                   ctx->leader_state->slot!=ULONG_MAX &&
+                   fd_bundle_now( ctx )<ctx->leader_state->slot_end_ns ) ) {
+    FD_LOG_WARNING(( "Block engine connection reset during leader slot %lu, dropping the rest of its block", ctx->leader_state->slot ));
+    conn->harmonic.block_lost = 1;
+  }
+
   fd_bundle_auther_reset( &conn->auther );
   conn->builder       = (fd_bundle_builder_t){0};
+  conn->strategy_set  = 0;
+  conn->strategy_wait = 0;
   fd_memset( conn->sub, 0, sizeof(conn->sub) );
 }
 
@@ -306,12 +346,19 @@ fd_bundle_client_subscribe( fd_bundle_conn_t * conn,
                             ulong              sub ) {
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( conn->grpc_client ) ) ) return;
 
+  uchar           req[ 128 ];
+  fd_pb_encoder_t enc[1]; fd_pb_encoder_init( enc, req, sizeof(req) );
+  if( fd_bundle_subs[ sub ].version ) {
+    FD_TEST( fd_pb_push_cstr( enc, 1U, fd_version_cstr    ) ); /* version */
+    FD_TEST( fd_pb_push_cstr( enc, 2U, fd_commit_ref_cstr ) ); /* commit_hash */
+  }
+
   char const * path = fd_bundle_conn_protocol( conn )->subs[ sub ];
   fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
       conn->grpc_client,
       path, strlen( path ),
       fd_bundle_subs[ sub ].request_ctx,
-      (uchar const *)"", 0UL, /* empty request message */
+      req, fd_pb_encoder_out_sz( enc ),
       conn->auther.access_token, conn->auther.access_token_sz,
       0 /* is_streaming */
   );
@@ -322,6 +369,105 @@ fd_bundle_client_subscribe( fd_bundle_conn_t * conn,
       fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
 
   conn->sub[ sub ].wait = 1;
+}
+
+static void
+fd_bundle_client_set_strategy( fd_bundle_conn_t * conn ) {
+  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( conn->grpc_client ) ) ) return;
+
+  uchar           req[ 32 ];
+  fd_pb_encoder_t enc[1]; fd_pb_encoder_init( enc, req, sizeof(req) );
+  FD_TEST( fd_pb_push_int32( enc, 1U, conn->strategy ) ); /* strategy */
+
+  static char const path[] = "/block_engine.BlockEngineValidator/SetStrategy";
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
+      conn->grpc_client,
+      path, sizeof(path)-1,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy,
+      req, fd_pb_encoder_out_sz( enc ),
+      conn->auther.access_token, conn->auther.access_token_sz,
+      0 /* is_streaming */
+  );
+  if( FD_UNLIKELY( !request ) ) return;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_RX_END,
+      fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
+
+  conn->strategy_wait = 1;
+}
+
+/* fd_bundle_client_push_timestamp adds a google.protobuf.Timestamp
+   field holding ns nanoseconds since the Unix epoch. */
+
+static void
+fd_bundle_client_push_timestamp( fd_pb_encoder_t * enc,
+                                 uint              field_id,
+                                 long              ns ) {
+  FD_TEST( fd_pb_submsg_open( enc, field_id ) );
+  FD_TEST( fd_pb_push_int64( enc, 1U, ns/(long)1e9 ) );          /* seconds */
+  FD_TEST( fd_pb_push_int32( enc, 2U, (int)( ns%(long)1e9 ) ) ); /* nanos */
+  FD_TEST( fd_pb_submsg_close( enc ) );
+}
+
+/* fd_bundle_client_submit_leader_window_info sends the queued leader
+   window notice.  Returns 1 if sent, 0 if the client is busy. */
+
+static int
+fd_bundle_client_submit_leader_window_info( fd_bundle_conn_t * conn ) {
+  fd_bundle_tile_t * ctx = conn->ctx;
+  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( conn->grpc_client ) ) ) return 0;
+
+  uchar           req[ 128 ];
+  fd_pb_encoder_t enc[1]; fd_pb_encoder_init( enc, req, sizeof(req) );
+  fd_bundle_client_push_timestamp( enc, 1U, ctx->leader_state->slot_start_ns ); /* start_timestamp */
+  FD_TEST( fd_pb_push_uint64( enc, 2U, ctx->leader_state->slot ) );             /* slot */
+  fd_bundle_client_push_timestamp( enc, 3U, ctx->leader_state->slot_end_ns );    /* end_timestamp */
+
+  static char const path[] = "/block_engine.BlockEngineValidator/SubmitLeaderWindowInfo";
+  fd_grpc_h2_stream_t * request = fd_grpc_client_request_start(
+      conn->grpc_client,
+      path, sizeof(path)-1,
+      FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo,
+      req, fd_pb_encoder_out_sz( enc ),
+      conn->auther.access_token, conn->auther.access_token_sz,
+      0 /* is_streaming */
+  );
+  if( FD_UNLIKELY( !request ) ) return 0;
+  fd_grpc_client_deadline_set(
+      request,
+      FD_GRPC_DEADLINE_RX_END,
+      fd_log_wallclock() + FD_BUNDLE_CLIENT_REQUEST_TIMEOUT );
+
+  conn->leader_pending = 0;
+  FD_LOG_INFO(( "Submitted leader window info for slot %lu", ctx->leader_state->slot ));
+  return 1;
+}
+
+/* Harmonic numbers its block stream per leader slot, and gets a leader
+   window notice at the start of each */
+
+static int
+fd_bundle_client_harmonic_leader_update( fd_bundle_conn_t * conn,
+                                         int                new_slot ) {
+  if( !new_slot ) return 0;
+  if( FD_UNLIKELY( conn->leader_pending ) ) {
+    FD_LOG_WARNING(( "Leader window info was never sent (superseded by slot %lu)", conn->ctx->leader_state->slot ));
+  }
+  fd_memset( &conn->harmonic, 0, sizeof(conn->harmonic) );
+  conn->leader_pending = 1;
+  return 1;
+}
+
+int
+fd_bundle_client_leader_state_update( fd_bundle_tile_t * ctx,
+                                      int                new_slot ) {
+  int queued = 0;
+  for( ulong i=0UL; i<ctx->conn_cnt; i++ ) {
+    fd_bundle_protocol_t const * protocol = fd_bundle_conn_protocol( &ctx->conn[ i ] );
+    if( protocol->leader_update ) queued |= protocol->leader_update( &ctx->conn[ i ], new_slot );
+  }
+  return queued;
 }
 
 void
@@ -449,16 +595,35 @@ fd_bundle_client_jito_step( fd_bundle_conn_t * conn,
   }
   if( FD_UNLIKELY( conn->auther.state!=FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) return 0;
 
+  /* The leader window notice is time critical, and is only useful while
+     the block stream is live and the slot has not ended */
+  if( FD_UNLIKELY( conn->leader_pending ) ) {
+    if( FD_UNLIKELY( now>=ctx->leader_state->slot_end_ns ) ) {
+      FD_LOG_WARNING(( "Leader window info for slot %lu was never sent (slot ended)", ctx->leader_state->slot ));
+      conn->leader_pending = 0;
+    } else if( conn->sub[ FD_BUNDLE_SUB_BLOCKS ].live && fd_bundle_client_submit_leader_window_info( conn ) ) {
+      return 1;
+    }
+  }
+
   /* Request block builder info */
   if( FD_UNLIKELY( fd_bundle_builder_due( &conn->builder, now ) ) ) {
     fd_bundle_client_request_builder_info( conn );
     return 1;
   }
 
-  for( ulong sub=0UL; sub<FD_BUNDLE_SUB_CNT; sub++ ) {
-    if( FD_UNLIKELY( protocol->subs[ sub ] && !conn->sub[ sub ].live && !conn->sub[ sub ].wait ) ) {
-      fd_bundle_client_subscribe( conn, sub );
+  if( FD_UNLIKELY( protocol->set_strategy && !conn->strategy_set ) ) {
+    /* Set the scheduling strategy before subscribing */
+    if( !conn->strategy_wait ) {
+      fd_bundle_client_set_strategy( conn );
       return 1;
+    }
+  } else {
+    for( ulong sub=0UL; sub<FD_BUNDLE_SUB_CNT; sub++ ) {
+      if( FD_UNLIKELY( protocol->subs[ sub ] && !conn->sub[ sub ].live && !conn->sub[ sub ].wait ) ) {
+        fd_bundle_client_subscribe( conn, sub );
+        return 1;
+      }
     }
   }
 
@@ -709,11 +874,11 @@ fd_bundle_tile_publish_txn( fd_bundle_tile_t * ctx,
   ctx->metrics.txn_received_cnt++;
 }
 
-/* Every bundle source decodes a bundle with bundle_open, bundle_push
-   for each transaction and bundle_close, which publishes it.  A bundle
-   that is too large, has an invalid transaction or does not fit is
-   dropped whole on close.  The transactions point into the message
-   being decoded. */
+/* Every bundle source (Jito and Harmonic bundles, and Harmonic blocks)
+   decodes a bundle with bundle_open, bundle_push for each transaction
+   and bundle_close, which publishes it.  A bundle that is too large,
+   has an invalid transaction or does not fit is dropped whole on close.
+   The transactions point into the message being decoded. */
 
 static void
 fd_bundle_client_bundle_open( fd_bundle_tile_t *          ctx,
@@ -969,26 +1134,26 @@ fd_bundle_client_handle_packet( fd_bundle_tile_t *         ctx,
   ctx->metrics.packet_received_cnt++;
 }
 
-/* Handle a SubscribePacketsResponse from a SubscribePackets gRPC call. */
+/* Handle a SubscribePacketsResponse from a SubscribePackets gRPC call.
+   Its PacketBatch is field batch_field: 2 from a block engine, 3 from
+   the relayer, which also sends heartbeats (field 2) while idle. */
 
 static void
 fd_bundle_client_handle_packet_batch(
     fd_bundle_tile_t * ctx,
-    fd_pb_inbuf_t      in
+    fd_pb_inbuf_t      in,
+    uint               batch_field
 ) {
   long ts = 0L;
   while( fd_pb_inbuf_sz( &in ) ) {
     fd_pb_tlv_t tlv[1];
     if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) goto fail;
-    switch( tlv->field_id ) {
-    case 1: { /* header */
+    if( tlv->field_id==1U ) { /* header */
       fd_pb_inbuf_t header[1];
       if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, header ) ) ) goto fail;
       ts = fd_bundle_client_decode_header_ts( *header );
       if( FD_UNLIKELY( ts<0L ) ) goto fail;
-      break;
-    }
-    case 2: { /* batch (PacketBatch) */
+    } else if( tlv->field_id==batch_field ) { /* batch (PacketBatch) */
       fd_pb_inbuf_t batch[1];
       if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, batch ) ) ) goto fail;
       while( fd_pb_inbuf_sz( batch ) ) {
@@ -1003,10 +1168,6 @@ fd_bundle_client_handle_packet_batch(
         }
         if( FD_UNLIKELY( !fd_pb_tlv_skip( batch, batch_tlv ) ) ) goto fail;
       }
-      break;
-    }
-    default:
-      break;
     }
     if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) goto fail;
   }
@@ -1017,6 +1178,148 @@ fd_bundle_client_handle_packet_batch(
 fail:
   ctx->metrics.decode_fail_cnt++;
   FD_LOG_WARNING(( "Protobuf decode of (block_engine.SubscribePacketsResponse) failed" ));
+}
+
+/* fd_bundle_client_pb_find finds the last field field_id of the
+   Protobuf message in.  Returns 1 if found, with *tlv set and *val
+   positioned at the field's value, 0 if absent, and -1 on decode
+   failure.  fd_bundle_client_pb_varint reads such a field as a varint,
+   returning the same. */
+
+static int
+fd_bundle_client_pb_find( fd_pb_inbuf_t   in,
+                          uint            field_id,
+                          fd_pb_tlv_t *   tlv,
+                          fd_pb_inbuf_t * val ) {
+  int found = 0;
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t cur[1];
+    if( FD_UNLIKELY( !fd_pb_tlv_read( &in, cur ) ) ) return -1;
+    if( cur->field_id==field_id ) {
+      *tlv  = *cur;
+      *val  = in;
+      found = 1;
+    }
+    if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, cur ) ) ) return -1;
+  }
+  return found;
+}
+
+static int
+fd_bundle_client_pb_varint( fd_pb_inbuf_t in,
+                            uint          field_id,
+                            ulong *       out ) {
+  fd_pb_tlv_t tlv[1] = {{0}}; fd_pb_inbuf_t val[1] = {{0}};
+  int found = fd_bundle_client_pb_find( in, field_id, tlv, val );
+  if( found<=0 ) return found;
+  if( FD_UNLIKELY( tlv->wire_type!=FD_PB_WIRE_TYPE_VARINT ) ) return -1;
+  *out = tlv->varint;
+  return 1;
+}
+
+static int
+fd_bundle_client_pb_submsg( fd_pb_inbuf_t   in,
+                            uint            field_id,
+                            fd_pb_inbuf_t * out ) {
+  fd_pb_tlv_t tlv[1] = {{0}}; fd_pb_inbuf_t val[1] = {{0}};
+  int found = fd_bundle_client_pb_find( in, field_id, tlv, val );
+  if( found<=0 ) return found;
+  return fd_pb_tlv_submsg( val, tlv, out ) ? 1 : -1;
+}
+
+static int
+fd_bundle_client_pb_cstr( fd_pb_inbuf_t in,
+                          uint          field_id,
+                          char *        out,
+                          ulong         out_max ) {
+  fd_pb_tlv_t tlv[1] = {{0}}; fd_pb_inbuf_t val[1] = {{0}};
+  int found = fd_bundle_client_pb_find( in, field_id, tlv, val );
+  if( found<=0 ) return found;
+  return fd_pb_tlv_cstr( val, tlv, out, out_max ) ? 1 : -1;
+}
+
+/* fd_bundle_client_handle_block_txn handles a block.Transaction.
+   Consecutive transactions with the same nonzero bundle_id form a
+   bundle, every other transaction is a bundle of one.  A dropped bundle
+   keeps its block_seq so the gap is visible downstream.  Returns 1 on
+   success and 0 on decode failure. */
+
+static int
+fd_bundle_client_handle_block_txn( fd_bundle_conn_t * conn,
+                                   fd_pb_inbuf_t      in ) {
+  fd_bundle_tile_t * ctx = conn->ctx;
+  uchar const * data      = NULL;
+  ulong         data_sz   = 0UL;
+  ulong         bundle_id = 0UL;
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t tlv[1];
+    if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) return 0;
+    switch( tlv->field_id ) {
+    case 1: /* transaction */
+      data = fd_pb_tlv_bytes( &in, tlv );
+      if( FD_UNLIKELY( !data ) ) return 0;
+      data_sz = tlv->len;
+      break;
+    case 3: /* bundle_id */
+      if( FD_UNLIKELY( tlv->wire_type!=FD_PB_WIRE_TYPE_VARINT ) ) return 0;
+      bundle_id = tlv->varint;
+      break;
+    default:
+      break;
+    }
+    if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) return 0;
+  }
+
+  if( !bundle_id || bundle_id!=conn->harmonic.block_bundle_id ) {
+    fd_bundle_client_bundle_close( ctx, ctx->leader_state->slot, conn->harmonic.block_seq );
+    fd_bundle_client_bundle_open( ctx, &conn->builder, !!bundle_id, 0 );
+    conn->harmonic.block_bundle_id = bundle_id;
+    conn->harmonic.block_seq++;
+  }
+  fd_bundle_client_bundle_push( ctx, data, data_sz, conn->server_ip4_addr );
+  return 1;
+}
+
+/* Handle a Block from a SubscribeBlocks2 stream.  A Block that is not
+   for our current leader slot, or is for a slot a reset cut off, is
+   dropped whole.  Its bundles are published as they are decoded, so a
+   Block that fails to decode keeps the bundles before the failure. */
+
+static void
+fd_bundle_client_handle_block( fd_bundle_conn_t * conn,
+                               fd_pb_inbuf_t      in ) {
+  fd_bundle_tile_t * ctx = conn->ctx;
+
+  /* Find the slot before publishing anything */
+  ulong slot = 0UL;
+  if( FD_UNLIKELY( fd_bundle_client_pb_varint( in, 1U, &slot )<0 ) ) goto decode_fail; /* slot */
+  if( FD_UNLIKELY( slot!=ctx->leader_state->slot ) ) {
+    FD_LOG_INFO(( "Dropping block for slot %lu while leader for slot %lu", slot, ctx->leader_state->slot ));
+    return;
+  }
+  if( FD_UNLIKELY( conn->harmonic.block_lost ) ) {
+    FD_LOG_DEBUG(( "Dropping block for slot %lu, cut off by a reset", slot ));
+    return;
+  }
+
+  conn->harmonic.block_bundle_id = 0UL;
+  ctx->bundle.txn_cnt            = 0UL;
+  while( fd_pb_inbuf_sz( &in ) ) {
+    fd_pb_tlv_t tlv[1];
+    if( FD_UNLIKELY( !fd_pb_tlv_read( &in, tlv ) ) ) goto decode_fail;
+    if( tlv->field_id==15U ) { /* transactions */
+      fd_pb_inbuf_t txn[1];
+      if( FD_UNLIKELY( !fd_pb_tlv_submsg( &in, tlv, txn ) ) ) goto decode_fail;
+      if( FD_UNLIKELY( !fd_bundle_client_handle_block_txn( conn, *txn ) ) ) goto decode_fail;
+    }
+    if( FD_UNLIKELY( !fd_pb_tlv_skip( &in, tlv ) ) ) goto decode_fail;
+  }
+  fd_bundle_client_bundle_close( ctx, slot, conn->harmonic.block_seq );
+  return;
+
+decode_fail:
+  ctx->metrics.decode_fail_cnt++;
+  FD_LOG_WARNING(( "Protobuf decode of (block.Block) failed" ));
 }
 
 /* fd_bundle_client_set_builder applies the block builder's base58
@@ -1085,6 +1388,50 @@ decode_fail:
   FD_LOG_WARNING(( "Protobuf decode of (block_engine.BlockBuilderFeeInfoResponse) failed" ));
 }
 
+/* fd_bundle_client_socket decodes a shared.Socket.
+   Returns 1 on success, 0 if it fails to decode or is not a nonzero
+   IPv4 address with a port that leaves room for the QUIC port (6
+   higher). */
+
+static int
+fd_bundle_client_socket( fd_pb_inbuf_t in,
+                             uint *        ip4,
+                             ushort *      port ) {
+  char  ip[ 64 ] = {0};
+  ulong port_    = 0UL;
+  if( FD_UNLIKELY( fd_bundle_client_pb_cstr  ( in, 1U, ip, sizeof(ip) )<0 || /* ip */
+                   fd_bundle_client_pb_varint( in, 2U, &port_         )<0 ) ) return 0; /* port */
+  if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( ip, ip4 ) || !*ip4 || !port_ || port_>USHORT_MAX-6U ) ) return 0;
+  *port = (ushort)port_;
+  return 1;
+}
+
+/* Handle a GetTpuConfigsResponse from the relayer.  Only a valid pair
+   of sockets makes its TPU available. */
+
+static void
+fd_bundle_client_handle_tpu_configs( fd_bundle_conn_t * conn,
+                                     fd_pb_inbuf_t      in ) {
+  fd_bundle_tile_t * ctx = conn->ctx;
+  fd_pb_inbuf_t tpu_sock[1] = {{0}};
+  fd_pb_inbuf_t fwd_sock[1] = {{0}};
+  if( FD_UNLIKELY( fd_bundle_client_pb_submsg( in, 1U, tpu_sock )<0 ||   /* tpu */
+                   fd_bundle_client_pb_submsg( in, 2U, fwd_sock )<0 ) ) { /* tpu_forward */
+    ctx->metrics.decode_fail_cnt++;
+    FD_LOG_WARNING(( "Protobuf decode of (relayer.GetTpuConfigsResponse) failed" ));
+    return;
+  }
+  fd_bundle_tpu_t tpu = {0};
+  if( FD_UNLIKELY( !fd_bundle_client_socket( *tpu_sock, &tpu.ip4,     &tpu.port     ) ||
+                   !fd_bundle_client_socket( *fwd_sock, &tpu.fwd_ip4, &tpu.fwd_port ) ) ) {
+    FD_LOG_WARNING(( "Invalid relayer TPU" ));
+    return;
+  }
+  conn->tpu           = tpu;
+  conn->builder.avail = 1;
+  conn->builder.next  = fd_bundle_now( ctx ) + (long)60e9;
+}
+
 static void
 fd_bundle_client_grpc_tx_complete(
     void * app_ctx,
@@ -1134,10 +1481,22 @@ fd_bundle_client_grpc_rx_msg(
     fd_bundle_client_handle_bundle_batch( conn, *in );
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
-    fd_bundle_client_handle_packet_batch( ctx, *in );
+    fd_bundle_client_handle_packet_batch( ctx, *in, 2U );
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Relayer_SubscribePackets:
+    fd_bundle_client_handle_packet_batch( ctx, *in, 3U );
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Relayer_GetTpuConfigs:
+    fd_bundle_client_handle_tpu_configs( conn, *in );
     break;
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
     fd_bundle_client_handle_builder_fee_info( conn, *in );
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks:
+    fd_bundle_client_handle_block( conn, *in );
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy:
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo:
     break;
   default:
     FD_LOG_ERR(( "Received unexpected gRPC message (request_ctx=%lu)", request_ctx ));
@@ -1159,6 +1518,9 @@ fd_bundle_client_request_failed( fd_bundle_conn_t * conn,
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthChallenge:
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
     fd_bundle_auther_handle_request_fail( &conn->auther );
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy:
+    conn->strategy_wait = 0;
     break;
   }
 }
@@ -1197,6 +1559,15 @@ fd_bundle_client_grpc_rx_end(
     return;
   }
   if( request_ctx==fd_bundle_conn_protocol( conn )->poll.id ) conn->builder.wait = 0;
+
+  switch( request_ctx ) {
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy:
+    conn->strategy_wait = 0;
+    conn->strategy_set  = resp->grpc_status==FD_GRPC_STATUS_OK;
+    break;
+  default:
+    break;
+  }
 
   if( FD_UNLIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
     FD_LOG_INFO(( "gRPC request failed (gRPC status %u-%s): %.*s",
@@ -1334,6 +1705,16 @@ fd_bundle_request_ctx_cstr( ulong request_ctx ) {
     return "SubscribeBundles";
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
     return "GetBlockBuilderFeeInfo";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks:
+    return "SubscribeBlocks2";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy:
+    return "SetStrategy";
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo:
+    return "SubmitLeaderWindowInfo";
+  case FD_BUNDLE_CLIENT_REQ_Relayer_SubscribePackets:
+    return "relayer.SubscribePackets";
+  case FD_BUNDLE_CLIENT_REQ_Relayer_GetTpuConfigs:
+    return "GetTpuConfigs";
   default:
     return "unknown";
   }

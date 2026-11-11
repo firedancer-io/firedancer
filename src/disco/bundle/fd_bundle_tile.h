@@ -23,6 +23,7 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 #define FD_BUNDLE_PROTOCOL_JITO     (0)
 #define FD_BUNDLE_PROTOCOL_HARMONIC (1)
 #define FD_BUNDLE_PROTOCOL_BAM      (2)
+#define FD_BUNDLE_PROTOCOL_RELAYER  (3) /* Harmonic relayer */
 
 /* fd_bundle_builder_protocol returns the FD_BUNDLE_PROTOCOL_* of the
    block builder at url, detected from its host, or -1 if the host is
@@ -66,6 +67,11 @@ fd_bundle_tile_add_server( fd_topo_tile_t * tile,
   tile->bundle.conn[ idx ].sni_len = strnlen( tile->bundle.conn[ idx ].sni, sizeof(tile->bundle.conn[ idx ].sni)-1UL );
   tile->bundle.conn[ idx ].protocol = protocol;
 }
+
+/* Values match block_engine_SchedulingStrategy on the wire */
+#define FD_BUNDLE_STRATEGY_FIFO (1)
+#define FD_BUNDLE_STRATEGY_FBA  (2)
+#define FD_BUNDLE_STRATEGY_MREV (3)
 
 struct fd_bundle_block_engine_update {
   char name[ 16 ];

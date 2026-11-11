@@ -70,8 +70,10 @@ typedef struct fd_bundle_builder fd_bundle_builder_t;
 /* Streams a Jito protocol session subscribes to */
 
 #define FD_BUNDLE_SUB_PACKETS (0) /* SubscribePackets */
-#define FD_BUNDLE_SUB_BUNDLES (1) /* SubscribeBundles */
-#define FD_BUNDLE_SUB_CNT     (2)
+#define FD_BUNDLE_SUB_BUNDLES (1) /* SubscribeBundles or SubscribeBundles2 */
+#define FD_BUNDLE_SUB_BLOCKS  (2) /* SubscribeBlocks2, Harmonic only */
+#define FD_BUNDLE_SUB_RELAYER (3) /* relayer.Relayer/SubscribePackets */
+#define FD_BUNDLE_SUB_CNT     (4)
 
 /* fd_bundle_conn_t is the state of one connection to a bundle server.
    Its gRPC client's app_ctx is the conn. */
@@ -82,13 +84,32 @@ struct fd_bundle_conn {
 
   /* Session state, reset with the conn */
   fd_bundle_auther_t  auther;
-  fd_bundle_builder_t builder; /* refreshed every 5 minutes */
+  fd_bundle_builder_t builder; /* refreshed every 5 minutes, or for the relayer, its TPU */
+
+  /* Leader notice of ctx->leader_state, queued by the protocol's
+     leader_update and dropped once its slot ends */
+  uchar leader_pending : 1;
 
   /* Subscriptions, indexed by FD_BUNDLE_SUB_* */
   struct {
     uchar live; /* stream open */
     uchar wait; /* request in flight */
   } sub[ FD_BUNDLE_SUB_CNT ];
+
+  /* Harmonic scheduling strategy, acknowledged once per connection */
+  int   strategy; /* FD_BUNDLE_STRATEGY_* */
+  uchar strategy_set  : 1;
+  uchar strategy_wait : 1;
+
+  /* Session state specific to the protocol */
+  union {
+    /* Harmonic block stream, reset at the start of each leader slot */
+    struct {
+      ulong block_seq;       /* bundles numbered so far in the current leader slot */
+      ulong block_bundle_id; /* bundle_id of the bundle being decoded */
+      uchar block_lost : 1;  /* a reset cut off the current leader slot's block */
+    } harmonic;
+  };
 
   /* TPU the server offers for gossip, kept across reconnects, zero if
      none */
@@ -194,6 +215,11 @@ struct fd_bundle_tile {
   fd_bundle_out_ctx_t       verify_out;
   fd_bundle_out_ctx_t       plugin_out;
 
+  /* TODO: The block engine and block builder conns share verify_out's
+     credits, so a burst from the block engine can drop builder bundles
+     for lack of credits, breaking the builder's ordering.  Give the
+     builder priority. */
+
   /* App metrics */
   fd_bundle_metrics_t metrics;
 
@@ -246,6 +272,11 @@ struct fd_bundle_tile {
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets            4
 #define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles            5
 #define FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo      6
+#define FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBlocks             7
+#define FD_BUNDLE_CLIENT_REQ_Bundle_SetStrategy                 8
+#define FD_BUNDLE_CLIENT_REQ_Bundle_SubmitLeaderWindowInfo      9
+#define FD_BUNDLE_CLIENT_REQ_Relayer_SubscribePackets         13
+#define FD_BUNDLE_CLIENT_REQ_Relayer_GetTpuConfigs            14
 
 FD_PROTOTYPES_BEGIN
 
@@ -395,6 +426,16 @@ fd_bundle_client_reset( fd_bundle_tile_t * ctx );
 
 void
 fd_bundle_conn_send_ping( fd_bundle_conn_t * conn );
+
+/* fd_bundle_client_leader_state_update is called for every leader state
+   update from pack, now in ctx->leader_state.  new_slot is set on the
+   first update of a leader slot.  Queues whatever the protocol sends in
+   response, and returns 1 if anything was queued (so the client should
+   be stepped soon), 0 otherwise. */
+
+int
+fd_bundle_client_leader_state_update( fd_bundle_tile_t * ctx,
+                                      int                new_slot );
 
 FD_PROTOTYPES_END
 

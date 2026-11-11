@@ -1687,19 +1687,37 @@ telemetry = true
         # connected at the same time as the block engine at url.  Either
         # url or builder_url may be empty, but not both.  The protocol
         # is detected from the host: Harmonic (*.harmonic.gg) or BAM
-        # (*.bam.jito.wtf).  Not supported yet and rejected at startup.
+        # (*.bam.jito.wtf).
         builder_url = ""
 
         # The protocol spoken by the block builder at builder_url, for a
         # host it cannot be detected from.  One of "harmonic" or "bam",
-        # or empty to detect it.
+        # or empty to detect it.  "bam" is not supported yet and is
+        # rejected at startup.
         builder_protocol = ""
 
-        # True to advertise the TPU offered by the block builder in
-        # gossip in place of ours, while its connection is healthy.
-        # Transactions sent to our own TPU are still accepted, and the
-        # vote TPU is not changed.
+        # The URL of a Harmonic relayer, connected at the same time as
+        # the servers above.  The relayer offers a TPU for gossip to
+        # advertise, and forwards the transactions sent to it.  Empty
+        # for none.
+        relayer_url = ""
+
+        # True to advertise the TPU offered by the block builder or the
+        # relayer in gossip in place of ours, while its connection is
+        # healthy.  Transactions sent to our own TPU are still accepted,
+        # and the vote TPU is not changed.
         advertise_tpu = false
+
+        # The scheduling strategy the block builder runs for our leader
+        # slots.  Only used with the "harmonic" builder protocol.  One of:
+        #
+        #   "fba"  - Frequent batch auction: discrete batches ordered by
+        #            priority fees and tips
+        #   "fifo" - First-in, first-out: arrival order, without fee or
+        #            tip influence
+        #   "mrev" - Maximum revenue: continuous streaming with
+        #            revenue-prioritizing selection
+        strategy = "fba"
 
         # The domain name of the TLS certificate to use when verifying
         # the peer.  If none is provided, the domain from the URL above
