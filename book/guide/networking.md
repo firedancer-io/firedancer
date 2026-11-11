@@ -74,18 +74,18 @@ The iavf provider uses SR-IOV Virtual Functions (VFs) to facilitate kernel
 bypass while also sharing the selected networking device with the Linux
 kernel. iavf takes control of one VF per PF (Physical Function).
 
-`configure init iavf` reuses the highest index VF bound to `vfio-pci`.
-If VFs exist but none are bound to `vfio-pci`, init fails. If no VFs
-exist, it creates VF 0 and binds it to `vfio-pci`. Repeated init therefore
-doesn't add excess VFs.
+`net.iavf.vf_index` sets the VF index Firedancer uses on every PF/NIC.
+With the default of `0`, the iavf configure stage creates VF 0 on any
+PF that has no VFs and binds it to `vfio-pci`. Existing VF counts are
+left unchanged.
+
+`net.iavf.bind_existing_vfs` allows the iavf configure stage to bind an
+existing VF to `vfio-pci`, instead of requiring you to bind it first.
+It defaults to `false`. Firedancer always binds VFs it creates,
+regardless of this setting.
 
 `configure fini iavf` removes a VF if its associated PF has exactly one
-VF. PFs with multiple VFs retain all of them, and iavf will reuse the
-highest index VF bound to `vfio-pci` upon `configure init iavf`.
-
-To let other applications use VFs on the same NIC/PFs, keep one VF unused
-per PF and bind it to `vfio-pci` (iavf will use this one), make sure
-to do this before running `configure init iavf`.
+VF. PFs with multiple VFs retain all of them.
 
 ## `socket` network provider
 

@@ -837,32 +837,26 @@ fd_iavf_sriov_resources_check( char const * pf_if ) {
 }
 
 int
-fd_iavf_get_last_vf( char const * pf_if,
-                     uint *       vf_idx,
-                     char         vf_pci_addr[ FD_IAVF_PCI_ADDR_SZ ],
-                     int          vfio_only ) {
+fd_iavf_get_vf( char const * pf_if,
+                uint         vf_index,
+                char         vf_pci_addr[ FD_IAVF_PCI_ADDR_SZ ],
+                int          vfio_only ) {
   uint numvfs;
   if( FD_UNLIKELY( -1==fd_iavf_numvfs_get( pf_if, &numvfs ) ) ) return -1;
 
-  for( uint candidate_idx=numvfs; candidate_idx; ) {
-    candidate_idx--;
-    char path[ PATH_MAX ];
-    if( vfio_only ) {
-      FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/virtfn%u/driver", pf_if, candidate_idx ) );
-      char driver[ FD_IAVF_DRIVER_NAME_MAX ];
-      if( FD_UNLIKELY( -1==fd_iavf_read_link_name( driver, sizeof(driver), path, 1 ) ) ) return -1;
-      if( 0!=strcmp( driver, "vfio-pci" ) ) continue;
-    }
-
-    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/virtfn%u", pf_if, candidate_idx ) );
-    char pci_addr[ FD_IAVF_PCI_ADDR_SZ ];
-    if( FD_UNLIKELY( -1==fd_iavf_read_link_name( pci_addr, sizeof(pci_addr), path, 0 ) ) ) return -1;
-    if( FD_UNLIKELY( -1==fd_iavf_pci_addr_normalize( vf_pci_addr, pci_addr ) ) ) return -1;
-    if( NULL!=vf_idx ) *vf_idx = candidate_idx;
-    return 0;
+  if( FD_UNLIKELY( vf_index>=numvfs ) ) { errno = ENOENT; return -1; }
+  char path[ PATH_MAX ];
+  if( vfio_only ) {
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/virtfn%u/driver", pf_if, vf_index ) );
+    char driver[ FD_IAVF_DRIVER_NAME_MAX ];
+    if( FD_UNLIKELY( -1==fd_iavf_read_link_name( driver, sizeof(driver), path, 1 ) ) ) return -1;
+    if( FD_UNLIKELY( 0!=strcmp( driver, "vfio-pci" ) ) ) { errno = ENOENT; return -1; }
   }
-  errno = ENOENT;
-  return -1;
+
+  FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device/virtfn%u", pf_if, vf_index ) );
+  char pci_addr[ FD_IAVF_PCI_ADDR_SZ ];
+  if( FD_UNLIKELY( -1==fd_iavf_read_link_name( pci_addr, sizeof(pci_addr), path, 0 ) ) ) return -1;
+  return fd_iavf_pci_addr_normalize( vf_pci_addr, pci_addr );
 }
 
 static int

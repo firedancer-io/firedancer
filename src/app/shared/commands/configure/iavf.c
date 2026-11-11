@@ -676,6 +676,11 @@ iavf_pf_config_check( fd_config_t const * config,
   if( fini_check && numvfs==1U ) {
     PARTIALLY_CONFIGURED( "PF %s has one VF to remove", pf_if );
   }
+  if( !fini_check && config->net.iavf.vf_index>=numvfs && (numvfs || config->net.iavf.vf_index) ) {
+    FD_LOG_ERR(( "PF %s has %u enabled VFs, but net.iavf.vf_index is %u. "
+                 "Set sriov_numvfs above this index on every PF before configuring IAVF",
+                 pf_if, numvfs, config->net.iavf.vf_index ));
+  }
   if( !fini_check && 0==numvfs ) {
     if( FD_UNLIKELY( -1==fd_iavf_sriov_resources_check( pf_if ) ) ) {
       int err = errno;
@@ -691,6 +696,16 @@ iavf_pf_config_check( fd_config_t const * config,
                    pf_if, err, fd_io_strerror( err ), pf_if ));
     }
     NOT_CONFIGURED( "PF %s has no VFs", pf_if );
+  }
+  uint vf_idx = config->net.iavf.vf_index;
+  if( !fini_check && !config->net.iavf.bind_existing_vfs ) {
+    char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
+    if( -1==fd_iavf_get_vf( pf_if, vf_idx, vf_pci, 1 ) ) {
+      if( errno==ENOENT ) {
+        FD_LOG_ERR(( "VF %u on PF %s is not bound to vfio-pci. Set net.iavf.bind_existing_vfs to true to allow Firedancer to bind this VF", vf_idx, pf_if ));
+      }
+      FD_LOG_ERR(( "Checking the driver for VF %u on PF %s failed (%i-%s)", vf_idx, pf_if, errno, fd_io_strerror( errno ) ));
+    }
   }
   fd_ethtool_ioctl_t ioc;
   if( NULL==fd_ethtool_ioctl_init( &ioc, pf_if ) ) {
@@ -745,13 +760,12 @@ iavf_pf_config_check( fd_config_t const * config,
 
   char pf_pci[ FD_IAVF_PCI_ADDR_SZ ];
   char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
-  uint vf_idx;
   fd_iavf_pci_info_t pci;
   if( -1==iavf_pf_pci_addr_get( pf_if, pf_pci ) ) {
     PARTIALLY_CONFIGURED( "Reading the PCI address of PF %s failed (%i-%s)", pf_if, errno, fd_io_strerror( errno ) );
   }
-  if( -1==fd_iavf_get_last_vf( pf_if, &vf_idx, vf_pci, 1 ) ) {
-    PARTIALLY_CONFIGURED( "Finding a VF bound to vfio-pci on PF %s failed (%i-%s)", pf_if, errno, fd_io_strerror( errno ) );
+  if( -1==fd_iavf_get_vf( pf_if, vf_idx, vf_pci, 1 ) ) {
+    PARTIALLY_CONFIGURED( "Finding VF %u bound to vfio-pci on PF %s failed (%i-%s)", vf_idx, pf_if, errno, fd_io_strerror( errno ) );
   }
   if( -1==fd_iavf_pci_probe( &pci, vf_pci ) ) {
     PARTIALLY_CONFIGURED( "Reading PCI information for VF %s on PF %s failed (%i-%s)", vf_pci, pf_if, errno, fd_io_strerror( errno ) );
@@ -815,11 +829,13 @@ iavf_pf_configure( char const *        pf_if,
                    uchar const         mac[ 6 ],
                    fd_config_t const * config ) {
   /* Linux requires disabling all VFs before changing an existing nonzero
-     sriov_numvfs to a different nonzero count. Reuse the highest index VF
-     bound to vfio-pci when VFs exist, otherwise create VF 0 */
+     sriov_numvfs to a different nonzero count. Leave that count unchanged */
   uint numvfs;
   if( -1==iavf_pf_sriov_numvfs_get( pf_if, &numvfs ) ) {
     FD_LOG_ERR(( "Reading the enabled VF count for PF %s failed (%i-%s)", pf_if, errno, fd_io_strerror( errno ) ));
+  }
+  if( !numvfs && config->net.iavf.vf_index ) {
+    FD_LOG_ERR(( "PF %s has no VFs. Set sriov_numvfs above net.iavf.vf_index %u before configuring IAVF", pf_if, config->net.iavf.vf_index ));
   }
   if( 0==numvfs && -1==iavf_pf_sriov_numvfs_set( pf_if, 1U ) ) {
     int err = errno;
@@ -829,17 +845,13 @@ iavf_pf_configure( char const *        pf_if,
   }
   char pf_pci[ FD_IAVF_PCI_ADDR_SZ ];
   char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
-  uint vf_idx;
+  uint vf_idx = config->net.iavf.vf_index;
   fd_iavf_pci_info_t pci;
   if( -1==iavf_pf_pci_addr_get( pf_if, pf_pci ) ) {
     FD_LOG_ERR(( "Reading the PCI address of PF %s failed (%i-%s)", pf_if, errno, fd_io_strerror( errno ) ));
   }
-  if( -1==fd_iavf_get_last_vf( pf_if, &vf_idx, vf_pci, numvfs>0U ) ) {
-    int err = errno;
-    if( numvfs && err==ENOENT ) {
-      FD_LOG_ERR(( "No VF on PF %s is bound to vfio-pci. Bind an unused VF to vfio-pci before running configure init iavf", pf_if ));
-    }
-    FD_LOG_ERR(( "Finding a VF on PF %s failed (%i-%s)", pf_if, err, fd_io_strerror( err ) ));
+  if( -1==fd_iavf_get_vf( pf_if, vf_idx, vf_pci, 0 ) ) {
+    FD_LOG_ERR(( "Finding VF %u on PF %s failed (%i-%s)", vf_idx, pf_if, errno, fd_io_strerror( errno ) ));
   }
   if( -1==fd_iavf_pci_probe( &pci, vf_pci ) ) {
     FD_LOG_ERR(( "Reading PCI information for VF %s on PF %s failed (%i-%s)", vf_pci, pf_if, errno, fd_io_strerror( errno ) ));
@@ -847,15 +859,14 @@ iavf_pf_configure( char const *        pf_if,
   if( 0!=strcmp( pci.pf_pci_addr, pf_pci ) ) {
     FD_LOG_ERR(( "VF %s belongs to PF %s but IAVF requires PF %s (%s)", vf_pci, pci.pf_pci_addr, pf_if, pf_pci ));
   }
-  if( 0!=numvfs && 0!=strcmp( pci.driver, "vfio-pci" ) ) {
-    FD_LOG_ERR(( "Existing VF %u (%s) on PF %s uses driver '%s'. "
-                 "Please bind it to vfio-pci explicitly if it is intended for Firedancer, or set [net.provider] to \"auto\"",
+  if( numvfs && !config->net.iavf.bind_existing_vfs && 0!=strcmp( pci.driver, "vfio-pci" ) ) {
+    FD_LOG_ERR(( "Existing VF %u (%s) on PF %s uses driver '%s'. Set net.iavf.bind_existing_vfs to true to allow Firedancer to bind this VF to vfio-pci",
                  vf_idx, vf_pci, pf_if, pci.driver[0] ? pci.driver : "none" ));
   }
   if( -1==iavf_vf_vfio_group_idle_check( vf_pci ) ) {
     FD_LOG_ERR(( "VF %s on PF %s is unavailable for configuration (%i-%s)", vf_pci, pf_if, errno, fd_io_strerror( errno ) ));
   }
-  if( 0==numvfs ) iavf_vf_vfio_pci_bind( vf_pci );
+  if( !numvfs || config->net.iavf.bind_existing_vfs ) iavf_vf_vfio_pci_bind( vf_pci );
   iavf_vf_policy_configure( pf_if, vf_idx, mac );
   iavf_pf_ntuple_drops_install( pf_if, config );
 }
@@ -929,8 +940,8 @@ fini( fd_config_t const * config,
        this PF's ntuple rules */
     if( numvfs==1U ) {
       char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
-      if( -1==fd_iavf_get_last_vf( members[i], NULL, vf_pci, 0 ) ) {
-        FD_LOG_ERR(( "Finding the highest-index VF on PF %s failed (%i-%s)", members[i], errno, fd_io_strerror( errno ) ));
+      if( -1==fd_iavf_get_vf( members[i], 0U, vf_pci, 0 ) ) {
+        FD_LOG_ERR(( "Finding VF 0 on PF %s failed (%i-%s)", members[i], errno, fd_io_strerror( errno ) ));
       }
       if( -1==iavf_vf_vfio_group_idle_check( vf_pci ) ) {
         FD_LOG_ERR(( "VF %s on PF %s is unavailable for removal (%i-%s)", vf_pci, members[i], errno, fd_io_strerror( errno ) ));
@@ -958,8 +969,8 @@ fini( fd_config_t const * config,
     }
     if( numvfs==1U ) {
       char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
-      if( -1==fd_iavf_get_last_vf( members[i], NULL, vf_pci, 0 ) ) {
-        FD_LOG_ERR(( "Finding the highest-index VF on PF %s failed (%i-%s)", members[i], errno, fd_io_strerror( errno ) ));
+      if( -1==fd_iavf_get_vf( members[i], 0U, vf_pci, 0 ) ) {
+        FD_LOG_ERR(( "Finding VF 0 on PF %s failed (%i-%s)", members[i], errno, fd_io_strerror( errno ) ));
       }
       if( -1==iavf_vf_vfio_group_idle_check( vf_pci ) ) {
         FD_LOG_ERR(( "VF %s on PF %s is unavailable for removal (%i-%s)", vf_pci, members[i], errno, fd_io_strerror( errno ) ));

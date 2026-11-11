@@ -66,17 +66,25 @@ The iavf provider uses one SR-IOV Virtual Function (VF) per Physical
 Function (PF) on `[net.interface]`. This stage only runs when `[net.provider]`
 is `iavf`. The PFs must use Intel `ice` or `i40e` drivers, SR-IOV and IOMMU
 must be enabled in the system's BIOS, with Virtualization Mode set to SR-IOV
-in the NIC's BIOS section.
+in the NIC's BIOS section, on some systems this is not the default.
 
-`init` loads the `vfio-pci` kernel module if needed, then reuses the
-highest index VF bound to `vfio-pci`. If VFs exist but none are bound
-to `vfio-pci`, init fails. If no VFs exist, it creates VF 0 and binds it
-to `vfio-pci`.
-It assigns the MAC address of `[net.interface]`
-to each VF used (this leads to all RX being sent to both the PF and VF,
-Firedancer adds drop rules on the PF so it processes less unnecessary FD packets),
-disables spoof checking and trust, and sets automatic link state. Repeated
-init does not add excess VFs.
+The iavf configure stage loads the `vfio-pci` kernel module if it's not
+already loaded. `[net.iavf.vf_index]` decides the VF index iavf should use on
+every PF/NIC in use by Firedancer. If set to `0` (the default), the stage
+creates one VF on each PF that has no VFs and binds these new VFs to
+`vfio-pci` regardless of `[net.iavf.bind_existing_vfs]`'s value. For a
+higher index, create enough VFs on each PF first.
+
+Setting `[net.iavf.bind_existing_vfs]` to `true` allows the iavf configure
+stage to bind an existing VF to `vfio-pci`, instead of requiring you to
+bind it first (by default it's `false`). Firedancer always binds VF 0 if
+it created it regardless of this setting.
+
+The stage assigns the MAC address of `[net.interface]` to each VF used
+(this leads to all RX being sent to both the PF and VF, Firedancer adds
+drop rules on the PF so it processes less unnecessary FD packets),
+disables spoof checking and trust, and sets automatic link state.
+Repeated init does not add excess VFs.
 
 The stage clears all existing PF ntuple rules and installs UDP port based
 drop rules for Firedancer's ports so unnecessary packets are not processed
