@@ -1885,6 +1885,58 @@ pre_rotation_bundle_cnt( fd_pack_t const * pack ) {
   return FD_MGAUGE_GET( PACK, PRE_ROTATION_BUNDLE_PENDING );
 }
 
+/* A bundle that does not fit in the block is retried and then skipped,
+   so a later bundle runs first, unless FD_PACK_SCHEDULE_IN_ORDER deletes
+   it on the first try */
+
+static void
+test_bundle_in_order( void ) {
+  for( int in_order=0; in_order<2; in_order++ ) {
+    fd_pack_t * pack = init_all( 32UL, 1UL, 32UL, &outcome );
+    fd_pack_set_initializer_bundles_ready( pack );
+    fd_pack_set_rotation_end_ns( pack, LONG_MAX );
+    FD_TEST( insert_tip_bundle2( pack, 300UL, 1UL, 301UL, 1UL, 1000UL )>=0 );
+    FD_TEST( insert_tip_bundle ( pack, 302UL, 1UL, 0UL, "A", 1000UL )>=0 );
+    fd_pack_limits_t limits[1];
+    fd_pack_get_block_limits( pack, NULL, limits );
+    limits->max_microblocks_per_block = 1UL; /* too few for the first bundle */
+    fd_pack_set_block_limits( pack, limits );
+
+    int   flags = FD_PACK_SCHEDULE_BUNDLE | fd_int_if( in_order, FD_PACK_SCHEDULE_IN_ORDER, 0 );
+    ulong cnt   = 0UL;
+    ulong tries = 0UL;
+    while( !cnt && tries<128UL ) {
+      cnt = fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, flags, outcome.results );
+      tries++;
+    }
+    FD_TEST( cnt==1UL && result_id( outcome.results )==302UL );
+    if( in_order ) FD_TEST( tries==2UL && fd_pack_avail_txn_cnt( pack )==0UL );
+    else           FD_TEST( tries>2UL  && fd_pack_avail_txn_cnt( pack )==2UL );
+    fd_pack_microblock_complete( pack, 0UL );
+    FD_TEST( !fd_pack_verify( pack, pack_verify_scratch ) );
+  }
+}
+
+/* A bundle of one without revert protection is copied out as a normal
+   transaction */
+static void
+test_bundle_no_revert( void ) {
+  for( uint no_revert=0U; no_revert<2U; no_revert++ ) {
+    fd_pack_t * pack = init_all( 32UL, 1UL, 32UL, &outcome );
+    fd_pack_set_initializer_bundles_ready( pack );
+    fd_pack_set_rotation_end_ns( pack, LONG_MAX );
+    fd_txn_e_t * _bundle[ 1 ];
+    fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+    make_tip_transaction1( bundle[ 0 ]->txnp, 0UL, 10000U, 1UL, 0UL, "A" );
+    bundle[ 0 ]->txnp->flags = fd_uint_if( !!no_revert, FD_TXN_P_FLAGS_NO_REVERT, 0U );
+    ulong deleted;
+    FD_TEST( fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1000UL, 0, NULL, &deleted )>=0 );
+    FD_TEST( fd_pack_schedule_next_microblock( pack, FD_PACK_TEST_MAX_COST_PER_BLOCK, 0UL, FD_PACK_SCHEDULE_BUNDLE, outcome.results )==1UL );
+    FD_TEST( (!(outcome.results->txnp->flags & FD_TXN_P_FLAGS_BUNDLE))==!!no_revert );
+    fd_pack_microblock_complete( pack, 0UL );
+  }
+}
+
 static void
 test_pre_rotation_bundles( void ) {
   FD_LOG_NOTICE(( "TEST PRE-ROTATION BUNDLES" ));
@@ -2298,6 +2350,8 @@ main( int     argc,
   test_duplicate_sig();
   test_nonce();
   test_bundle_nonce();
+  test_bundle_in_order();
+  test_bundle_no_revert();
   test_pre_rotation_bundles();
   test_pre_rotation_bundle_lifecycle();
   test_pre_rotation_bundle_size_limit();
