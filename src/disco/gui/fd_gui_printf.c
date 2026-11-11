@@ -4593,83 +4593,6 @@ fd_gui_timeline_slots_collect( fd_gui_t *                     gui,
 #define SORT_BEFORE(a,b) ( (a).slot<(b).slot || ( (a).slot==(b).slot && (a).ts<(b).ts ) )
 #include "../../util/tmpl/fd_sort.c"
 
-static int
-fd_gui_timeline_leader_skips_collect( fd_gui_t *                      gui,
-                                      long                            start,
-                                      long                            end,
-                                      fd_gui_timeline_query_event_t * rows,
-                                      ulong                           max,
-                                      ulong *                         cnt ) {
-  ulong hi = gui->epoch.current_epoch==ULONG_MAX-1UL ? ULONG_MAX : gui->epoch.current_epoch+1UL;
-  ulong lo = hi>FD_GUI_HIST_MAX_EPOCHS ? hi-FD_GUI_HIST_MAX_EPOCHS : 0UL;
-  for( ulong e=lo;; e++ ) {
-    fd_gui_epoch_t const * epoch = fd_gui_timeline_epoch_in_window( gui, e, start, end );
-    if( epoch ) {
-      for( ulong i=epoch->timeline_slot_lo_idx; i<=epoch->timeline_slot_hi_idx; i++ ) {
-        if( FD_UNLIKELY( !fd_gui_timeline_blk_overlaps( epoch, &i, start, end ) ) ) continue;
-        uchar state = epoch->timeline_slot_state[ i ];
-        long  rs    = epoch->timeline_slot_start_ns[ i ];
-        long  re    = epoch->timeline_slot_end_ns[ i ];
-        if( (state & (FD_GUI_TIMELINE_SLOT_STATE_VALID|FD_GUI_TIMELINE_SLOT_STATE_SKIPPED))!=
-            (FD_GUI_TIMELINE_SLOT_STATE_VALID|FD_GUI_TIMELINE_SLOT_STATE_SKIPPED) || rs<0L || re<=rs ) continue;
-        long mid = rs + (re-rs)/2L;
-        if( mid<start || mid>=end ) continue;
-        /* STATE_MINE only means our block replayed; a leader slot we never
-           produced must still count, so check the schedule. */
-        fd_pubkey_t const * leader = fd_gui_get_slot_leader( epoch, epoch->start_slot+i );
-        if( !leader || memcmp( leader->uc, gui->summary.identity_key->uc, 32UL ) ) continue;
-        if( FD_UNLIKELY( *cnt==max ) ) return 1;
-        rows[ (*cnt)++ ] = (fd_gui_timeline_query_event_t){
-          .slot     = epoch->start_slot + i,
-          .ts       = mid,
-          .event    = FD_GUI_TIMELINE_EVENT_LEADER_SKIP,
-          .identity = ULONG_MAX
-        };
-      }
-    }
-    if( e==hi ) break;
-  }
-  return 0;
-}
-
-/* fd_gui_timeline_slot_start returns the start of slot's rooted
-   interval (its end if the start is unknown, e.g. its first shred
-   arrived before the epoch was known), or LONG_MAX if it has none.
-   *rooted is set to whether slot is rooted with a retained epoch. */
-
-static long
-fd_gui_timeline_slot_start( fd_gui_t * gui,
-                            ulong      slot,
-                            int *      rooted ) {
-  *rooted = 0;
-  if( FD_UNLIKELY( slot==ULONG_MAX ) ) return LONG_MAX;
-  fd_gui_epoch_t const * epoch = fd_gui_get_epoch_by_slot( gui, slot );
-  if( FD_UNLIKELY( !epoch || slot<epoch->start_slot || slot-epoch->start_slot>=fd_ulong_min( epoch->slot_cnt, MAX_SLOTS_PER_EPOCH ) ) ) return LONG_MAX;
-  ulong idx = slot-epoch->start_slot;
-  long  rs  = epoch->timeline_slot_start_ns[ idx ];
-  long  re  = epoch->timeline_slot_end_ns  [ idx ];
-  if( !(epoch->timeline_slot_state[ idx ] & FD_GUI_TIMELINE_SLOT_STATE_VALID) ) return LONG_MAX;
-  *rooted = 1;
-  if( rs>=0L && rs!=LONG_MAX ) return rs;
-  if( re>=0L && re!=LONG_MAX ) return re;
-  return LONG_MAX;
-}
-
-static int
-fd_gui_timeline_event_push( fd_gui_timeline_query_event_t * rows,
-                            ulong                           max,
-                            ulong *                         cnt,
-                            long                            start,
-                            long                            end,
-                            ulong                           slot,
-                            long                            ts,
-                            uint                            event ) {
-  if( ts<start || ts>=end ) return 0;
-  if( FD_UNLIKELY( *cnt==max ) ) return 1;
-  rows[ (*cnt)++ ] = (fd_gui_timeline_query_event_t){ .slot=slot, .ts=ts, .event=event, .identity=ULONG_MAX };
-  return 0;
-}
-
 int
 fd_gui_timeline_events_collect( fd_gui_t *                      gui,
                                 long                            start,
@@ -4681,67 +4604,42 @@ fd_gui_timeline_events_collect( fd_gui_t *                      gui,
   *cnt = 0UL;
   if( !gui->db ) return 0;
 
-  /* Identity commands, oldest first.  One that arrived before replay
-     completed a slot belongs to the first slot after the snapshot, the
-     first slot this run executes (0 if no snapshot is known yet). */
-  ulong first  = fd_gui_first_replay_slot( gui );
+  /* An identity command that arrived before replay completed a slot
+     belongs to the first slot after the snapshot, the first slot this
+     run executes (0 if no snapshot is known yet). */
+  ulong first = fd_gui_first_replay_slot( gui );
   if( FD_UNLIKELY( first==ULONG_MAX ) ) first = 0UL;
-  ulong id_cnt = gui->identity_events.cnt;
-  ulong id_lo  = id_cnt>FD_GUI_IDENTITY_EVENT_MAX ? id_cnt-FD_GUI_IDENTITY_EVENT_MAX : 0UL;
-  for( ulong i=id_lo; i<id_cnt; i++ ) {
-    ulong                        idx = i%FD_GUI_IDENTITY_EVENT_MAX;
-    fd_admin_gui_event_t const * ev  = &gui->identity_events.event[ idx ];
-    if( ev->ts_ns<start || ev->ts_ns>=end ) continue;
+  ulong ev_cnt = gui->events.cnt;
+  ulong ev_lo  = ev_cnt>FD_GUI_TIMELINE_EVENT_MAX ? ev_cnt-FD_GUI_TIMELINE_EVENT_MAX : 0UL;
+  for( ulong i=ev_lo; i<ev_cnt; i++ ) {
+    fd_gui_timeline_event_t const * ev = &gui->events.ring[ i%FD_GUI_TIMELINE_EVENT_MAX ];
+    if( ev->ts<start || ev->ts>=end ) continue;
+    ulong identity = ULONG_MAX;
+    if( ev->identity!=ULONG_MAX ) {
+      /* The identity details live in their own, smaller ring. */
+      if( FD_UNLIKELY( ev->identity>=gui->identity_events.cnt ||
+                       ev->identity+FD_GUI_IDENTITY_EVENT_MAX<gui->identity_events.cnt ) ) continue;
+      identity = ev->identity%FD_GUI_IDENTITY_EVENT_MAX;
+    }
     if( FD_UNLIKELY( *cnt==max ) ) return 1;
     rows[ (*cnt)++ ] = (fd_gui_timeline_query_event_t){
-      .slot     = fd_ulong_if( gui->identity_events.slot[ idx ]==ULONG_MAX, first, gui->identity_events.slot[ idx ] ),
-      .ts       = ev->ts_ns,
+      .slot     = fd_ulong_if( ev->slot==ULONG_MAX, first, ev->slot ),
+      .ts       = ev->ts,
       .event    = ev->kind,
-      .identity = idx
+      .identity = identity
     };
-  }
-
-  /* Boot: the snapshot slot, at process start, once a snapshot is
-     known.  Catch-up: the first slot after the snapshot, at the start
-     of its interval. */
-  ulong boot_slot = fd_gui_boot_snapshot_slot( gui );
-  if( FD_LIKELY( boot_slot!=ULONG_MAX ) &&
-      FD_UNLIKELY( fd_gui_timeline_event_push( rows, max, cnt, start, end, boot_slot,
-                                               gui->summary.startup_time_nanos, FD_GUI_TIMELINE_EVENT_BOOT ) ) ) return 1;
-  ulong catch_up_slot = fd_gui_first_replay_slot( gui );
-  if( FD_LIKELY( catch_up_slot!=ULONG_MAX ) ) {
-    /* A rooted slot right after the snapshot can lack an interval
-       (skipped with nothing replayed before it to bound its start): use
-       the next rooted slot that has one. */
-    long ts     = LONG_MAX;
-    int  rooted = 1;
-    for( ulong s=catch_up_slot; ts==LONG_MAX && rooted && s<catch_up_slot+FD_GUI_TIMELINE_CATCH_UP_SEARCH; s++ ) ts = fd_gui_timeline_slot_start( gui, s, &rooted );
-    if( FD_UNLIKELY( fd_gui_timeline_event_push( rows, max, cnt, start, end, catch_up_slot, ts, FD_GUI_TIMELINE_EVENT_CATCH_UP ) ) ) return 1;
-  }
-
-  if( gui->epoch.current_epoch!=ULONG_MAX ) {
-    /* Epoch starts: each retained epoch's first slot. */
-    ulong hi = gui->epoch.current_epoch==ULONG_MAX-1UL ? ULONG_MAX : gui->epoch.current_epoch+1UL;
-    ulong lo = hi>FD_GUI_HIST_MAX_EPOCHS ? hi-FD_GUI_HIST_MAX_EPOCHS : 0UL;
-    for( ulong e=lo;; e++ ) {
-      fd_gui_epoch_t const * epoch = fd_gui_epoch( gui, e );
-      if( epoch && epoch->epoch==e && epoch->slot_cnt ) {
-        int rooted;
-        if( FD_UNLIKELY( fd_gui_timeline_event_push( rows, max, cnt, start, end, epoch->start_slot,
-                                                     fd_gui_timeline_slot_start( gui, epoch->start_slot, &rooted ), FD_GUI_TIMELINE_EVENT_EPOCH_START ) ) ) return 1;
-      }
-      if( e==hi ) break;
-    }
-
-    int rc = fd_gui_timeline_leader_skips_collect( gui, start, end, rows, max, cnt );
-    if( FD_UNLIKELY( rc ) ) return rc;
   }
   fd_gui_timeline_query_event_sort_inplace( rows, *cnt );
   return 0;
 }
 
+/* fd_gui_timeline_slot_hull returns the hull of every retained slot
+   interval in [*first,*last), or *first>=*last if there is none. */
+
 static void
-fd_gui_timeline_slot_bounds( fd_gui_t * gui ) {
+fd_gui_timeline_slot_hull( fd_gui_t * gui,
+                           long *     _first,
+                           long *     _last ) {
   long first = LONG_MAX;
   long last  = LONG_MIN;
   if( gui->db && gui->epoch.current_epoch!=ULONG_MAX ) {
@@ -4758,9 +4656,40 @@ fd_gui_timeline_slot_bounds( fd_gui_t * gui ) {
       if( e==hi ) break;
     }
   }
+  *_first = first;
+  *_last  = last;
+}
+
+static void
+fd_gui_timeline_slot_bounds( fd_gui_t * gui ) {
+  long first, last;
+  fd_gui_timeline_slot_hull( gui, &first, &last );
   if( first<last ) {
     jsonp_long_as_str( gui->http, "available_start_ns", first );
     jsonp_long_as_str( gui->http, "available_end_ns", last );
+  } else {
+    jsonp_null( gui->http, "available_start_ns" );
+    jsonp_null( gui->http, "available_end_ns" );
+  }
+}
+
+/* fd_gui_timeline_event_bounds prints the range the event ring
+   covers.  It starts at process start, or just after the newest
+   timestamp the ring overwrote once it wrapped, and ends at the end of
+   the newest rooted slot (events are written at root), or just after
+   the newest event if that is later (identity commands are written
+   when they finish).  null before anything is known. */
+
+static void
+fd_gui_timeline_event_bounds( fd_gui_t * gui ) {
+  long first, last;
+  fd_gui_timeline_slot_hull( gui, &first, &last );
+  long lo = gui->events.evicted ? fd_long_sat_add( gui->events.evicted_ts, 1L ) : gui->summary.startup_time_nanos;
+  long hi = first<last ? last : LONG_MIN;
+  if( gui->events.cnt ) hi = fd_long_max( hi, fd_long_sat_add( gui->events.max_ts, 1L ) );
+  if( lo<hi ) {
+    jsonp_long_as_str( gui->http, "available_start_ns", lo );
+    jsonp_long_as_str( gui->http, "available_end_ns", hi );
   } else {
     jsonp_null( gui->http, "available_start_ns" );
     jsonp_null( gui->http, "available_end_ns" );
@@ -4980,7 +4909,7 @@ fd_gui_printf_timeline_query_events( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "timeline", "query_events" );
   jsonp_ulong( gui->http, "id", id );
   jsonp_open_object( gui->http, "value" );
-  fd_gui_timeline_slot_bounds( gui );
+  fd_gui_timeline_event_bounds( gui );
   jsonp_open_array( gui->http, "event" );
   for( ulong i=0UL; i<n; i++ ) jsonp_ulong( gui->http, NULL, rows[ i ].event );
   jsonp_close_array( gui->http );

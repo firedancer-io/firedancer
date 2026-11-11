@@ -1766,6 +1766,7 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
   int  gui_own  = ctx->failover_slot_idx!=ULONG_MAX;
   int  gui_up   = !memcmp( req.identity, ctx->failover_pubkey, 32UL );
   uint gui_kind = gui_up ? FD_ADMIN_GUI_EVENT_IDENTITY_PROMOTE : FD_ADMIN_GUI_EVENT_IDENTITY_HANDOFF;
+  /* Only refusals carry a note. */
   char const * gui_note = gui_up ? "The demoted node handed over the staked identity after a failover command was run on it." :
                                    "A failover command on the promoted node asked this node, the demoted node, to hand over the staked identity and switch to a dummy key.";
   uchar gui_from[ 32 ];
@@ -1813,7 +1814,9 @@ failover_switch_request( fd_admin_tile_ctx_t * ctx,
     response.result            = FD_FAILOVER_SWITCH_OK;
     response.history_watermark = find_identity_keyswitch( ctx, "votor" )->result;
     report_admin_command( &event, FD_EVENT_ADMIN_COMMAND_RESULT_SUCCESS );
-    if( !gui_own ) gui_report( ctx, gui_kind, gui_from, req.identity, FD_ADMINCTL_RESULT_SUCCESS, NULL, gui_note );
+    /* The regular handoff/promotion path needs no explanation: the
+       gui adds the stake change. */
+    if( !gui_own ) gui_report( ctx, gui_kind, gui_from, req.identity, FD_ADMINCTL_RESULT_SUCCESS, NULL, "" );
     FD_LOG_NOTICE(( "failover: every tile switched to `%s`, votor halted signing at sequence %lu", new_identity, response.history_watermark ));
   } else {
     FD_LOG_WARNING(( "the failover tile asked for an identity switch but failover is off, refusing" ));

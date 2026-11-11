@@ -230,10 +230,10 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_TIMELINE_EVENT_CATCH_UP          (7U) /* first slot after the snapshot, at its start */
 #define FD_GUI_TIMELINE_EVENT_CNT               (8U)
 
-/* If the first slot after the snapshot is rooted without an interval,
-   catch_up uses the next rooted slot's, up to
-   FD_GUI_TIMELINE_CATCH_UP_SEARCH slots on. */
-#define FD_GUI_TIMELINE_CATCH_UP_SEARCH         (64UL)
+/* Every query_events event is kept in one in-memory ring, written
+   when the event becomes known: the last FD_GUI_TIMELINE_EVENT_MAX of
+   them. */
+#define FD_GUI_TIMELINE_EVENT_MAX               (FD_GUI_TIMELINE_QUERY_EVENT_MAX)
 
 /* Identity command events are kept in memory only, the last
    FD_GUI_IDENTITY_EVENT_MAX of them. Older events aren't reported. */
@@ -1774,6 +1774,16 @@ struct fd_gui_timeline_query_event {
 };
 typedef struct fd_gui_timeline_query_event fd_gui_timeline_query_event_t;
 
+/* fd_gui_timeline_event_t is one entry of the event ring. */
+
+struct fd_gui_timeline_event {
+  long  ts;
+  ulong slot;     /* ULONG_MAX: identity event before the first replayed slot */
+  ulong identity; /* identity events, the sequence number in gui->identity_events, else ULONG_MAX */
+  uint  kind;     /* one of FD_GUI_TIMELINE_EVENT_* */
+};
+typedef struct fd_gui_timeline_event fd_gui_timeline_event_t;
+
 struct fd_gui_timeline_query_bucket {
   ulong fields[ FD_GUI_TIMELINE_FIELD_CNT ];
   ulong slot_duration;
@@ -2027,6 +2037,18 @@ struct fd_gui {
     ulong                slot [ FD_GUI_IDENTITY_EVENT_MAX ]; /* replay frontier when it arrived, ULONG_MAX if none yet */
     fd_admin_gui_event_t event[ FD_GUI_IDENTITY_EVENT_MAX ];
   } identity_events;
+
+  /* Ring of query_events events, written in the order they become
+     known (not timestamp order).  Zero initialized is empty. */
+  struct {
+    ulong                   cnt;          /* events ever written */
+    ulong                   boot;         /* 1 + sequence number of the boot event, 0 if none */
+    int                     catch_up;     /* catch_up written */
+    int                     evicted;      /* an event was overwritten */
+    long                    evicted_ts;   /* latest timestamp overwritten */
+    long                    max_ts;       /* latest timestamp written, LONG_MIN if none */
+    fd_gui_timeline_event_t ring[ FD_GUI_TIMELINE_EVENT_MAX ];
+  } events;
   /* Day record preparation cursor (see fd_gui_timeline_days_prepare). */
   struct {
     ulong day;         /* day being prepared, ULONG_MAX if none */
@@ -2275,20 +2297,17 @@ fd_gui_timeline_slots_collect( fd_gui_t *                     gui,
                                ulong                          max,
                                ulong *                        cnt );
 
-/* fd_gui_timeline_events_collect writes the events whose timestamp is
-   in [start_ns,end_ns) into rows[0,max), in slot order, and the number
-   written into *cnt.  Returns 0 on success, 1 if more than max events
-   match, or -1 for invalid arguments.  Events are leader_skip, a
-   skipped slot scheduled to our current identity stamped at the
-   midpoint of its interval, identity commands, stamped when they
-   finished, at the slot replay had reached then, epoch_start, the
-   first slot of each epoch at the start of its interval, boot, the
-   snapshot slot at process start (once a snapshot is known), and
-   catch_up, the first slot after the snapshot at the start of its
-   interval.  epoch_start and catch_up need that slot's interval, so
-   they appear once it is rooted (and never for a slot before this
-   run's snapshot).  Rows are ordered by
-   slot then timestamp. */
+/* fd_gui_timeline_events_collect writes the events of the event ring
+   whose timestamp is in [start_ns,end_ns) into rows[0,max), ordered by
+   slot then timestamp, and the number written into *cnt.  Returns 0 on
+   success, 1 if more than max events match, or -1 for invalid
+   arguments.  Events are written when they become known: leader_skip
+   (a skipped slot scheduled to the identity at the time, stamped at
+   the midpoint of its interval) and epoch_start / catch_up (stamped at
+   the start of their slot's interval) when the slot is rooted, boot
+   (the snapshot slot, stamped at process start) once a snapshot is
+   known, and identity commands when they finish, at the slot replay
+   had reached then (the first slot after the snapshot if none yet). */
 
 int
 fd_gui_timeline_events_collect( fd_gui_t *                      gui,
@@ -2383,6 +2402,23 @@ fd_gui_handle_diag_snapshot( fd_gui_t *    gui,
 void
 fd_gui_handle_identity_event( fd_gui_t *                   gui,
                               fd_admin_gui_event_t const * event );
+
+/* fd_gui_timeline_event_record appends an event to the event ring.
+   identity is the identity event's sequence number, else ULONG_MAX. */
+
+void
+fd_gui_timeline_event_record( fd_gui_t * gui,
+                              uint       kind,
+                              ulong      slot,
+                              long       ts,
+                              ulong      identity );
+
+/* fd_gui_timeline_boot_note writes the boot event once a snapshot slot
+   is known, at process start, or updates its slot if a later snapshot
+   (the incremental) was loaded. */
+
+void
+fd_gui_timeline_boot_note( fd_gui_t * gui );
 
 void
 fd_gui_ws_open( fd_gui_t *  gui,

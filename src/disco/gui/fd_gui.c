@@ -269,6 +269,12 @@ fd_gui_new( void *                   shmem,
   gui->summary.slot_turbine                  = ULONG_MAX;
   gui->summary.slot_reset                    = ULONG_MAX;
   gui->identity_events.cnt                   = 0UL;
+  gui->events.cnt                            = 0UL;
+  gui->events.boot                           = 0UL;
+  gui->events.catch_up                       = 0;
+  gui->events.evicted                        = 0;
+  gui->events.evicted_ts                     = LONG_MIN;
+  gui->events.max_ts                         = LONG_MIN;
   gui->summary.slot_storage                  = ULONG_MAX;
   gui->summary.slot_voted                    = ULONG_MAX;
   gui->summary.active_fork_cnt               = 1UL;
@@ -548,7 +554,40 @@ fd_gui_handle_identity_event( fd_gui_t *                   gui,
     fd_memcpy( dst->notes+len, line, line_len+1UL );
   }
   gui->identity_events.slot[ idx ] = gui->summary.slot_estimated; /* ULONG_MAX before the first replayed slot */
+  fd_gui_timeline_event_record( gui, event->kind, gui->summary.slot_estimated, dst->ts_ns, gui->identity_events.cnt );
   gui->identity_events.cnt++;
+}
+
+void
+fd_gui_timeline_event_record( fd_gui_t * gui,
+                              uint       kind,
+                              ulong      slot,
+                              long       ts,
+                              ulong      identity ) {
+  if( FD_UNLIKELY( ts<0L || ts==LONG_MAX ) ) return;
+  fd_gui_timeline_event_t * e = &gui->events.ring[ gui->events.cnt%FD_GUI_TIMELINE_EVENT_MAX ];
+  if( FD_UNLIKELY( gui->events.cnt>=FD_GUI_TIMELINE_EVENT_MAX ) ) {
+    gui->events.evicted    = 1;
+    gui->events.evicted_ts = fd_long_max( gui->events.evicted_ts, e->ts );
+  }
+  *e = (fd_gui_timeline_event_t){ .ts=ts, .slot=slot, .identity=identity, .kind=kind };
+  gui->events.max_ts = fd_long_max( gui->events.max_ts, ts );
+  gui->events.cnt++;
+}
+
+void
+fd_gui_timeline_boot_note( fd_gui_t * gui ) {
+  ulong slot = fd_gui_boot_snapshot_slot( gui );
+  if( FD_UNLIKELY( slot==ULONG_MAX ) ) return;
+  if( !gui->events.boot ) {
+    fd_gui_timeline_event_record( gui, FD_GUI_TIMELINE_EVENT_BOOT, slot, gui->summary.startup_time_nanos, ULONG_MAX );
+    if( gui->events.cnt && gui->events.ring[ (gui->events.cnt-1UL)%FD_GUI_TIMELINE_EVENT_MAX ].kind==FD_GUI_TIMELINE_EVENT_BOOT ) gui->events.boot = gui->events.cnt;
+    return;
+  }
+  /* The incremental snapshot loads after the full one: boot is at the
+     snapshot this run actually started from. */
+  ulong seq = gui->events.boot-1UL;
+  if( FD_LIKELY( seq+FD_GUI_TIMELINE_EVENT_MAX>=gui->events.cnt ) ) gui->events.ring[ seq%FD_GUI_TIMELINE_EVENT_MAX ].slot = slot;
 }
 
 void
@@ -3197,6 +3236,43 @@ fd_gui_timeline_count_add( fd_gui_timeline_day_t * day,
   }
 }
 
+/* fd_gui_timeline_root_events writes the events of newly rooted slot s
+   once its interval is recorded: leader_skip if s was skipped and
+   scheduled to the current identity (at the midpoint of its interval),
+   epoch_start if s starts an epoch, and catch_up for the first rooted
+   slot with an interval at or after the first slot after the snapshot
+   (at the start of that interval). */
+
+static void
+fd_gui_timeline_root_events( fd_gui_t *             gui,
+                             fd_gui_epoch_t const * epoch,
+                             ulong                  s ) {
+  ulong idx   = s - epoch->start_slot;
+  uchar state = epoch->timeline_slot_state[ idx ];
+  long  rs    = epoch->timeline_slot_start_ns[ idx ];
+  long  re    = epoch->timeline_slot_end_ns[ idx ];
+  long  start = rs>=0L && rs!=LONG_MAX ? rs : ( re>=0L && re!=LONG_MAX ? re : LONG_MAX );
+
+  if( (state & FD_GUI_TIMELINE_SLOT_STATE_SKIPPED) && rs>=0L && re>rs && re!=LONG_MAX ) {
+    /* STATE_MINE only means our block replayed; a leader slot we never
+       produced must still count, so check the schedule. */
+    fd_pubkey_t const * leader = fd_gui_get_slot_leader( epoch, s );
+    if( leader && !memcmp( leader->uc, gui->summary.identity_key->uc, 32UL ) ) {
+      fd_gui_timeline_event_record( gui, FD_GUI_TIMELINE_EVENT_LEADER_SKIP, s, rs+(re-rs)/2L, ULONG_MAX );
+    }
+  }
+  if( start==LONG_MAX ) return;
+  if( s==epoch->start_slot ) fd_gui_timeline_event_record( gui, FD_GUI_TIMELINE_EVENT_EPOCH_START, s, start, ULONG_MAX );
+  ulong first = fd_gui_first_replay_slot( gui );
+  if( !gui->events.catch_up && first!=ULONG_MAX && s>=first ) {
+    /* A rooted slot right after the snapshot can lack an interval
+       (skipped with nothing replayed before it to bound its start):
+       the next rooted slot with one stands in. */
+    fd_gui_timeline_event_record( gui, FD_GUI_TIMELINE_EVENT_CATCH_UP, first, start, ULONG_MAX );
+    gui->events.catch_up = 1;
+  }
+}
+
 /* fd_gui_timeline_root_block records the timeline interval of newly
    rooted block c and of the skipped slots between c and its parent.
    Skipped slots at or below prev_rooted were recorded by an earlier
@@ -3232,6 +3308,7 @@ fd_gui_timeline_root_block( fd_gui_t *            gui,
       epoch->timeline_slot_shred_cnt[ idx ] = c->shred_cnt;
       epoch->timeline_slot_state[ idx ]     = (uchar)(flags | (c->mine ? FD_GUI_TIMELINE_SLOT_STATE_MINE : 0U));
       fd_gui_epoch_timeline_slot_note( epoch, idx );
+      fd_gui_timeline_root_events( gui, epoch, s );
       continue;
     }
 
@@ -3256,6 +3333,7 @@ fd_gui_timeline_root_block( fd_gui_t *            gui,
     int mine = replayed && fd_gui_slot_is_mine( gui, s );
     epoch->timeline_slot_state[ idx ] = (uchar)(flags | FD_GUI_TIMELINE_SLOT_STATE_SKIPPED | (mine ? FD_GUI_TIMELINE_SLOT_STATE_MINE : 0U));
     fd_gui_epoch_timeline_slot_note( epoch, idx );
+    fd_gui_timeline_root_events( gui, epoch, s );
 
     /* Day aggregates last, since creating a day can evict records.  A
        skip with no parent time has no midpoint and is not counted. */
@@ -3829,6 +3907,7 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
   }
 
   if( prev_slot!=fd_gui_boot_snapshot_slot( gui ) ) gui->summary.boot_progress.boot_target_slot_duration_nanos = ULONG_MAX;
+  fd_gui_timeline_boot_note( gui );
 
   fd_cstr_printf_check( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path, sizeof(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path), NULL, "%s", msg->read_path );
   fd_gui_update_boot_epoch_duration( gui );

@@ -3550,11 +3550,16 @@ the first timestamp. Both are `null` when the arrays are empty.
 | end_ns   | `string` | Exclusive upper bound |
 
 Returns a sparse list of minimap events occuring in the request window,
-ordered by slot then `ts`. Empty results have empty arrays.
+ordered by slot then `ts`. Empty results have empty arrays. All event
+kinds are kept together in memory, the most recent 65,536 events since
+the process started, and each is recorded once it is known: slot events
+(`leader_skip`, `epoch_start`, `catch_up`) when their slot is rooted,
+`boot` once the snapshot slot is known, identity events when the command
+finishes.
 
 | event | name                | meaning |
 |-------|---------------------|---------|
-| 0     | `leader_skip`       | The key this validator currently runs was scheduled to produce a block in this slot and the slot was skipped. `ts` is the middle of the slot, as reported by `query_slots` |
+| 0     | `leader_skip`       | The key this validator ran when the slot was rooted was scheduled to produce a block in this slot and the slot was skipped. `ts` is the middle of the slot, as reported by `query_slots` |
 | 1     | `identity_set`      | An operator ran `set-identity` on this validator. This validator switched to the key it was given, without coordinating with any other validator |
 | 2     | `identity_promote`  | An operator ran `failover promote` on this validator to move the staked identity here. The other validator gives up the staked identity and switches to a dummy pubkey |
 | 3     | `identity_takeover` | An operator ran `failover takeover` on this validator to move the staked identity here, even if the other validator does not respond. It first tries the same exchange as `identity_promote`. If that fails, it takes the staked identity if the other validator appear dead. When run with the `--force` flag, it takes the staked identity even if the other validator appears alive. One takeover can therefore show as two events, one for each attempt |
@@ -3577,8 +3582,8 @@ the `k`-th entry belongs to the `k`-th row whose event is 1 to 4.
 **`TimelineEvents`**
 | field              | type           | description |
 |--------------------|----------------|-------------|
-| available_start_ns | `string\|null` | Same as `TimelineSlots` |
-| available_end_ns   | `string\|null` | Same as `TimelineSlots` |
+| available_start_ns | `string\|null` | Inclusive start of the range the events cover: when the process started, or just after the newest event dropped once more than 65,536 were recorded |
+| available_end_ns   | `string\|null` | Exclusive end of the range the events cover: the end of the newest rooted slot, or just after the newest event if that is later. Events in a window past it may still appear later |
 | event              | `number[]`     | Per row, event kind from the table above |
 | slot               | `number[]`     | Per row, effective slot number |
 | ts                 | `string[]`     | Per row, UNIX nanosecond event timestamp |
