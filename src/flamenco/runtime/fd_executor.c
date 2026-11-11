@@ -284,8 +284,8 @@ fd_validate_fee_payer( fd_acc_t *        acc,
                        ulong             fee,
                        int               relax_post_exec_min_balance_check ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L364-L367 */
-  if( FD_UNLIKELY( !acc->lamports ) ) return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/transaction_processor.rs#L849-L857 */
+  if( FD_UNLIKELY( !acc->lamports ) ) return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE;
 
   /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L368-L371 */
   int system_account_kind = fd_get_system_account_kind( acc );
