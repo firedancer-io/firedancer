@@ -1605,7 +1605,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x09\x63\xab\xd0\x05\x64\xa6\xa5\x74\xcd\xdf\xb3\xc1\xa6\xcf\xb3\xc9\x9e\x1d\x7d\xf1\xdc\x91\xd5\x67\xdf\x68\xeb\x77\x49\x22\xb7"},
                                  /* depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv */
     .name                      = "deprecate_legacy_vote_ixs",
-    .implemented               = 0,
+    .implemented               = 1,
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, partitioned_epoch_rewards_superfeature)>>3,
