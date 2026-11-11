@@ -2174,7 +2174,7 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">benchs_&#8203;txn_&#8203;tx</span> | counter | Benchmark transactions sent |
-| <span class="metrics-name">benchs_&#8203;txn_&#8203;dropped</span> | counter | Benchmark transactions dropped because no QUIC connection was established or it had no free stream |
+| <span class="metrics-name">benchs_&#8203;txn_&#8203;dropped</span> | counter | Benchmark transactions dropped because no QUIC connection was established or it could not send |
 
 </div>
 
@@ -2269,8 +2269,6 @@
 | <span class="metrics-name">votor_&#8203;client_&#8203;handshake_&#8203;created</span> | counter | Handshake flows created |
 | <span class="metrics-name">votor_&#8203;client_&#8203;handshake_&#8203;pool_&#8203;full_&#8203;rejected</span> | counter | Handshakes dropped due to alloc fail |
 | <span class="metrics-name">votor_&#8203;client_&#8203;handshake_&#8203;evicted</span> | counter | Handshakes dropped due to eviction |
-| <span class="metrics-name">votor_&#8203;client_&#8203;stream_&#8203;rx</span> | counter | Stream receive events |
-| <span class="metrics-name">votor_&#8203;client_&#8203;stream_&#8203;rx_&#8203;bytes</span> | counter | Stream payload bytes received |
 | <span class="metrics-name">votor_&#8203;client_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">unknown</span>"} | counter | QUIC frames received, by frame type (Unknown frame type) |
 | <span class="metrics-name">votor_&#8203;client_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ack</span>"} | counter | QUIC frames received, by frame type (ACK frame) |
 | <span class="metrics-name">votor_&#8203;client_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">reset_&#8203;stream</span>"} | counter | QUIC frames received, by frame type (RESET_STREAM frame) |
@@ -2351,8 +2349,6 @@
 | <span class="metrics-name">votor_&#8203;server_&#8203;handshake_&#8203;created</span> | counter | Handshake flows created |
 | <span class="metrics-name">votor_&#8203;server_&#8203;handshake_&#8203;pool_&#8203;full_&#8203;rejected</span> | counter | Handshakes dropped due to alloc fail |
 | <span class="metrics-name">votor_&#8203;server_&#8203;handshake_&#8203;evicted</span> | counter | Handshakes dropped due to eviction |
-| <span class="metrics-name">votor_&#8203;server_&#8203;stream_&#8203;rx</span> | counter | Stream receive events |
-| <span class="metrics-name">votor_&#8203;server_&#8203;stream_&#8203;rx_&#8203;bytes</span> | counter | Stream payload bytes received |
 | <span class="metrics-name">votor_&#8203;server_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">unknown</span>"} | counter | QUIC frames received, by frame type (Unknown frame type) |
 | <span class="metrics-name">votor_&#8203;server_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">ack</span>"} | counter | QUIC frames received, by frame type (ACK frame) |
 | <span class="metrics-name">votor_&#8203;server_&#8203;frame_&#8203;rx</span><br/>{quic_&#8203;frame_&#8203;type="<span class="metrics-enum">reset_&#8203;stream</span>"} | counter | QUIC frames received, by frame type (RESET_STREAM frame) |

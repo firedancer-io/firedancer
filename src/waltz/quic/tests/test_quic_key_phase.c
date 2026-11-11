@@ -84,7 +84,7 @@ sync_clocks( fd_quic_t * x, fd_quic_t * y ) {
 
 struct client_state {
   fd_quic_conn_t *   conn;
-  fd_quic_stream_t * stream;
+  ulong              stream_id;
   long               next_send;
   uint               last_key_phase;
   int                active_logged;
@@ -104,7 +104,7 @@ static void
 client_state_init( client_state_t * client,
                    fd_quic_t *      quic ) {
   client->conn           = NULL;
-  client->stream         = NULL;
+  client->stream_id      = FD_QUIC_STREAM_TYPE_UNI_CLIENT;
   client->next_send      = now;
   client->last_key_phase = 0U;
   client->active_logged  = 0;
@@ -171,25 +171,13 @@ client_step( client_state_t * client ) {
     conn->key_update = 1;  /* force a key update */
   }
 
-  if( !client->stream ) {
-    client->stream = fd_quic_conn_new_stream( conn );
-    if( !client->stream ) return;
-  }
-
   if( now < client->next_send ) return;
 
   /* set next send time */
   client->next_send = now + (long)1e6;
 
-  /* have a stream, so send */
-  int rc = fd_quic_stream_send( client->stream, buf, sizeof(buf), 1 /* fin */ );
-
-  if( rc == FD_QUIC_SUCCESS ) {
-    /* successful - stream will begin closing */
-
-    /* ensure new stream used for next send */
-    client->stream = fd_quic_conn_new_stream( conn );
-
+  if( fd_quic_test_stream_send( conn, client->stream_id, buf, sizeof(buf), NULL ) ) {
+    client->stream_id += 4UL;
   } else {
     FD_LOG_WARNING(( "CLIENT - send failed" ));
   }
@@ -253,9 +241,6 @@ main( int argc, char ** argv ) {
     .conn_id_cnt        =       4,
     .handshake_cnt      =       2,
     .inflight_frame_cnt = 530 * 2,
-    .stream_id_cnt      =     512,
-    .stream_pool_cnt    =     512,
-    .tx_buf_sz          =      32,
   };
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );

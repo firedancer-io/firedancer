@@ -1,4 +1,5 @@
 #include "fd_quic_stream_spam.h"
+#include "fd_quic_test_helpers.h"
 
 void *
 fd_quic_stream_spam_new( void *                    mem,
@@ -50,63 +51,17 @@ fd_quic_stream_spam_delete( void * shspam ) {
 long
 fd_quic_stream_spam_service( fd_quic_conn_t *        conn,
                              fd_quic_stream_spam_t * spam ) {
+  ulong stream_type = conn->server ? FD_QUIC_STREAM_TYPE_UNI_SERVER : FD_QUIC_STREAM_TYPE_UNI_CLIENT;
+  ulong stream_id   = stream_type + 4UL*spam->stream_cnt;
 
-  long streams_sent = 0L;
-  for(;;) {
+  /* Generate stream payload */
+  uchar payload_buf[ 1024UL ];
+  fd_aio_pkt_info_t batch[1] = { { .buf=payload_buf, .buf_sz=1024UL } };
+  spam->gen_fn( /* ctx */ NULL, &batch[ 0 ], stream_id );
 
-    fd_quic_stream_t * stream = spam->stream;
-    if( !stream ) stream = fd_quic_conn_new_stream( conn );
-    if( !stream ) break;
-    ulong stream_id = stream->stream_id;
-    spam->stream = NULL;
-
-    /* Generate stream payload */
-    uchar payload_buf[ 4096UL ];
-    fd_aio_pkt_info_t batch[1] = { { .buf=payload_buf, .buf_sz=4096UL } };
-    spam->gen_fn( /* ctx */ NULL, &batch[ 0 ], stream_id );
-
-    /* Send data */
-    int rc = fd_quic_stream_send( stream, payload_buf, batch->buf_sz, /* fin */ 1 );
-    if( rc==FD_QUIC_SUCCESS ) {
-      /* Stream send successful, close triggered via fin bit */
-      //FD_LOG_DEBUG(( "sent stream=%lu sz=%u", stream_id, batch->buf_sz ));
-      streams_sent++;
-      break;
-    } else {
-      if( FD_UNLIKELY( rc!=FD_QUIC_SEND_ERR_FLOW ) ) {
-        FD_LOG_WARNING(( "failed to send stream=%lu error=%d", stream_id, rc ));
-        streams_sent = -1L;
-        /* FIXME Ensure stuck stream is freed */
-      } else {
-        spam->stream = stream;
-      }
-      goto fin;
-    }
-
-  }
-
-fin:
-  return streams_sent;
-}
-
-void
-fd_quic_stream_spam_notify( fd_quic_stream_t * stream,
-                            void *             stream_ctx,
-                            int                notify_type ) {
-
-  /* Stream is about to be deallocated */
-
-  (void)stream;
-  (void)notify_type;
-
-  /* Nothing to do for completed streams */
-  if( FD_LIKELY( !stream_ctx ) ) return;
-
-  /* Stream still is still in pending stack.  ctx points to position in
-     pending list.  Mark it as a "tombstone" so it's skipped when
-     unwinding the pending stack. */
-  fd_quic_stream_t ** slot = (fd_quic_stream_t **)stream_ctx;
-  *slot = NULL;
+  if( FD_UNLIKELY( !fd_quic_test_stream_send( conn, stream_id, payload_buf, batch->buf_sz, NULL ) ) ) return 0L;
+  spam->stream_cnt++;
+  return 1L;
 }
 
 void

@@ -15,11 +15,11 @@ my_stream_rx_cb( fd_quic_conn_t * conn,
   (void)conn;
   FD_LOG_DEBUG(( "server rx stream data stream=%lu size=%lu offset=%lu",
                  stream_id, data_sz, offset ));
-  FD_TEST( fd_ulong_is_aligned( offset, 512UL ) );
+  FD_TEST( offset==0UL );
   FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
   FD_TEST( data_sz==512UL );
-  FD_TEST( !fin );
+  FD_TEST( fin );
   FD_TEST( 0==memcmp( data, "Hello world", 11u ) );
   return FD_QUIC_SUCCESS;
 }
@@ -176,17 +176,6 @@ test_retry_integration( fd_quic_t * server_quic,
   FD_TEST( server_quic->metrics.net_tx_pkt_cnt  == 3 );
   FD_TEST( client_quic->metrics.net_tx_byte_cnt > server_quic->metrics.net_tx_byte_cnt );
 
-  /* TODO we get callback before the call to fd_quic_conn_new_stream can complete
-     must delay until the conn->state is ACTIVE */
-
-  FD_LOG_NOTICE(( "Creating streams" ));
-
-  fd_quic_stream_t * client_stream   = fd_quic_conn_new_stream( client_conn );
-  FD_TEST( client_stream );
-
-  fd_quic_stream_t * client_stream_0 = fd_quic_conn_new_stream( client_conn );
-  FD_TEST( client_stream_0 );
-
   FD_LOG_NOTICE(( "Sending data over streams" ));
 
   char buf[512] = "Hello world!\x00-   ";
@@ -200,14 +189,7 @@ test_retry_integration( fd_quic_t * server_quic,
     buf[12] = ' ';
     //buf[15] = (char)( ( j / 10 ) + '0' );
     buf[16] = (char)( ( j % 10 ) + '0' );
-    int rc = 0;
-    if( j&1 ) {
-      rc = fd_quic_stream_send( client_stream,   buf, sizeof(buf), 0 );
-    } else {
-      rc = fd_quic_stream_send( client_stream_0, buf, sizeof(buf), 0 );
-    }
-
-    FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
+    FD_TEST( fd_quic_test_stream_send( client_conn, FD_QUIC_STREAM_TYPE_UNI_CLIENT + 4UL*j, buf, sizeof(buf), NULL ) );
   }
 
   FD_LOG_NOTICE(( "Closing connections" ));
@@ -253,10 +235,7 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .stream_id_cnt      = 10,
-    .stream_pool_cnt    = 400,
     .inflight_frame_cnt = 1024 * 10,
-    .tx_buf_sz          = 1<<14
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );

@@ -6,6 +6,17 @@
 #define FD_QUIC_STREAM_TYPE_UNI_CLIENT  2
 #define FD_QUIC_STREAM_TYPE_UNI_SERVER  3
 
+#define FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA 1280  /* IPv6 minimum MTU */
+
+/* FD_QUIC_STREAM_TX_OVERHEAD bounds the bytes a packet built by
+   fd_quic_conn_tx_stream holds besides its STREAM frames: short header
+   (1+20+4), ACK frames (128), AEAD tag (16).  FD_QUIC_STREAM_TX_MAX is
+   the largest stream that fits such a packet (STREAM frame header is
+   1+8+2 bytes). */
+
+#define FD_QUIC_STREAM_TX_OVERHEAD (169UL)
+#define FD_QUIC_STREAM_TX_MAX      (1200UL-FD_QUIC_STREAM_TX_OVERHEAD-11UL)
+
 /* FD_QUIC_{SUCCESS,FAILED} are used for error return codes. */
 #define FD_QUIC_SUCCESS (0)
 #define FD_QUIC_FAILED  (1)
@@ -41,34 +52,11 @@
 #define FD_QUIC_ROLE_CLIENT 1
 #define FD_QUIC_ROLE_SERVER 2
 
-/* FD_QUIC_SEND_ERR_* are negative int error codes indicating a stream
-   send failure.
-   ...INVAL_STREAM: Not allowed to send for stream ID (e.g. not open)
-   ...INVAL_CONN:   Connection not in valid state for sending
-   ...FIN:          Not allowed to send, stream finished
-   ...STREAM_STATE: Stream is not (yet) in valid state to send
-   ...FLOW:         Out of buffer space, retry later */
-#define FD_QUIC_SEND_ERR_INVAL_STREAM (-1)
-#define FD_QUIC_SEND_ERR_INVAL_CONN   (-2)
-#define FD_QUIC_SEND_ERR_FIN          (-3)
-#define FD_QUIC_SEND_ERR_STREAM_STATE (-4)
-#define FD_QUIC_SEND_ERR_FLOW         (-5)
-
 /* FD_QUIC_MIN_CONN_ID_CNT: min permitted conn ID count per conn */
 #define FD_QUIC_MIN_CONN_ID_CNT (4UL)
 
 /* FD_QUIC_DEFAULT_SPARSITY: default fd_quic_limits_t->conn_id_sparsity */
 #define FD_QUIC_DEFAULT_SPARSITY (2.5)
-
-/* FD_QUIC_STREAM_NOTIFY_* indicate stream notification types.
-   All events indicate that stream lifetime has ended and no more
-   callbacks will be generated for it.  The stream object will be freed
-   after event delivery.
-
-   ...END:        All stream data was transmitted successfully
-   ...CONN:       Stream aborted due to conn close */
-#define FD_QUIC_STREAM_NOTIFY_END        (0)
-#define FD_QUIC_STREAM_NOTIFY_CONN       (4)
 
 /* FD_QUIC_PKT_TYPE_{...}: QUIC v1 packet types.
    INITIAL, ZERO_RTT, HANDSHAKE, and RETRY match the long_packet_type
@@ -97,8 +85,6 @@
 #define FD_QUIC_RETRY_SECRET_SZ 16
 /* RETRY iv size in bytes */
 #define FD_QUIC_RETRY_IV_SZ 12
-
-#define FD_QUIC_STREAM_ID_UNUSED (ULONG_MAX)
 
 #define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
 #define FD_QUIC_PKT_NUM_PENDING (~1ul)

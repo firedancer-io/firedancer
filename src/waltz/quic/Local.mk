@@ -23,9 +23,3 @@ $(call add-hdrs,fd_quic_svc_q.h)
 $(call add-objs,fd_quic_svc_q,fd_quic)
 
 $(call add-hdrs,fd_quic_proto.h fd_quic_proto_structs.h fd_quic_types.h)
-
-$(call add-hdrs,fd_quic_stream_pool.h)
-$(call add-objs,fd_quic_stream_pool,fd_quic)
-
-$(call add-hdrs,fd_quic_stream.h)
-$(call add-objs,fd_quic_stream,fd_quic)

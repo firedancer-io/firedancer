@@ -2254,8 +2254,6 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_SET        ( VOTOR, CLIENT_PKT_RX_BYTES,                 ctx->quic_client->metrics.net_rx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_client->metrics.net_rx_pkt_cnt );
   FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_FRAME_RX,                     ctx->quic_client->metrics.frame_rx_cnt            );
   FD_MCNT_SET        ( VOTOR, CLIENT_PKT_RX,                       ctx->quic_client->metrics.net_rx_pkt_cnt          );
-  FD_MCNT_SET        ( VOTOR, CLIENT_STREAM_RX_BYTES,              ctx->quic_client->metrics.stream_rx_byte_cnt      );
-  FD_MCNT_SET        ( VOTOR, CLIENT_STREAM_RX,                    ctx->quic_client->metrics.stream_rx_event_cnt     );
   FD_MCNT_SET        ( VOTOR, CLIENT_PKT_TX,                       ctx->quic_client->metrics.net_tx_pkt_cnt          );
   FD_MCNT_SET        ( VOTOR, CLIENT_PKT_TX_BYTES,                 ctx->quic_client->metrics.net_tx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_client->metrics.net_tx_pkt_cnt );
   FD_MCNT_ENUM_COPY  ( VOTOR, CLIENT_PKT_ACK_PROCESSED,            ctx->quic_client->metrics.ack_tx                  );
@@ -2295,8 +2293,6 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MCNT_SET        ( VOTOR, SERVER_PKT_RX_BYTES,                 ctx->quic_server->metrics.net_rx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_server->metrics.net_rx_pkt_cnt );
   FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_FRAME_RX,                     ctx->quic_server->metrics.frame_rx_cnt            );
   FD_MCNT_SET        ( VOTOR, SERVER_PKT_RX,                       ctx->quic_server->metrics.net_rx_pkt_cnt          );
-  FD_MCNT_SET        ( VOTOR, SERVER_STREAM_RX_BYTES,              ctx->quic_server->metrics.stream_rx_byte_cnt      );
-  FD_MCNT_SET        ( VOTOR, SERVER_STREAM_RX,                    ctx->quic_server->metrics.stream_rx_event_cnt     );
   FD_MCNT_SET        ( VOTOR, SERVER_PKT_TX,                       ctx->quic_server->metrics.net_tx_pkt_cnt          );
   FD_MCNT_SET        ( VOTOR, SERVER_PKT_TX_BYTES,                 ctx->quic_server->metrics.net_tx_byte_cnt+sizeof(fd_eth_hdr_t)*ctx->quic_server->metrics.net_tx_pkt_cnt );
   FD_MCNT_ENUM_COPY  ( VOTOR, SERVER_PKT_ACK_PROCESSED,            ctx->quic_server->metrics.ack_tx                  );

@@ -4,63 +4,15 @@
 #include "fd_quic_pkt_meta.h"
 #include "fd_quic_private.h"
 
-/* define a map for stream_id -> stream* */
-#define MAP_NAME              fd_quic_stream_map
-#define MAP_KEY               stream_id
-#define MAP_T                 fd_quic_stream_map_t
-#define MAP_KEY_NULL          FD_QUIC_STREAM_ID_UNUSED
-#define MAP_KEY_INVAL(key)    ((key)==MAP_KEY_NULL)
-#define MAP_QUERY_OPT         1
-
-#include "../../util/tmpl/fd_map_dynamic.c"
-
-struct fd_quic_conn_layout {
-  int   stream_map_lg;
-  ulong stream_map_off;
-};
-typedef struct fd_quic_conn_layout fd_quic_conn_layout_t;
-
 ulong
 fd_quic_conn_align( void ) {
-  ulong align = fd_ulong_max( alignof( fd_quic_conn_t ), alignof( fd_quic_stream_t ) );
-  align = fd_ulong_max( align, fd_quic_stream_map_align() );
-  return align;
-}
-
-static ulong
-fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
-                            fd_quic_conn_layout_t *  layout ) {
-
-  ulong stream_id_cnt = limits->stream_id_cnt;
-
-  ulong off  = 0;
-
-  off += sizeof( fd_quic_conn_t );
-
-  if( stream_id_cnt ) {
-    /* allocate space for stream hash map */
-    /* about a million seems like a decent bound, with expected values up to 20,000 */
-    ulong lg = 0;
-    while( lg < 20 && (1ul<<lg) < (ulong)((double)stream_id_cnt*FD_QUIC_DEFAULT_SPARSITY) ) {
-      lg++;
-    }
-    layout->stream_map_lg = (int)lg;
-
-    off                     = fd_ulong_align_up( off, fd_quic_stream_map_align() );
-    layout->stream_map_off  = off;
-    off                    += fd_quic_stream_map_footprint( (int)lg );
-  } else {
-    layout->stream_map_lg  = 0;
-    layout->stream_map_off = 0UL;
-  }
-
-  return fd_ulong_align_up( off, fd_quic_conn_align() );
+  return alignof( fd_quic_conn_t );
 }
 
 ulong
 fd_quic_conn_footprint( fd_quic_limits_t const * limits ) {
-  fd_quic_conn_layout_t layout;
-  return fd_quic_conn_footprint_ext( limits, &layout );
+  (void)limits;
+  return fd_ulong_align_up( sizeof( fd_quic_conn_t ), fd_quic_conn_align() );
 }
 
 fd_quic_conn_t *
@@ -91,13 +43,6 @@ fd_quic_conn_new( void *                   mem,
     return NULL;
   }
 
-  fd_quic_conn_layout_t layout = {0};
-  ulong footprint = fd_quic_conn_footprint_ext( limits, &layout );
-  if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "invalid footprint for limits" ));
-    return NULL;
-  }
-
   /* Initialize conn */
 
   fd_quic_conn_t * conn = (fd_quic_conn_t *)mem;
@@ -107,19 +52,6 @@ fd_quic_conn_new( void *                   mem,
   conn->state    = FD_QUIC_CONN_STATE_INVALID;
 
   quic->metrics.conn_state_cnt[ FD_QUIC_CONN_STATE_INVALID ]++;
-
-  /* Initialize streams */
-
-  FD_QUIC_STREAM_LIST_SENTINEL( conn->send_streams );
-  FD_QUIC_STREAM_LIST_SENTINEL( conn->used_streams );
-
-  /* Initialize stream hash map */
-
-  if( layout.stream_map_off ) {
-    ulong stream_map_laddr = (ulong)mem + layout.stream_map_off;
-    conn->stream_map = fd_quic_stream_map_join( fd_quic_stream_map_new( (void *)stream_map_laddr, layout.stream_map_lg, (ulong)fd_tickcount() ) );
-    if( FD_UNLIKELY( !conn->stream_map ) ) return NULL;
-  }
 
   /* Initialize packet meta tracker */
   fd_quic_state_t * state = fd_quic_get_state( quic );
