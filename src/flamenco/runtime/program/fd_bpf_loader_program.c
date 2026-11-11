@@ -2174,8 +2174,14 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* implicit drop of close account */
       break;
     }
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1158-L1170 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5/programs/bpf_loader/src/lib.rs#L878-L888 */
     case FD_BPF_INSTR_EXTEND_PROGRAM: {
+      /* https://github.com/anza-xyz/agave/blob/v4.5/programs/bpf_loader/src/lib.rs#L879-L886 */
+      if( FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, loader_v3_remove_extend_program ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "ExtendProgram has been disabled" );
+        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      }
+
       err = common_extend_program( instr_ctx, instruction->inner.extend_program.additional_bytes, 0 );
       if( FD_UNLIKELY( err ) ) {
         return err;
