@@ -970,10 +970,10 @@ FD_UNIT_TEST( execrp_simple_fee_payer_fail ) {
   fd_execrp_task_done_msg_t const * out_msg = test_execrp_run( env, txn, 19UL );
 
   FD_TEST( !env->execrp->txn_out.err.is_committable );
-  FD_TEST( env->execrp->txn_out.err.txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  FD_TEST( env->execrp->txn_out.err.txn_err==FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE );
   FD_TEST( !out_msg->txn_exec->is_committable );
   FD_TEST( !out_msg->txn_exec->is_noop );
-  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE );
   FD_TEST( out_msg->txn_exec->tick_load_start !=LONG_MAX );
   FD_TEST( out_msg->txn_exec->tick_commit_start==LONG_MAX );
   FD_TEST( out_msg->txn_exec->tick_commit_end  ==LONG_MAX );
@@ -1004,11 +1004,11 @@ FD_UNIT_TEST( execrp_simple_fee_payer_fail_relaxed ) {
   FD_TEST( env->execrp->txn_out.err.is_committable );
   FD_TEST( env->execrp->txn_out.err.is_noop        );
   FD_TEST( !env->execrp->txn_out.err.is_fees_only  );
-  FD_TEST( env->execrp->txn_out.err.txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  FD_TEST( env->execrp->txn_out.err.txn_err==FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE );
   FD_TEST( out_msg->txn_exec->is_committable );
   FD_TEST( out_msg->txn_exec->is_noop        );
   FD_TEST( !out_msg->txn_exec->is_fees_only  );
-  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE );
 
   /* No fees charged */
   FD_TEST( !bank->f.execution_fees );

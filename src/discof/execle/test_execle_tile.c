@@ -1205,10 +1205,10 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail ) {
   test_assert_nonbundle_timing( env, 1UL );
   fd_txn_p_t const * out_txn = fd_chunk_to_laddr( env->execle->out_poh->mem, test_out_poh_meta( 0UL )->chunk );
   FD_TEST( !env->execle->txn_out[0].err.is_committable );
-  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE );
   FD_TEST( !(out_txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) );
   FD_TEST( !(out_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) );
-  FD_TEST( (out_txn->flags & FD_TXN_P_FLAGS_RESULT_MASK)==((uint)(-FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND)<<24) );
+  FD_TEST( (out_txn->flags & FD_TXN_P_FLAGS_RESULT_MASK)==((uint)(-FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE)<<24) );
   FD_TEST( test_read_lamports( env, &data_acct )==data_acct_start );
 
   FD_TEST( out_txn->execle_cu.actual_consumed_cus==0U );
@@ -1226,7 +1226,7 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail ) {
   FD_TEST( trailer->txn_ns_dt.commit_end  ==0.f );
 
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]==1UL );
-  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_ACCOUNT_NOT_FOUND_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_INVALID_ACCOUNT_FOR_FEE_IDX ]==1UL );
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_VERSION )+FD_METRICS_ENUM_TXN_VERSION_V_V0_IDX ]==1UL );
 
   test_env_destroy( env );
@@ -1257,10 +1257,10 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail_relaxed ) {
   /* The execle tile should have set is_committable to false */
   FD_TEST( !env->execle->txn_out[0].err.is_committable );
   FD_TEST( !env->execle->txn_out[0].err.is_fees_only );
-  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND );
+  FD_TEST( env->execle->txn_out[0].err.txn_err==FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE );
   FD_TEST( !(out_txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) );
   FD_TEST( !(out_txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) );
-  FD_TEST( (out_txn->flags & FD_TXN_P_FLAGS_RESULT_MASK)==((uint)(-FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND)<<24) );
+  FD_TEST( (out_txn->flags & FD_TXN_P_FLAGS_RESULT_MASK)==((uint)(-FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE)<<24) );
 
   /* The transaction was dropped, so nothing was charged
      and everything is rebated. */
@@ -1273,7 +1273,7 @@ FD_UNIT_TEST( execle_simple_fee_payer_fail_relaxed ) {
            txn->pack_cu.non_execution_cus + txn->pack_cu.requested_exec_plus_acct_data_cus );
 
   FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED_BY_LANDING )+FD_METRICS_ENUM_TXN_LANDING_RESULT_V_DROPPED_IDX ]==1UL );
-  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_ACCOUNT_NOT_FOUND_IDX ]==1UL );
+  FD_TEST( fd_metrics_tl[ MIDX( COUNTER, EXECLE, TXN_PROCESSED )+FD_METRICS_ENUM_TXN_RESULT_V_INVALID_ACCOUNT_FOR_FEE_IDX ]==1UL );
 
   test_env_destroy( env );
 }
