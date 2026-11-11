@@ -521,7 +521,7 @@ before_frag( fd_net_ctx_t * ctx,
     return 1;
   }
 
-  /* Allocate buffer for receive */
+  /* Allocate buffer for transmit */
   ulong                alloc_seq = free->cons;
   void *               frame     = (void *)free->queue[ alloc_seq & (free->depth-1UL) ];
   free->cons = fd_seq_inc( alloc_seq, 1UL );
