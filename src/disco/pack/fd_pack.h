@@ -240,7 +240,7 @@ fd_pack_t * fd_pack_join( void * mem );
 /* fd_pack_avail_txn_cnt returns the number of transactions that this
    pack object has available to schedule but that have not been
    scheduled yet. pack must be a valid local join.  The return value
-   will be in [0, pack_depth). */
+   will be in [0, pack_depth]. */
 
 /* For performance reasons, implement this here.  The offset is STATIC_ASSERTed
    in fd_pack.c. */
