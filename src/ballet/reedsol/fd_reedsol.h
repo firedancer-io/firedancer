@@ -274,7 +274,7 @@ fd_reedsol_recover_add_erased_shred( fd_reedsol_t * rs,
   return rs;
 }
 
-/* fd_reedsol_recover_abort aborts an in-progress encoding operation.
+/* fd_reedsol_recover_abort aborts an in-progress recovery operation.
    Releases any read or write interests in any shreds that were added to
    the operation.  Upon return, the contents of the erased shreds are
    undefined.  Assumes rs is initialized and rs will not be initialized
