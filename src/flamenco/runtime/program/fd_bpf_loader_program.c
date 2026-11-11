@@ -1029,7 +1029,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
   if( FD_UNLIKELY( fd_bpf_instruction_decode(
       instruction,
       instr_ctx->instr->data,
-      instr_ctx->instr->data_sz ) ) ) {
+      instr_ctx->instr->data_sz,
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, unbound_loader_v3_instruction_data ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/bpf_loader/src/lib.rs#L510 */
