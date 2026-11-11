@@ -4072,7 +4072,7 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
         if( s->start_ns>=s->end_ns || s->end_ns<start || s->end_ns>=end ) continue;
         if( FD_UNLIKELY( slot_cnt==FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX ) ) { limit = 1; break; }
         n = fd_gui_tile_states_push( e, n, s->start_ns, s->end_ns, start, end, row_cnt, exec_cnt, s->state, FD_GUI_STATES_LANE_SLOT );
-        if( !batch ) refslot = fd_ulong_min( refslot, s->slot );
+        refslot = fd_ulong_min( refslot, s->slot ); /* slot states are exact in txn_batch too */
         rows[ row_cnt++ ] = s;
         slot_cnt++;
       }
@@ -4113,7 +4113,9 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
   for( int out=FD_GUI_STATES_OUT_STATE_CNT; out<FD_GUI_STATES_OUT_CNT; out++ ) {
     jsonp_open_array( gui->http, names[ out ] );
     /* Batch granularity only reports the states. */
-    if( !batch || out<=FD_GUI_STATES_OUT_DUR || out==FD_GUI_STATES_OUT_TILE_START ) fd_gui_tile_states_walk( gui, n, start, end, refslot, out, seg_cnt );
+    /* txn_batch only maps slot states to slots: batches can straddle
+       slots, so the txn_* and lthash_* arrays stay empty. */
+    if( !batch || out<=FD_GUI_STATES_OUT_SLOT_DELTA || out==FD_GUI_STATES_OUT_TILE_START ) fd_gui_tile_states_walk( gui, n, start, end, refslot, out, seg_cnt );
     jsonp_close_array( gui->http );
   }
   fd_gui_timeline_close( gui );

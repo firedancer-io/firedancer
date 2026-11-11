@@ -3780,6 +3780,17 @@ test_timeline_cpu( fd_gui_t * gui ) {
     FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_delta" ), 0 ) )==0UL );
     FD_TEST( !test_json_count( timeline_value( json, "txn_idx" ) ) );
 
+    /* txn_batch maps slot states to slots the same way. */
+    FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, ref, ref+sec_ns( 4UL ), 1, 7UL ) );
+    json = timeline_response( gui );
+    FD_TEST( test_json_ulong( timeline_value( json, "reference_slot" ) )==42UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "state" ), 0 ) )==FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK );
+    FD_TEST( test_json_count( timeline_value( json, "slot_state_lo" ) )==1 );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_state_lo" ), 0 ) )==0UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_state_cnt" ), 0 ) )==1UL );
+    FD_TEST( test_json_ulong( test_json_index( timeline_value( json, "slot_delta" ), 0 ) )==0UL );
+    FD_TEST( !test_json_count( timeline_value( json, "txn_slot_delta" ) ) && !test_json_count( timeline_value( json, "lthash_slot_delta" ) ) );
+
     gui->tile_state.exec_cnt = 0UL;
     gui->tile_state.pos_cnt  = 0UL;
     gui->tick_per_ns = tick_per_ns;
