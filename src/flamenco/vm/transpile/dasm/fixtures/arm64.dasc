@@ -1,0 +1,169 @@
+/* Generator test input: one of each operand form. */
+|.arch arm64
+|.actionlist actions
+|.globals lbl_
+|.globalnames lbl_names
+|.type ctx, ctx_t, x19
+
+|.macro load2, dst, field
+| ldr dst, ctx->field
+| str dst, ctx->field
+|.endmacro
+
+static void emit( fd_dasm_t * DASM, int r, int s, int n, long v ) {
+  | // arithmetic
+  | add x0, x1, x2
+  | add w0, w1, w2
+  | add x0, x1, #16
+  | add x0, x1, #0x5000
+  | add x0, x1, #n
+  | add sp, sp, #32
+  | add x0, sp, x2
+  | add x0, x1, x2, lsl #12
+  | add x0, x1, x2, lsr #n
+  | add x0, x1, w2, uxtw
+  | add x0, x1, w2, sxtw #2
+  | adds w0, w1, #n
+  | sub Rx(r), Rx(s), Rx(r)
+  | sub Rw(r), Rw(r), #n
+  | subs x9, x9, x11
+  | cmp x0, x1
+  | cmp w0, #n
+  | cmn Rx(r), #n
+  | neg x0, x1
+  | adc x0, x1, x2
+  | madd x0, x1, x2, x3
+  | msub Rx(r), x10, Rx(s), x9
+  | mul w0, w1, w2
+  | umulh x0, x1, x2
+  | smull x0, w1, w2
+  | udiv Rw(r), Rw(r), Rw(s)
+  | sdiv x0, x1, x2
+  | // logical
+  | and x0, x1, x2
+  | and x0, x1, #0xff
+  | and w0, w1, #0xffff0000
+  | and Rx(r), Rx(r), #v
+  | and Rw(r), Rw(r), #n
+  | orr x0, x1, x2, asr #3
+  | orr w0, w1, #1
+  | eor x0, x1, #0x5555555555555555
+  | eor Rx(r), Rx(r), Rx(s)
+  | tst x0, #v
+  | tst w0, w1
+  | bic x0, x1, x2
+  | mvn x0, x1
+  | // moves
+  | mov x0, x1
+  | mov w0, #42
+  | mov w0, #n
+  | mov x0, #0xffff0000
+  | mov x0, sp
+  | mov sp, x0
+  | mov x0, xzr
+  | movz x0, #0x1234, lsl #16
+  | movz Rx(r), #n
+  | movk x0, #n, lsl #48
+  | movn w0, #0
+  | // shifts and bitfields
+  | lsl x0, x1, x2
+  | lsl x0, x1, #3
+  | lsl w0, w1, #n
+  | lsr x0, x1, #n
+  | asr Rw(r), Rw(r), #(n&31)
+  | ror x0, x1, #7
+  | ubfx x0, x1, #4, #8
+  | sbfiz w0, w1, #3, #5
+  | extr x0, x1, x2, #n
+  | sxtw x0, w1
+  | uxth w0, w1
+  | rev x0, x1
+  | rev16 w0, w1
+  | clz x0, x1
+  | // conditionals
+  | csel x0, x1, x2, hs
+  | cset w0, eq
+  | cinc x0, x1, lt
+  | ccmp x0, x1, #2, ne
+  | ccmp x0, #5, #2, ne
+  | // loads and stores
+  | ldr x0, [x1]
+  | ldr x0, [x1, #8]
+  | ldr x0, [x1, #-8]
+  | ldr x0, [x1, #n]
+  | ldr w0, [sp, #4]
+  | ldr x0, [x1, #16]!
+  | ldr x0, [x1], #16
+  | ldr x0, [x1, x2]
+  | ldr x0, [x1, x2, lsl #3]
+  | ldr w0, [x1, w2, uxtw #2]
+  | ldr x0, [x1, w2, sxtw]
+  | ldr Rx(r), [Rx(s), #n]
+  | ldrb w0, [x1, #n]
+  | ldrh w0, [x1, x2, lsl #1]
+  | ldrsw x0, [x1, #4]
+  | ldrsb x0, [x1]
+  | str x0, [sp, #-16]!
+  | str Rw(r), [x10]
+  | strb w0, [x1, #1]
+  | strh Rw(r), [x10, #n]
+  | ldr d0, [x1, #8]
+  | str s1, [x1]
+  | ldr x0, ctx->a
+  | str w1, ctx->b[3]
+  | load2 x9, c.d
+  | ldp x0, x1, [sp]
+  | ldp x0, x1, [sp], #16
+  | stp x29, x30, [sp, #-16]!
+  | stp w0, w1, [x2, #n]
+  | ldp x0, x1, ctx->pair
+  | // labels and branches
+  |1:
+  | b <1
+  | b >2
+  | beq >2
+  | bhs <1
+  |2:
+  | b ->target
+  | bl ->target
+  | b =>n
+  | bne =>(n+1)
+  | cbz x0, >3
+  | cbnz Rw(r), ->target
+  | tbz x9, #63, >3
+  | tbnz w0, #n, =>n
+  |3:
+  | adr x0, ->target
+  | adrp x0, =>n
+  | ldr x0, ->target
+  | br x16
+  | blr Rx(r)
+  | ret
+  | ret x1
+  |->target:
+  |=>n:
+  |->other:
+  |=>(n+1):
+  | // misc
+  | nop
+  | brk #0
+  | brk #n
+  | bti c
+  | // floating point
+  | fmov d0, x12
+  | fmov w12, s0
+  | fmov d0, d1
+  | fmov d0, #1.0
+  | fmov s0, #-2.5
+  | fadd d0, d1, d2
+  | fmul s0, s1, s2
+  | fcmp d0, d1
+  | fcmp s0, #0.0
+  | fcvtzs x0, d1
+  | scvtf d0, w1
+  | // data
+  | .align 16
+  | .long 0x94000000, 0x00000005, n
+  | .long -1
+  | .quad 0x1122334455667788, 5, v
+}

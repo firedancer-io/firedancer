@@ -46,32 +46,7 @@
    magic as x86 via umulh. */
 
 #include "fd_transpile.h"
-#include <setjmp.h>
-
-static FD_TL jmp_buf dasm_oom;
-__attribute__((noreturn)) static void
-dasm_trap_oom( char const * msg ) {
-  FD_LOG_WARNING(( "transpile scratch buffer out of memory (%s)", msg ));
-  longjmp( dasm_oom, 1 );
-}
-
-/* all DynASM state is preallocated, so just trap to OOM on grow request */
-#define Dst_DECL fd_transpiler_t * Dst
-#define Dst_REF  (Dst->state)
-#define DASM_M_GROW( ctx, t, p, sz, need ) dasm_trap_oom( #t " " #p )
-#define DASM_M_FREE( ctx, p, sz )
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wconversion"
-#pragma GCC diagnostic ignored "-Wsign-conversion"
-#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-#pragma GCC diagnostic ignored "-Wempty-body"
-#pragma GCC diagnostic ignored "-Wunused-function"
-#define DASM_CHECKS 1
-#include "../../../third_party/luajit/dasm_proto.h"
-#include "../../../third_party/luajit/dasm_arm64.h"
-#pragma GCC diagnostic pop
+#include "dasm/fd_dasm_arm64.h"
 #include "../fd_vm_private.h"
 #include "../syscall/fd_vm_syscall.h"
 #include "../../../ballet/murmur3/fd_murmur3.h"
@@ -79,12 +54,13 @@ dasm_trap_oom( char const * msg ) {
 #include "fd_transpile_bb.h"
 #include "fd_transpile_target.h"
 
+#define DASM (&Dst->dasm)
+
 |.arch arm64
 |.actionlist actions
 |.globals fd_xlat_
 |.globalnames fd_xlat_names
 |.type vm, fd_vm_t, x19
-|.section code
 
 /* fd_vm_t field offsets reachable by scaled 12 bit immediates (the
    .type form) go up to 32 KiB; shadow and syscalls are within that,
@@ -269,9 +245,7 @@ static void
 emit_ffi_call( fd_transpiler_t * Dst,
                uint              sym ) {
   ulong idx = Dst->reloc_cnt++;
-  if( FD_UNLIKELY( idx>=FD_TRANSPILER_RELOC_MAX ) ) {
-    longjmp( dasm_oom, 1 );
-  }
+  if( FD_UNLIKELY( idx>=FD_TRANSPILER_RELOC_MAX ) ) return; /* fails the translation */
   Dst->reloc[ idx ] = (fd_elf64_rela){
     .r_info   = FD_ELF64_R_INFO( sym, FD_TRANSPILE_R_CALL ),
     .r_addend = 0L,
@@ -287,10 +261,8 @@ static void
 emit_rodata_adr( fd_transpiler_t * Dst,
                  ulong             off ) {
   ulong idx = Dst->reloc_cnt;
-  if( FD_UNLIKELY( idx+2UL>FD_TRANSPILER_RELOC_MAX ) ) {
-    longjmp( dasm_oom, 1 );
-  }
   Dst->reloc_cnt += 2UL;
+  if( FD_UNLIKELY( idx+2UL>FD_TRANSPILER_RELOC_MAX ) ) return; /* fails the translation */
   Dst->reloc[ idx ] = (fd_elf64_rela){
     .r_info   = FD_ELF64_R_INFO( FD_VM_TRANSPILE_SYM_RODATA, FD_TRANSPILE_R_ADRP ),
     .r_addend = (long)off,
@@ -901,8 +873,8 @@ emit_cmp_imm( fd_transpiler_t * Dst,
 static int
 is_bitmask_imm( ulong v,
                 int   is64 ) {
-  if( !is64 ) return dasm_imm13( (int)(uint)v, (int)(uint)v )!=-1;
-  return dasm_imm13( (int)(uint)v, (int)(uint)(v>>32) )!=-1;
+  if( !is64 ) v = ( v<<32 ) | (ulong)(uint)v;
+  return fd_dasm_imm13( v )!=-1;
 }
 
 /* emit_logic_imm: reg = reg OP v (op: 0 and, 1 orr, 2 eor, 3 tst) */
@@ -1198,7 +1170,7 @@ syms_compute( fd_transpiler_t * Dst,
               ulong             code_sz ) {
   ulong cnt = 0UL;
 # define PUSH( _kind, _arg, _lbl ) do {                                  \
-    int _ofs = dasm_getpclabel( Dst, (uint)(_lbl) );                     \
+    int _ofs = fd_dasm_pclabel_ofs( DASM, (ulong)(_lbl) );                \
     if( _ofs>=0 && (ulong)_ofs<code_sz && cnt<FD_TRANSPILER_SYM_MAX ) { \
       Dst->sym[ cnt++ ] = (fd_transpiler_sym_t){                         \
         .off=(uint)_ofs, .arg=(uint)(_arg), .kind=(uchar)(_kind) };      \
@@ -1219,9 +1191,9 @@ syms_compute( fd_transpiler_t * Dst,
   }
 # undef PUSH
   for( ulong g=0UL; g<(ulong)fd_xlat__MAX; g++ ) {
-    void * addr = Dst->glob[ g ];
-    if( !addr ) continue;
-    ulong ofs = (ulong)( (uchar *)addr - Dst->code );
+    int gofs = fd_dasm_global_ofs( DASM, g );
+    if( gofs<0 ) continue; /* not emitted (e.g. callx) */
+    ulong ofs = (ulong)gofs;
     if( ofs>=code_sz || cnt>=FD_TRANSPILER_SYM_MAX ) continue;
     Dst->sym[ cnt++ ] = (fd_transpiler_sym_t){ .off=(uint)ofs, .arg=(uint)g, .kind=FD_TRANSPILER_SYM_KIND_HELPER };
   }
@@ -1243,7 +1215,10 @@ fd_transpiler_helper_name( ulong idx ) {
 static void
 fd_transpiler_init( fd_transpiler_t * Dst,
                     ulong             bpf_text_cnt ) {
-  memset( Dst, 0, sizeof(fd_transpiler_t) );
+  /* The arrays are large, so only the parts that are read before
+     they are written get cleared. */
+  memset( Dst, 0, offsetof( fd_transpiler_t, pclabels ) );
+  memset( Dst->thunk_bv, 0, ((bpf_text_cnt+63UL)>>6)*sizeof(ulong) );
   Dst->bpf_text_cnt = bpf_text_cnt;
   Dst->reloc_cnt    = 0UL;
 
@@ -1259,26 +1234,7 @@ fd_transpiler_init( fd_transpiler_t * Dst,
   Dst->dasm_lbl_max = dasm_lbl;
   FD_TEST( dasm_lbl<=FD_DASM_PCLABELS_MAX );
 
-  dasm_State * D = Dst->state = (dasm_State *)Dst->state_;
-  D->psize       = sizeof(Dst->state_);
-  D->actionlist  = actions;
-  D->lglabels    = Dst->lglabels;
-  D->lgsize      = sizeof(Dst->lglabels);
-  D->pclabels    = Dst->pclabels;
-  D->pcsize      = sizeof(Dst->pclabels);
-  D->globals     = Dst->glob;
-  D->section     = &D->sections[0];
-  D->codesize    = 0UL;
-  D->maxsection  = 1;
-  D->status      = DASM_S_OK;
-  D->sections[0] = (dasm_Section) {
-    .buf   = Dst->code_bits,
-    .rbuf  = Dst->code_bits - DASM_SEC2POS( 0 ),
-    .bsize = sizeof(Dst->code_bits),
-    .pos   = DASM_SEC2POS( 0 ),
-    .epos  = (int)( sizeof(Dst->code_bits) / sizeof(int) ) - DASM_MAXSECPOS + DASM_POS2BIAS( DASM_SEC2POS( 0 ) ),
-    .ofs   = 0
-  };
+  fd_dasm_init( DASM, actions, Dst->pclabels, dasm_lbl, Dst->code_bits, FD_DASM_POS_MAX );
 }
 
 int
@@ -1292,9 +1248,6 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
                       uchar const *              bpf_rodata,
                       ulong                      bpf_rodata_sz,
                       ulong                      bpf_text_off ) {
-
-  int is_oom = setjmp( dasm_oom );
-  if( FD_UNLIKELY( is_oom ) ) return -1;
 
   if( FD_UNLIKELY( sbpf_version!=0 && sbpf_version!=1 && sbpf_version!=3 ) ) {
     FD_LOG_WARNING(( "sBPF v%lu programs are not supported", sbpf_version ));
@@ -1319,8 +1272,8 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
     FD_LOG_WARNING(( "program too large (%lu rodata bytes, max %lu)", rodata_sz, FD_TRANSPILER_RODATA_MAX ));
     return -1;
   }
+  memset( Dst->rodata + 2UL*bb_word_cnt*sizeof(ulong), 0, Dst->bb_cnt*sizeof(int) ); /* filled in by relocations */
 
-  |.code
   | ldr x9, [x0, #offsetof(fd_vm_t, cu)]
   | tbz x9, #63, >1
   | mov w0, #(uint)(-FD_VM_ERR_INVAL)
@@ -1879,10 +1832,15 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
   | add sp, sp, #80
   | ret
 
-  size_t code_sz;
-  int link_res = dasm_link( Dst, &code_sz );
-  if( link_res!=0 ) {
-    FD_LOG_WARNING(( "dasm_link failed: %#x", (uint)link_res ));
+  if( FD_UNLIKELY( Dst->reloc_cnt>FD_TRANSPILER_RELOC_MAX ) ) {
+    FD_LOG_WARNING(( "program too large (%lu relocations, max %lu)", Dst->reloc_cnt, FD_TRANSPILER_RELOC_MAX ));
+    return -1;
+  }
+
+  ulong code_sz;
+  int link_res = fd_dasm_link( DASM, &code_sz );
+  if( FD_UNLIKELY( link_res ) ) {
+    FD_LOG_WARNING(( "fd_dasm_link failed (%d-%s, arg %d)", link_res, fd_dasm_strerror( link_res ), DASM->err_arg ));
     return -1;
   }
   if( FD_UNLIKELY( code_sz > FD_TRANSPILER_CODE_MAX ) ) {
@@ -1890,15 +1848,15 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
     return -1;
   }
 
-  int enc_res = dasm_encode( Dst, Dst->code );
-  if( enc_res!=0 ) {
-    FD_LOG_WARNING(( "dasm_encode failed: %#x", (uint)enc_res ));
+  int enc_res = fd_dasm_encode( DASM, Dst->code );
+  if( FD_UNLIKELY( enc_res ) ) {
+    FD_LOG_WARNING(( "fd_dasm_encode failed (%d-%s, arg %d)", enc_res, fd_dasm_strerror( enc_res ), DASM->err_arg ));
     return -1;
   }
 
   /* Resolve relocation site labels to code offsets */
   for( ulong i=0UL; i<Dst->reloc_cnt; i++ ) {
-    int ofs = dasm_getpclabel( Dst, (uint)( Dst->dasm_lbl_reloc0+i ) );
+    int ofs = fd_dasm_pclabel_ofs( DASM, Dst->dasm_lbl_reloc0+i );
     if( FD_UNLIKELY( ofs<0 || (ulong)ofs+4UL>code_sz ) ) {
       FD_LOG_WARNING(( "failed to resolve relocation %lu site label (%d)", i, ofs ));
       return -1;
@@ -1916,7 +1874,7 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
     while( word ) {
       ulong pc = (w<<6) + (ulong)fd_ulong_find_lsb( word );
       word &= word-1UL;
-      int ofs = dasm_getpclabel( Dst, (uint)pc );
+      int ofs = fd_dasm_pclabel_ofs( DASM, pc );
       if( FD_UNLIKELY( ofs<0 || (ulong)ofs>=code_sz ) ) {
         FD_LOG_WARNING(( "failed to resolve basic block %lu label (%d)", pc, ofs ));
         return -1;
@@ -1933,9 +1891,9 @@ fd_vm_transpile_code( fd_transpiler_t *          Dst,
   Dst->rodata_reloc_cnt  = bb_idx;
   Dst->rodata_sz         = jmp_off + bb_idx*sizeof(int);
 
-  Dst->code_sz           = (ulong)code_sz;
+  Dst->code_sz           = code_sz;
   Dst->entrypoint_off    = 0UL;
-  syms_compute( Dst, bpf_text_cnt, bpf_entry_pc, bpf_calldests, syscall_used, (ulong)code_sz );
+  syms_compute( Dst, bpf_text_cnt, bpf_entry_pc, bpf_calldests, syscall_used, code_sz );
   Dst->meta.text_cnt     = bpf_text_cnt;
   Dst->meta.text_sz      = bpf_text_cnt * 8UL;
   Dst->meta.entry_pc     = bpf_entry_pc;

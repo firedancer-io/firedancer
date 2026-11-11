@@ -65,6 +65,13 @@ Integration tests can change host configuration.
   ```
   Regenerates `fd_features_generated.h` and `fd_features_generated.c`.
 
+- **Transpiler:** After changing `src/flamenco/vm/transpile/*.dasc` or
+  the generator in `src/flamenco/vm/transpile/dasm/`, run:
+  ```bash
+  make -C src/flamenco/vm/transpile generate test
+  ```
+  Regenerates `fd_transpile_x86.c` and `fd_transpile_arm64.c`.
+
 - **Protobufs:** After protosol proto definitions change, run:
   ```bash
   make -C src/flamenco/runtime/tests protobufs

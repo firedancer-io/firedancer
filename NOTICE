@@ -575,7 +575,7 @@ See src/third_party/zlib/LICENSE for the full license text.
 
 =======================================================================
 
-'src/third_party/luajit' contains a subset of DynASM from the LuaJIT
+'src/flamenco/vm/transpile/dasm' is derived from DynASM from the LuaJIT
 project (commit 24c20c94e7db195b640854619577441f9b4bc6be).
 
 https://github.com/LuaJIT/LuaJIT

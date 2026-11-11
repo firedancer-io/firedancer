@@ -22,6 +22,7 @@ on:
       - 'src/flamenco/features/gen_features.py'
       - 'src/flamenco/features/fd_features_generated.h'
       - 'src/flamenco/features/fd_features_generated.c'
+      - 'src/flamenco/vm/transpile/**'
       - 'src/disco/gui/dist/**'
       - 'src/disco/gui/generated/**'
       - 'config/everything.mk'
@@ -57,6 +58,7 @@ jobs:
           make -C src/disco/metrics metrics
           python3 src/disco/events/gen_events.py --skip-check --no-provisional
           python3 src/flamenco/features/gen_features.py
+          make -B -C src/flamenco/vm/transpile generate test
           make frontend-generated CC=clang
 
       - name: Check generated files are up to date

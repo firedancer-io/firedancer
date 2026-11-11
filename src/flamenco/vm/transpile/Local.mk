@@ -9,7 +9,7 @@ endif
 
 # transpiler core (portable): one machine code backend per target
 $(call make-lib,fd_transpiler)
-$(call add-hdrs,fd_transpile.h fd_transpile_bb.h fd_transpile_target.h)
+$(call add-hdrs,fd_transpile.h fd_transpile_bb.h fd_transpile_target.h dasm/fd_dasm.h)
 $(call add-objs,fd_transpile_bb,fd_transpiler)
 ifdef FD_HAS_ARM
 $(call add-objs,fd_transpile_arm64,fd_transpiler)

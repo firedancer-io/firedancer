@@ -10,6 +10,7 @@
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "fd_transpile_runtime.h"
+#include "dasm/fd_dasm.h"
 
 /* FD_TRANSPILE_ABI_VERSION is incremented anytime anything in this ABI
    changes.  (e.g. transpile_obj, transpile_runtime, or fd_vm) */
@@ -24,23 +25,17 @@
 #define FD_VM_TRANSPILE_SYM_RODATA        4 /* start of transpiler->rodata */
 #define FD_VM_TRANSPILE_SYM_MAX           5
 
-/* FD_VM_TRANSPILE_DASM_LBL_RELOC0 gives the first DynASM PC label index
+/* FD_VM_TRANSPILE_DASM_LBL_RELOC0 gives the first fd_dasm pc label index
    used for relocations.  The label just before it marks the end of the
    translated instruction stream (code past it holds the runtime helper
    subroutines). */
 
 #define FD_VM_TRANSPILE_DASM_LBL_RELOC0( bpf_text_cnt ) ( 2UL*(bpf_text_cnt) + (ulong)FD_SBPF_SYSCALLS_SLOT_CNT + 1UL )
 
-/* DynASM state management
-
-   The DynASM state is pre-allocated with fixed size in a scratch buffer
-   and never changes.  malloc() is yucky, realloc() is insane, and it is
-   regrettable that DynASM assumes it is available.  We begrudingly
-   resort to working around alloc errors through exceptions (longjmp()). */
+/* All assembler state is preallocated at these fixed sizes.  Running
+   out of any of them fails the translation. */
 
 #define FD_DASM_POS_MAX            (1UL<<23)
-#define FD_DASM_LGLABELS_MAX       (1UL<<18)
-#define FD_DASM_GLOB_MAX           (1UL<<16)
 #define FD_TRANSPILER_RELOC_MAX    (1UL<<18)
 #define FD_TRANSPILER_CODE_MAX     (1UL<<24)
 #define FD_TRANSPILER_TEXT_CNT_MAX (1UL<<19)
@@ -82,7 +77,7 @@ struct fd_transpiler {
   ulong entrypoint_off;   /* exec function offset in code[] */
   ulong sym_cnt;          /* sym[] population count */
 
-  /* DynASM dynamic labels enumerate as follows:
+  /* fd_dasm pc labels enumerate as follows:
      - [0,dasm_lbl_thunk0)              bpf_text_cnt labels, one for each BPF instruction
      - [dasm_lbl_thunk0,dasm_lbl_sys0)  thunk_cnt labels, one for each BPF direct call destination
      - [dasm_lbl_sys0,fd_lbl_reloc0)    one label for each syscall thunk (not all used)
@@ -94,13 +89,10 @@ struct fd_transpiler {
 
   fd_transpile_meta_t meta;
 
-  __attribute__((aligned(64))) uchar state_[ 256 ]; /* dasm_State with one section */
-  struct dasm_State * state;
+  fd_dasm_t dasm;
 
-  int    lglabels[ FD_DASM_LGLABELS_MAX    ];
   int    pclabels[ FD_DASM_PCLABELS_MAX    ];
   ulong  thunk_bv[ FD_SBPF_TEXT_CNT_MAX>>6 ]; /* bit vector indicating which BPF offsets need call thunks */
-  void * glob    [ FD_DASM_GLOB_MAX        ];
 
   __attribute__((aligned(64)))
   int code_bits[ FD_DASM_POS_MAX ];
@@ -160,8 +152,6 @@ FD_PROTOTYPES_BEGIN
    - transpiler->meta contains program metadata (text_cnt, text_sz,
      entry_pc, sbpf_version).  meta.prog_id and meta.elf_hash are
      left for the caller to set. */
-
-struct dasm_State;
 
 /* bpf_rodata/bpf_rodata_sz is the loaded (relocated) program image and
    bpf_text_off the byte offset of the text section within it; they are used to find

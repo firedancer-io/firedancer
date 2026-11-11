@@ -1,0 +1,199 @@
+/* Generator test input: one of each operand form. */
+|.arch x64
+|.actionlist actions
+|.globals lbl_
+|.globalnames lbl_names
+|.type ctx, ctx_t, rbx
+
+|.macro load2, dst, field
+| mov dst, ctx->field
+| add dst, ctx->field
+|.endmacro
+
+static void emit( fd_dasm_t * DASM, int r, int s, int n, long v ) {
+  | // registers of every size
+  | mov rax, rcx
+  | mov eax, r9d
+  | mov r10w, dx
+  | mov al, cl
+  | mov r6b, r8b
+  | mov ah, bl
+  | xchg rax, r11
+  | xchg ecx, edx
+  | // run time registers
+  | mov Rq(r), Rq(s)
+  | mov Rd(r), ecx
+  | mov ecx, Rd(s)
+  | mov Rw(r), Rw(s)
+  | mov Rb(r), Rb(s)
+  | add Rq(r), 1
+  | push Rq(r)
+  | pop Rq(r)
+  | bswap Rd(r)
+  | mov Rq(r), n
+  | mov64 Rq(r), v
+  | mov64 r13, v
+  | // memory operands
+  | mov rax, [rcx]
+  | mov rax, [rbp]
+  | mov rax, [rsp]
+  | mov rax, [r12]
+  | mov rax, [r13]
+  | mov rax, [rcx+8]
+  | mov rax, [rcx-200]
+  | mov rax, [rcx+n]
+  | mov rax, [rcx-n]
+  | mov rax, [rcx+rdx]
+  | mov rax, [rcx+rdx*4]
+  | mov rax, [rcx+rdx*8+16]
+  | mov rax, [rcx+r9*2+n]
+  | mov rax, [rdx*8]
+  | mov rax, [rdx*8+n]
+  | mov rax, [0x1000]
+  | mov rax, [n]
+  | mov rax, [Rq(r)]
+  | mov rax, [Rq(r)+8]
+  | mov rax, [Rq(r)+n]
+  | mov rax, [Rq(r)+Rq(s)*8]
+  | mov rax, [Rq(r)+Rq(s)*8+n]
+  | mov rax, [rcx+Rq(s)*2]
+  | mov rax, [Rq(r)+rdx]
+  | mov rax, [Rq(s)*4+n]
+  | mov Rq(r), [Rq(s)+n]
+  | mov [Rq(s)+n], Rq(r)
+  | mov [Rq(s)], Rb(r)
+  | mov [rcx], Rw(r)
+  | lea Rq(r), [Rq(r)+Rq(s)*2]
+  | lea rax, [->target]
+  | mov rax, [=>n]
+  | // types
+  | mov rax, ctx->a
+  | mov ctx->b[3], ecx
+  | mov qword ctx->c.d, 7
+  | load2 rsi, a
+  | load2 Rq(r), b
+  | // immediates
+  | add rax, 1
+  | add rax, 127
+  | add rax, 128
+  | add rax, -129
+  | add rax, 0x12345678
+  | add rax, n
+  | add eax, n
+  | add ax, n
+  | add al, n
+  | add byte [rcx], 5
+  | add word [rcx], n
+  | add dword [rcx+n], n
+  | add qword [Rq(r)+n], n
+  | cmp Rd(r), n
+  | test Rq(r), n
+  | test al, 1
+  | test rax, 0xffffffff
+  | imul rax, rcx, 10
+  | imul rax, rcx, 1000
+  | imul Rq(r), Rq(s), n
+  | imul Rd(r), n
+  | shl rax, 1
+  | shl rax, 5
+  | shl rax, cl
+  | shr Rq(r), n
+  | sar dword [rcx], 3
+  | rol Rw(r), 8
+  | push 5
+  | push n
+  | push qword [rbp-8]
+  | ret 16
+  | int 3
+  | // labels and branches
+  |1:
+  | jmp <1
+  | jmp >2
+  | je >2
+  | jne <1
+  |2:
+  | jmp ->target
+  | call ->target
+  | jae =>n
+  | jmp =>(n+1)
+  | call =>n
+  | call rax
+  | jmp r15
+  | call qword [rax+8]
+  | jmp Rq(r)
+  |->target:
+  |=>n:
+  |->other:
+  |=>(n+1):
+  | // misc integer
+  | inc rax
+  | dec dword [rcx]
+  | neg Rq(r)
+  | not Rd(r)
+  | mul rcx
+  | div Rq(r)
+  | idiv dword [rcx]
+  | movzx eax, cl
+  | movzx Rd(r), word [Rq(s)+n]
+  | movsx rax, byte [rcx]
+  | movsxd Rq(r), Rd(s)
+  | cmovae rax, rcx
+  | cmovl Rd(r), [Rq(s)]
+  | sete al
+  | setne Rb(r)
+  | setg byte [rcx]
+  | bt [rax], rdi
+  | bt rax, 5
+  | bsf rax, rcx
+  | popcnt Rq(r), Rq(s)
+  | lzcnt eax, ecx
+  | xchg [rcx], eax
+  | cdq
+  | cqo
+  | leave
+  | ret
+  | nop
+  | ds
+  | lock
+  | rep
+  | endbr64
+  | // BMI
+  | andn rax, rcx, rdx
+  | bzhi r15, [rax+rdi*8], r15
+  | mulx rdi, rsi, rdx
+  | shlx Rd(r), Rd(r), Rd(s)
+  | shrx Rq(r), Rq(r), Rq(s)
+  | sarx rax, [Rq(r)+n], Rq(s)
+  | rorx rax, rcx, 5
+  | blsr rax, rcx
+  | pext Rq(r), rcx, [rdx]
+  | // SSE and AVX
+  | movaps xmm0, xmm1
+  | movups xmm9, [rcx]
+  | movdqa [Rq(r)+n], xmm(s)
+  | movd xmm0, eax
+  | movq rax, xmm15
+  | addsd xmm0, qword [rcx]
+  | cvtsi2sd xmm0, rax
+  | pshufd xmm1, xmm2, 0x1b
+  | pxor xmm(r), xmm(s)
+  | vaddps ymm0, ymm1, ymm2
+  | vaddps xmm8, xmm9, [rcx+n]
+  | vpxor xmm(r), xmm(s), xmm(r)
+  | vmovdqu ymm(r), [Rq(s)]
+  | vzeroupper
+  | vblendvps xmm0, xmm1, xmm2, xmm(r)
+  | // x87
+  | fld dword [rcx]
+  | fstp st1
+  | fadd st0, st3
+  | faddp st2
+  | // data
+  | .align 16
+  | .byte 0x0f, 0x0b, n
+  | .sbyte -1, n
+  | .word 0x1234, n
+  | .dword 0xdeadbeef, n
+  | .qword 0x11223344, -2, v
+  | .align qword
+}
