@@ -23,7 +23,7 @@ struct fd_http_server_connection {
   int          state;
 
   int          keep_alive;
-  int          head; /* answer with headers only */
+  int          is_head_request;
   int          upgrade_websocket;
   int          compress_websocket;
   ulong        request_bytes_len;
