@@ -43,6 +43,9 @@ struct fd_h2_callbacks {
                   int            closed_by );  /* 0=local 1=peer */
 
   /* headers delivers a chunk of incoming HPACK-encoded header data.
+     stream is NULL for the field block of a refused or released stream
+     on a conn with a dynamic table (conn->rx_dtable), which the app
+     decodes to keep the table in sync.
      the low bits of flags are the frame flags (e.g. END_STREAM or
      END_HEADERS).  If FD_H2_VFLAG_CONTINUATION is set, indicates that
      the header block comes from a continuation frame. */

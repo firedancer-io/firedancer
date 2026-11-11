@@ -19,3 +19,6 @@ enabled = false
 max_http_connections = 16
 max_websocket_connections = 16
 send_buffer_size_mb = 256
+
+[tiles.dragon]
+enabled = false

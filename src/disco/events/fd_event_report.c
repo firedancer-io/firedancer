@@ -1,6 +1,7 @@
 #include "fd_event_report.h"
 
 static FD_TL fd_event_reporter_t fd_event_tl_storage[1];
+static FD_TL fd_event_reporter_t fd_event_internal_tl_storage[1];
 
 fd_event_reporter_t *
 fd_event_reporter_join( fd_event_reporter_t * r,
@@ -40,4 +41,14 @@ fd_event_register( fd_topo_t const *      topo,
   if( FD_LIKELY( tile->event_link_id==ULONG_MAX ) ) return; /* no event link */
 
   fd_event_tl = fd_event_reporter_join( fd_event_tl_storage, topo, tile->event_link_id );
+}
+
+void
+fd_event_register_internal( fd_topo_t const *      topo,
+                            fd_topo_tile_t const * tile ) {
+  fd_event_internal_tl = NULL;
+
+  if( FD_LIKELY( tile->event_internal_link_id==ULONG_MAX ) ) return; /* no internal link */
+
+  fd_event_internal_tl = fd_event_reporter_join( fd_event_internal_tl_storage, topo, tile->event_internal_link_id );
 }

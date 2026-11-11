@@ -230,6 +230,8 @@ ${SNAPDC_TILE_COUNT:+    snapdc_tile_count = $SNAPDC_TILE_COUNT}
         enabled = false
     [tiles.rpc]
         enabled = false
+    [tiles.dragon]
+        enabled = false
 [runtime]
     max_live_slots = $MAX_LIVE_SLOTS
 [log]

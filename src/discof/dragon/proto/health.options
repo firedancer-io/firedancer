@@ -1,0 +1,5 @@
+# The service name is the one field a client controls the length of,
+# so it is a callback: the handler compares it against the two names
+# the tile serves without ever materializing it.
+
+grpc.health.v1.HealthCheckRequest.service type:FT_CALLBACK

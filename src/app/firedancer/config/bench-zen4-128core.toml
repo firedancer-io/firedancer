@@ -29,6 +29,9 @@
 [tiles.pack]
   schedule_strategy = "perf"
 
+[tiles.dragon]
+  enabled = false
+
 [tiles.gui]
   gui_listen_address = "0.0.0.0"
 

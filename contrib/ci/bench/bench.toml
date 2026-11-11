@@ -17,6 +17,8 @@ telemetry = false
         enabled = true
     [tiles.gui]
         enabled = false
+    [tiles.dragon]
+        enabled = false
 [runtime]
     max_live_slots = 256
     transaction_cache_size_mib = 3072

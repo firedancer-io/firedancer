@@ -41,6 +41,7 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "event",  ALWAYS                       },
   { "gui",    ALWAYS                       },
   { "rpc",    ALWAYS                       },
+  { "dragon", ALWAYS                       },
   { "gossvf", ALWAYS                       },
   { "gossip", ALWAYS                       },
   { "rotor",  ALWAYS                       },
@@ -576,7 +577,7 @@ smt_rank( fd_topo_tile_t const * tile,
   static char const * const T4[] = { "votor", "shred", "net", "mlx5", "sock", "accdb", NULL };
   static char const * const T5[] = { "rotor", NULL };
   static char const * const T6[] = { "execle", "dedup", "sign", "resolv", "quic", "verify", "bundle", "shred", "net", "mlx5", "sock", NULL };
-  static char const * const T7[] = { "gui", "rpc", "event", "rserve", "gossip", "gossvf", NULL };
+  static char const * const T7[] = { "gui", "rpc", "dragon", "event", "rserve", "gossip", "gossvf", NULL };
 
   char const * name = tile->name;
   ulong        k    = tile->kind_id;

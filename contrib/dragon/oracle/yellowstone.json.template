@@ -1,0 +1,19 @@
+{
+  "libpath": "@YELLOWSTONE_SO@",
+  "log": { "level": "info" },
+  "tokio": { "worker_threads": 16 },
+  "grpc": {
+    "address": "127.0.0.1:@ORACLE_PORT@",
+    "max_decoding_message_size": 16777216,
+    "snapshot_plugin_channel_capacity": null,
+    "channel_capacity": 2000000,
+    "unary_concurrency_limit": 100,
+    "unary_disabled": false,
+    "x_token": null,
+    "replay_stored_slots": 0,
+    "filter_name_size_limit": 128,
+    "filter_names_size_limit": 4096,
+    "filter_names_cleanup_interval": "1s"
+  },
+  "prometheus": null
+}
