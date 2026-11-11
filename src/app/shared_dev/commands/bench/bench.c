@@ -198,6 +198,11 @@ bench_cmd_fn( args_t *   args,
 
   config->topo.tiles[ fd_topo_find_tile( &config->topo, "bencho", 0UL ) ].bencho.duration_s = args->load.duration;
 
+  /* Bench boots a fresh genesis each run, so a vote history left by an
+     earlier run would hold votor back from leading. */
+  ulong votor_idx = fd_topo_find_tile( &config->topo, "votor", 0UL );
+  if( FD_LIKELY( votor_idx!=ULONG_MAX ) ) config->topo.tiles[ votor_idx ].votor.vote_history_path[ 0 ] = '\0';
+
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
   };
