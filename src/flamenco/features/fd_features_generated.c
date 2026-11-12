@@ -2183,7 +2183,8 @@ fd_feature_id_t const ids[] = {
                                  /* LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD */
     .name                      = "define_ltds_fee_only_semantics",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, validate_chained_block_id_2)>>3,
     .id                        = {"\x0d\xbc\x3b\x68\xa2\x90\x42\x94\x71\x68\x24\xf6\xad\x2a\x32\xe9\x49\x30\x42\xa3\x80\x46\x91\x94\x6c\x28\x18\x33\xcd\x6f\x71\x55"},
@@ -2290,7 +2291,8 @@ fd_feature_id_t const ids[] = {
                                  /* txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL */
     .name                      = "enable_tx_v1",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, double_disinflation_rate)>>3,
     .id                        = {"\x09\x62\x6c\xe8\x20\x77\x2c\xf5\x37\x7e\x00\x68\x91\x01\x6f\xcb\xfd\x0b\x53\x67\xeb\xfb\xaa\x01\xe2\xc3\x0e\x6f\xfe\x63\x42\xa7"},
