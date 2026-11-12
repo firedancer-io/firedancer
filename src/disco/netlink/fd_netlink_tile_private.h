@@ -10,7 +10,7 @@
 /* FD_NETLINK_TILE_CTX_MAGIC uniquely identifies a fd_netlink_tile_ctx_t.
    CHange this whenever the fd_netlink_tile_ctx_t struct changes. */
 
-#define FD_NETLINK_TILE_CTX_MAGIC (0xb86244c543ddca5fUL) /* random */
+#define FD_NETLINK_TILE_CTX_MAGIC (0x63cfa474dfe5132bUL) /* random */
 
 struct fd_netlink_tile_ctx {
   ulong magic; /* ==FD_NETLINK_TILE_CTX_MAGIC */

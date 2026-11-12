@@ -12,6 +12,11 @@ fd_neigh4_prober_init( fd_neigh4_prober_t * prober,
                        ulong                max_probe_burst,
                        float                probe_delay_seconds ) {
 
+  FD_TEST( isfinite( max_probes_per_second ) && max_probes_per_second>0.f );
+  FD_TEST( isfinite( probe_delay_seconds ) && probe_delay_seconds>0.f );
+  FD_TEST( (double)max_probe_burst + ceil( (double)max_probes_per_second*(double)probe_delay_seconds ) <
+           (double)FD_NEIGH4_PROBE_HISTORY_MAX );
+
   int sock_fd = socket( AF_INET, SOCK_DGRAM, 0 );
   if( FD_UNLIKELY( sock_fd<0 ) ) {
     FD_LOG_ERR(( "socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
