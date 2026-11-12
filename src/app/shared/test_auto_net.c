@@ -105,6 +105,14 @@ main( int     argc,
     reset_provider_auto( iavf_cases[i].net_tile_cnt );
     fd_auto_net_apply( config, &info );
     FD_TEST( 0==strcmp( config->net.provider, iavf_cases[i].provider ) );
+
+    reset_auto( iavf_cases[i].net_tile_cnt );
+    fd_auto_net_apply( config, &info );
+    FD_TEST( 0==strcmp( config->net.provider, "xdp" ) );
+
+    strcpy( config->net.provider, "iavf" );
+    fd_auto_net_apply( config, &info );
+    FD_TEST( 0==strcmp( config->net.provider, "iavf" ) );
   }
 
   /* Explicit providers bypass automatic provider requirements. */

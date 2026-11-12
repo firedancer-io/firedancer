@@ -112,13 +112,6 @@ fd_auto_check_driver( fd_auto_info_t      const * info,
 
 /* XDP checks/apply */
 
-static int
-xdp_check( fd_config_t    const * config,
-           fd_auto_info_t const * info FD_PARAM_UNUSED ) {
-  if( strcmp( config->net.provider, "auto" ) ) return 0;
-  return 1;
-}
-
 static void
 xdp_apply( fd_config_t * config ) {
   fd_memcpy( config->net.provider, "xdp", 4 );
@@ -259,9 +252,8 @@ xdp_zc_apply( fd_config_t * config ) {
 
 /* mlx5 tile checks/apply */
 static int
-mlx5_check( fd_config_t    const * config,
+mlx5_check( fd_config_t    const * config FD_PARAM_UNUSED,
             fd_auto_info_t const * info ) {
-  if( strcmp( config->net.provider, "auto" ) ) return 0;
   if( !info->has_mlx5_rdma_port ) return 0;
   if( !info->has_uverbs && !info->has_uverbs_module ) return 0;
   return 1;
@@ -274,10 +266,8 @@ mlx5_apply( fd_config_t * config ) {
 
 /* iavf tile checks/apply */
 static int
-iavf_check( fd_config_t    const * config,
+iavf_check( fd_config_t    const * config FD_PARAM_UNUSED,
             fd_auto_info_t const * info ) {
-  if( 0!=strcmp( config->net.provider, "auto" ) ) return 0;
-
   if( !info->iavf_pf_checks_passed ) return 0;
   if( !info->has_vfio && !info->has_vfio_module ) return 0;
 
@@ -320,7 +310,6 @@ static const fd_auto_provider_t NET_PROVIDERS[] = {
   },
   {
     .name  = "xdp",
-    .check = xdp_check,
     .apply = xdp_apply,
     .feats = {
       {
@@ -521,20 +510,16 @@ fd_auto_scrape_info( fd_config_t const * config ) {
   scrape_system    ( &info                        );
   scrape_networking( &info, config->net.interface );
 
-  if( !strcmp( config->net.provider, "auto" ) &&
-      info.has_mlx5_rdma_port                 &&
-      !info.has_uverbs ) {
+  if( info.has_mlx5_rdma_port && !info.has_uverbs ) {
     info.has_uverbs_module = 0==fd_sys_util_modprobe( "ib_uverbs", 1 );
   }
 
-  if( 0==strcmp( config->net.provider, "auto" ) ) {
-    info.iavf_pf_checks_passed = scrape_iavf_pfs( config->net.interface );
-    if( info.iavf_pf_checks_passed ) {
-      if( fd_iavf_vfio_avail() ) {
-        info.has_vfio = 0==fd_iavf_vfio_api_check( NULL );
-      } else {
-        info.has_vfio_module = 0==fd_sys_util_modprobe( "vfio-pci", 1 );
-      }
+  info.iavf_pf_checks_passed = scrape_iavf_pfs( config->net.interface );
+  if( info.iavf_pf_checks_passed ) {
+    if( fd_iavf_vfio_avail() ) {
+      info.has_vfio = 0==fd_iavf_vfio_api_check( NULL );
+    } else {
+      info.has_vfio_module = 0==fd_sys_util_modprobe( "vfio-pci", 1 );
     }
   }
 
@@ -543,23 +528,25 @@ fd_auto_scrape_info( fd_config_t const * config ) {
 
 /* fd_auto_net_apply resolves any "auto" fields in the networking
 configuration. The resulting configuration is optimized for the system
-but won't always maximally optimize, this is to reduce risk of failures. */
+but won't always maximally optimize, this is to reduce risk of failures.
+Providers are in order of priority with first being the highest. */
 static void
 fd_auto_net_apply( fd_config_t          * config,
                    fd_auto_info_t const * info ) {
-  /* Providers are in order of priority with first being the highest */
-  int const is_provider_auto = !strcmp( config->net.provider, "auto" );
+  int const is_provider_auto = 0==strcmp( config->net.provider, "auto" );
+
   int is_provider_set = 0;
+  fd_auto_provider_t const * preferred_provider = NULL;
   for( ulong p=0UL; p<PROVIDER_CNT; p++ ) {
     fd_auto_provider_t const * provider = &NET_PROVIDERS[p];
 
     /* Check provider requirements */
     int const is_explicit_provider = !is_provider_auto && !strcmp( config->net.provider, provider->name );
+    int const is_supported = fd_auto_check_driver( info, provider->supported_drivers ) &&
+                             ( !provider->check || provider->check( config, info ) );
+    if( !is_provider_set && !preferred_provider && is_supported ) preferred_provider = provider;
     int is_chosen_provider = !is_provider_set &&
-                             ( is_explicit_provider ||
-                               ( is_provider_auto &&
-                                 ( !provider->check || provider->check( config, info ) ) &&
-                                 fd_auto_check_driver( info, provider->supported_drivers ) ) );
+                             ( is_explicit_provider || ( is_provider_auto && is_supported ) );
     if( is_chosen_provider ) {
       is_provider_set = 1;
       if( is_provider_auto ) {
@@ -591,6 +578,12 @@ fd_auto_net_apply( fd_config_t          * config,
       }
       feat->apply( config );
     }
+  }
+
+  if( !is_provider_auto && preferred_provider && 0!=strcmp( config->net.provider, preferred_provider->name ) ) {
+    FD_LOG_WARNING(( "Your hardware supports the significantly faster '%s' networking provider but you are using the '%s' provider. "
+                     "Set net.provider = \"auto\" in your config to switch.",
+                     preferred_provider->name, config->net.provider ));
   }
 }
 
