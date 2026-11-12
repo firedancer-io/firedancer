@@ -1,19 +1,19 @@
 #ifndef HEADER_fd_src_flamenco_vm_transpile_fd_jit_proto_h
 #define HEADER_fd_src_flamenco_vm_transpile_fd_jit_proto_h
 
-/* fd_jit_proto.h is the wire format between exec tiles, the jit tile
-   and the jitmap tile.
+/* fd_jit_proto.h is the wire format between the jitmap tile and the
+   jit tile.
 
-     exec --exec_jit-->  jit --jit_jitmap--> jitmap --(progcache rec)--> exec
+     jitmap --jitmap_jit--> jit --jit_jitmap--> jitmap --(progcache rec)--> exec
 
-   An exec tile that loads a program the AOT archive does not cover
+   jitmap picks a hot program cache record that has no binding and
    sends its verified image to the jit tile.  The jit tile transpiles it
-   and hands code, rodata and relocations to jitmap.  jitmap places the
+   and hands code, rodata and relocations back.  jitmap places the
    program in the JIT arena, resolves relocations, and binds the
    progcache record.  Exec tiles never see jit's output directly.
 
-   Both links are unreliable: an overrun drops the request and the
-   program stays on the interpreter.  Frags are larger than the 16 bit
+   jitmap keeps one request in flight and gives up on it at a deadline,
+   so neither link is ever overrun.  Frags are larger than the 16 bit
    mcache size field allows, so frags are published with sz 0 and each
    header states its own length. */
 
@@ -21,7 +21,7 @@
 #include "../../features/fd_features.h"
 #include "../../progcache/fd_progcache_rec.h"
 
-/* fd_jit_req_t heads an exec_jit frag.  It is followed in the same
+/* fd_jit_req_t heads a jitmap_jit frag.  It is followed in the same
    frag by val_sz bytes: the progcache value slot (calldests + loaded
    rodata image) exactly as fd_progcache_rec_load produced it.  The
    rec header fields let jit rebuild an fd_sbpf_program_t view and let
@@ -42,7 +42,6 @@ struct __attribute__((aligned(64))) fd_jit_req {
   uint                   rodata_off;
   uint                   sbpf_version;
   uint                   val_sz;       /* bytes of value slot that follow */
-  uint                   src_tile;     /* exec tile index, for logs */
   fd_features_t          features;
 };
 
@@ -50,7 +49,8 @@ typedef struct fd_jit_req fd_jit_req_t;
 
 #define FD_JIT_REQ_MTU ( sizeof(fd_jit_req_t) + FD_RUNTIME_ACC_SZ_MAX + 2UL*(1UL<<20) )
 
-/* fd_jit_res_t heads a jit_jitmap frag.  Variable parts follow in this
+/* fd_jit_res_t heads a jit_jitmap frag.  If failed is set the program
+   could not be compiled and nothing follows.  Otherwise variable parts follow in this
    order, each 8 byte aligned: code[code_sz], rodata[rodata_sz],
    reloc[reloc_cnt], rodata_reloc[rodata_reloc_cnt].  Syscall relocs
    name fd_sbpf_syscalls slots (FD_VM_TRANSPILE_SYM_MAX+slot); jitmap
@@ -62,7 +62,7 @@ struct __attribute__((aligned(64))) fd_jit_res {
   ulong                  feature_slot;
   ulong                  deploy_slot;
   uint                   rec_idx;
-  uint                   src_tile;
+  uint                   failed;
   ulong                  code_sz;
   ulong                  rodata_sz;
   ulong                  reloc_cnt;

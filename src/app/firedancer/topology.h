@@ -41,10 +41,11 @@ setup_topo_progcache( fd_topo_t *  topo,
                       ulong        txn_max,
                       ulong        wksp_size );
 
-/* setup_topo_jit adds the jit and jitmap tiles, the JIT code arena and
-   the links between them and the exec tiles named by exec_name
-   (exec_cnt instances, each already in the topology).  No-op unless
-   [development.jit] is enabled. */
+/* setup_topo_jit adds the jit and jitmap tiles, the links between
+   them, and the JIT code arena and heat table they share with the exec
+   tiles named by exec_name (exec_cnt instances, each already in the
+   topology).  The program cache must already be in the topology.
+   No-op unless [development.jit] is enabled. */
 
 void
 setup_topo_jit( fd_topo_t *    topo,

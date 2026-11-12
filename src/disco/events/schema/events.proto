@@ -10596,14 +10596,10 @@ message MetricsExecle {
   MetricsExecleTxncacheQueryDurationNanos txncache_query_duration_nanos = 66;
   // Duration of one transaction cache insert
   MetricsExecleTxncacheInsertDurationNanos txncache_insert_duration_nanos = 67;
-  // sBPF program invocations run as ahead-of-time transpiled code
+  // sBPF program invocations run as transpiled code
   uint64 transpiled_executed = 68;
   // Transpiled invocations that bailed to the interpreter
   uint64 transpiled_bailed = 69;
-  // Programs sent to the JIT compiler
-  uint64 jit_requested = 449213385;
-  // JIT requests held back because the compiler link was full
-  uint64 jit_request_refused = 365775702;
 }
 
 // Metrics of one shred tile instance, one row per sweep
@@ -12603,14 +12599,10 @@ message MetricsExecrp {
   MetricsExecrpTxncacheQueryDurationNanos txncache_query_duration_nanos = 68;
   // Duration of one transaction cache insert
   MetricsExecrpTxncacheInsertDurationNanos txncache_insert_duration_nanos = 69;
-  // sBPF program invocations run as ahead-of-time transpiled code
+  // sBPF program invocations run as transpiled code
   uint64 transpiled_executed = 70;
   // Transpiled invocations that bailed to the interpreter
   uint64 transpiled_bailed = 71;
-  // Programs sent to the JIT compiler
-  uint64 jit_requested = 443668334;
-  // JIT requests held back because the compiler link was full
-  uint64 jit_request_refused = 300566068;
 }
 
 // Metrics of one votor tile instance, one row per sweep
@@ -13733,7 +13725,7 @@ message MetricsJitmap {
   uint64 timer_irq = 24;
   // Programs placed into the JIT code arena
   uint64 program_placed = 25;
-  // Compile results that matched a program already in the arena
+  // Programs bound to code already in the arena
   uint64 program_duplicate_hit = 26;
   // Compile results that failed validation or did not fit the arena
   uint64 program_rejected = 27;
@@ -13747,6 +13739,14 @@ message MetricsJitmap {
   uint64 arena_capacity_bytes = 31;
   // Distinct programs in the JIT code arena
   uint64 program_count = 32;
+  // Hot programs sent to the compiler
+  uint64 program_requested = 33;
+  // Programs the compiler could not compile
+  uint64 program_failed = 34;
+  // Compile requests abandoned at their deadline
+  uint64 request_timed_out = 35;
+  // Programs removed from the JIT code arena
+  uint64 program_freed = 36;
 }
 
 // Metrics of one jit tile instance, one row per sweep

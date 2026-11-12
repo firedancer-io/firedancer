@@ -29,16 +29,28 @@ fd_transpile_bind_lookup( fd_pubkey_t const * prog_id,
   return 0U;
 }
 
+fd_transpile_bind_t *
+fd_transpile_bind_jit_init( fd_transpile_bind_t *      bind,
+                            void *                     arena_mem,
+                            void *                     heat_mem,
+                            ulong                      row_idx,
+                            fd_progcache_rec_t const * rec0,
+                            ulong                      rec_max ) {
+  fd_jit_arena_t * arena = fd_jit_arena_join( arena_mem );
+  fd_jit_heat_t *  heat  = fd_jit_heat_join ( heat_mem  );
+  if( FD_UNLIKELY( !arena || !heat || row_idx>=heat->row_cnt || heat->rec_max!=rec_max ) ) return NULL;
+  bind->arena   = arena;
+  bind->heat    = fd_jit_heat_row( heat, row_idx );
+  bind->rec0    = rec0;
+  bind->rec_max = rec_max;
+  return bind;
+}
+
 fd_vm_transpiled_exec_func_t
 fd_transpile_bind_exec( fd_transpile_bind_t const * bind,
-                        fd_progcache_rec_t *        rec,
-                        fd_features_t const *       features ) {
+                        fd_progcache_rec_t const *  rec ) {
   uint idx = FD_VOLATILE_CONST( rec->transpiled_idx );
-  if( FD_UNLIKELY( !idx ) ) {
-    if( bind && bind->req ) bind->req( bind->req_ctx, rec, features );
-    return NULL;
-  }
-  if( idx & FD_TRANSPILE_BIND_HOLD ) return NULL;
+  if( !idx || ( idx & FD_TRANSPILE_BIND_HOLD ) ) return NULL;
   if( idx & FD_TRANSPILE_BIND_JIT ) {
     if( FD_UNLIKELY( !bind || !bind->arena ) ) return NULL;
     ulong slot = idx & ~FD_TRANSPILE_BIND_JIT;

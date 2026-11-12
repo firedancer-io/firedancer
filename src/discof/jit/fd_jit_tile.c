@@ -1,6 +1,6 @@
 /* The jit tile transpiles sBPF programs to native code at run time.  It is the
    untrusted half of the JIT: it only sees verified program images
-   (exec_jit frags), runs the transpiler on them, and sends the
+   (jitmap_jit frags), runs the transpiler on them, and sends the
    resulting relocatable code to jitmap (jit_jitmap frags).  It maps no
    workspace beyond its links and never touches the program cache or
    the code arena. */
@@ -10,7 +10,6 @@
 #include "../../flamenco/vm/transpile/fd_jit_proto.h"
 #include "../../flamenco/vm/transpile/fd_transpile.h"
 #include "../../flamenco/vm/syscall/fd_vm_syscall.h"
-#include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/base58/fd_base58.h"
 
 #include <linux/futex.h>
@@ -94,6 +93,25 @@ after_poll_overrun( fd_jit_tile_t * ctx ) {
   ctx->metrics.overrun++;
 }
 
+/* publish_failed tells jitmap that req cannot be compiled, so it stops
+   waiting for it. */
+
+static void
+publish_failed( fd_jit_tile_t *      ctx,
+                fd_stem_context_t *  stem,
+                fd_jit_req_t const * req ) {
+  fd_jit_res_t * res = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  memset( res, 0, sizeof(fd_jit_res_t) );
+  res->key          = req->key;
+  res->feature_slot = req->feature_slot;
+  res->deploy_slot  = req->deploy_slot;
+  res->rec_idx      = req->rec_idx;
+  res->failed       = 1U;
+  fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, 0UL, 0UL, 0UL, 0UL );
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_jit_res_t), ctx->out_chunk0, ctx->out_wmark );
+  ctx->metrics.failed++;
+}
+
 static void
 after_frag( fd_jit_tile_t *     ctx,
             ulong               in_idx,
@@ -108,14 +126,14 @@ after_frag( fd_jit_tile_t *     ctx,
   fd_jit_req_t const * req = (fd_jit_req_t const *)ctx->req;
   FD_BASE58_ENCODE_32_BYTES( req->key.prog.uc, prog_b58 );
 
-  /* Rebuild the program view the exec tile had.  The image is the
+  /* Rebuild the program view the exec tiles have.  The image is the
      progcache value slot, already loaded and verified; only shape
      checks are needed before handing it to the transpiler. */
 
   ulong val_sz = req->val_sz;
   if( FD_UNLIKELY( sizeof(fd_jit_req_t)+val_sz>FD_JIT_REQ_MTU ) ) {
     FD_LOG_WARNING(( "jit %s: oversized request", prog_b58 ));
-    ctx->metrics.failed++;
+    publish_failed( ctx, stem, req );
     return;
   }
   uchar const * val = ctx->req + sizeof(fd_jit_req_t);
@@ -127,7 +145,7 @@ after_frag( fd_jit_tile_t *     ctx,
                    ( req->calldests_off!=UINT_MAX && (ulong)req->calldests_off+fd_sbpf_calldests_footprint( req->text_cnt )>val_sz ) ) ) {
     FD_LOG_WARNING(( "jit %s: malformed request (val_sz %lu rodata_off %u rodata_sz %u text_off %u text_cnt %u entry_pc %u calldests_off %u)",
                      prog_b58, val_sz, req->rodata_off, req->rodata_sz, req->text_off, req->text_cnt, req->entry_pc, req->calldests_off ));
-    ctx->metrics.failed++;
+    publish_failed( ctx, stem, req );
     return;
   }
   uchar const * rodata = val + req->rodata_off;
@@ -139,7 +157,7 @@ after_frag( fd_jit_tile_t *     ctx,
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
   if( FD_UNLIKELY( fd_vm_syscall_register_slot( syscalls, req->feature_slot, &req->features, 0 )!=FD_VM_SUCCESS ) ) {
     FD_LOG_WARNING(( "jit %s: syscall registration failed", prog_b58 ));
-    ctx->metrics.failed++;
+    publish_failed( ctx, stem, req );
     return;
   }
 
@@ -149,7 +167,7 @@ after_frag( fd_jit_tile_t *     ctx,
   dt += fd_log_wallclock();
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "jit %s: transpile failed", prog_b58 ));
-    ctx->metrics.failed++;
+    publish_failed( ctx, stem, req );
     return;
   }
   fd_transpiler_t const * t = ctx->t;
@@ -157,7 +175,7 @@ after_frag( fd_jit_tile_t *     ctx,
                    t->reloc_cnt>FD_JIT_RES_RELOC_MAX || t->rodata_reloc_cnt>FD_JIT_RES_RODATA_RELOC_MAX ) ) {
     FD_LOG_WARNING(( "jit %s: output too large (code %lu rodata %lu reloc %lu/%lu)",
                      prog_b58, t->code_sz, t->rodata_sz, t->reloc_cnt, t->rodata_reloc_cnt ));
-    ctx->metrics.failed++;
+    publish_failed( ctx, stem, req );
     return;
   }
 
@@ -167,7 +185,6 @@ after_frag( fd_jit_tile_t *     ctx,
     .feature_slot     = req->feature_slot,
     .deploy_slot      = req->deploy_slot,
     .rec_idx          = req->rec_idx,
-    .src_tile         = req->src_tile,
     .code_sz          = t->code_sz,
     .rodata_sz        = t->rodata_sz,
     .reloc_cnt        = t->reloc_cnt,
@@ -176,10 +193,6 @@ after_frag( fd_jit_tile_t *     ctx,
     .meta             = t->meta,
     .features         = req->features,
   };
-  memcpy( res->meta.prog_id, req->key.prog.uc, 32UL );
-  /* Hash of the loaded image, not the ELF: jitmap only uses it to
-     dedup identical programs */
-  fd_blake3_hash( rodata, fd_ulong_max( (ulong)req->rodata_sz, req->text_off+(ulong)req->text_cnt*8UL ), res->meta.elf_hash );
 
   ulong code_off, rodata_off, reloc_off, rodata_reloc_off;
   ulong res_sz = fd_jit_res_layout( res, &code_off, &rodata_off, &reloc_off, &rodata_reloc_off );

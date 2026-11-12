@@ -211,11 +211,13 @@ setup_topo_jit( fd_topo_t *    topo,
   if( FD_LIKELY( !config->firedancer.development.jit.enabled ) ) return;
   ulong code_max = config->firedancer.development.jit.arena_size_mib<<20;
   if( FD_UNLIKELY( !code_max ) ) FD_LOG_ERR(( "[development.jit.arena_size_mib] must be positive" ));
+  if( FD_UNLIKELY( !config->firedancer.development.jit.sweep_interval_millis ) ) FD_LOG_ERR(( "[development.jit.sweep_interval_millis] must be positive" ));
 
-  fd_topob_wksp( topo, "jit"       );
-  fd_topob_wksp( topo, "jitmap"    );
-  fd_topob_wksp( topo, "jit_arena" );
-  fd_topob_wksp( topo, "exec_jit"  );
+  fd_topob_wksp( topo, "jit"        );
+  fd_topob_wksp( topo, "jitmap"     );
+  fd_topob_wksp( topo, "jit_arena"  );
+  fd_topob_wksp( topo, "jit_heat"   );
+  fd_topob_wksp( topo, "jitmap_jit" );
   fd_topob_wksp( topo, "jit_jitmap" );
 
   /**/                           fd_topob_tile( topo, "jit",    "jit",    "metric_in", cpu_idx_jit,    0, 0, 0 );
@@ -230,23 +232,38 @@ setup_topo_jit( fd_topo_t *    topo,
   FD_TEST( progcache_obj_id!=ULONG_MAX );
   fd_topob_tile_uses( topo, jitmap_tile, &topo->objs[ progcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  /* One request link per exec tile (a request can be 10 MiB, so depth
-     stays small); one result link.  All unreliable: a backed up
-     compiler drops requests rather than stalling execution. */
-  ulong link_idx = 0UL;
+  /* One heat row per exec tile, one counter per program cache record */
+  ulong slot_cnt[ FD_PROGCACHE_CACHE_CLASS_CNT ];
+  ulong rec_max = fd_progcache_setup_slots( fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.txn_max",      progcache_obj_id ),
+                                            fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.progcache_sz", progcache_obj_id ),
+                                            slot_cnt );
+  FD_TEST( rec_max );
+  fd_topo_obj_t * heat_obj = fd_topob_obj( topo, "jit_heat", "jit_heat" );
+  FD_TEST( fd_pod_insert_ulong(  topo->props, "jit_heat", heat_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, exec_cnt+exec_cnt2, "obj.%lu.row_cnt", heat_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, rec_max,            "obj.%lu.rec_max", heat_obj->id ) );
+  fd_topob_tile_uses( topo, jitmap_tile, heat_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+
+  ulong row_idx = 0UL;
   char const * names[ 2 ] = { exec_name, exec_name2 };
   ulong        cnts [ 2 ] = { exec_cnt,  exec_cnt2  };
   for( ulong n=0UL; n<2UL; n++ ) {
     if( !names[ n ] ) continue;
     for( ulong i=0UL; i<cnts[ n ]; i++ ) {
-      fd_topob_link( topo, "exec_jit", "exec_jit", 4UL, FD_JIT_REQ_MTU, 1UL );
-      fd_topob_tile_out( topo, names[ n ], i, "exec_jit", link_idx );
-      fd_topob_tile_in( topo, "jit", 0UL, "metric_in", "exec_jit", link_idx, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, names[ n ], i ) ], arena_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-      link_idx++;
+      fd_topo_tile_t * exec_tile = &topo->tiles[ fd_topo_find_tile( topo, names[ n ], i ) ];
+      fd_topob_tile_uses( topo, exec_tile, arena_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+      fd_topob_tile_uses( topo, exec_tile, heat_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+      FD_TEST( fd_pod_insertf_ulong( topo->props, row_idx, "jit_heat_row.%s.%lu", names[ n ], i ) );
+      row_idx++;
     }
   }
-  fd_topob_link( topo, "jit_jitmap", "jit_jitmap", 4UL, FD_JIT_RES_MTU, 1UL );
+
+  /* jitmap keeps one request in flight, so the links stay shallow (a
+     request can be 12 MiB, a result more). */
+  fd_topob_link( topo, "jitmap_jit", "jitmap_jit", 2UL, FD_JIT_REQ_MTU, 1UL );
+  fd_topob_tile_out( topo, "jitmap", 0UL, "jitmap_jit", 0UL );
+  fd_topob_tile_in( topo, "jit", 0UL, "metric_in", "jitmap_jit", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_link( topo, "jit_jitmap", "jit_jitmap", 2UL, FD_JIT_RES_MTU, 1UL );
   fd_topob_tile_out( topo, "jit", 0UL, "jit_jitmap", 0UL );
   fd_topob_tile_in( topo, "jitmap", 0UL, "metric_in", "jit_jitmap", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 }
@@ -2152,6 +2169,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->jitmap.jit_arena_obj_id = fd_pod_query_ulong( config->topo.props, "jit_arena", ULONG_MAX ); FD_TEST( tile->jitmap.jit_arena_obj_id!=ULONG_MAX );
     tile->jitmap.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->jitmap.progcache_obj_id!=ULONG_MAX );
+    tile->jitmap.jit_heat_obj_id  = fd_pod_query_ulong( config->topo.props, "jit_heat",  ULONG_MAX ); FD_TEST( tile->jitmap.jit_heat_obj_id !=ULONG_MAX );
+    tile->jitmap.rec_max          = fd_pod_queryf_ulong( config->topo.props, 0UL, "obj.%lu.rec_max", tile->jitmap.jit_heat_obj_id );
+    tile->jitmap.sweep_interval_millis = config->firedancer.development.jit.sweep_interval_millis;
+    tile->jitmap.hot_cu_threshold      = config->firedancer.development.jit.hot_cu_threshold;
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

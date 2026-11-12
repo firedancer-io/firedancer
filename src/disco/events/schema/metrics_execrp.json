@@ -399,9 +399,7 @@
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
         },
-        "transpiled_executed":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "sBPF program invocations run as ahead-of-time transpiled code" },
-        "transpiled_bailed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transpiled invocations that bailed to the interpreter" },
-        "jit_requested":                 { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Programs sent to the JIT compiler", "field_number": 443668334 },
-        "jit_request_refused":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "JIT requests held back because the compiler link was full", "field_number": 300566068 }
+        "transpiled_executed":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "sBPF program invocations run as transpiled code" },
+        "transpiled_bailed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Transpiled invocations that bailed to the interpreter" }
     }
 }

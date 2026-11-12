@@ -737,7 +737,11 @@ struct fd_topo_tile {
 
     struct {
       ulong jit_arena_obj_id;
+      ulong jit_heat_obj_id;
       ulong progcache_obj_id;
+      ulong rec_max;               /* program cache records */
+      ulong sweep_interval_millis;
+      ulong hot_cu_threshold;
     } jitmap;
 
     struct {

@@ -86,12 +86,16 @@
         "tlb_shootdown":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. TLB shootdowns on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "timer_irq":                  { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "counter: cumulative since tile start, query deltas. Local timer interrupts (LOC) on the tile's dedicated CPU, 0 unless it is the only live tile pinned there" },
         "program_placed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Programs placed into the JIT code arena" },
-        "program_duplicate_hit":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Compile results that matched a program already in the arena" },
+        "program_duplicate_hit":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Programs bound to code already in the arena" },
         "program_rejected":           { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Compile results that failed validation or did not fit the arena" },
         "program_stale_dropped":      { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Compile results whose program cache record had moved on" },
         "result_overrun_dropped":     { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Compile results lost because the tile fell behind" },
         "arena_used_bytes":           { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bytes of JIT code arena in use" },
         "arena_capacity_bytes":       { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Bytes of JIT code arena" },
-        "program_count":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Distinct programs in the JIT code arena" }
+        "program_count":              { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Distinct programs in the JIT code arena" },
+        "program_requested":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Hot programs sent to the compiler" },
+        "program_failed":             { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Programs the compiler could not compile" },
+        "request_timed_out":          { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Compile requests abandoned at their deadline" },
+        "program_freed":              { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Programs removed from the JIT code arena" }
     }
 }

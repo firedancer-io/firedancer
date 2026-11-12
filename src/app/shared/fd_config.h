@@ -122,6 +122,8 @@ struct fd_configf {
     struct {
       int   enabled;
       ulong arena_size_mib;
+      ulong sweep_interval_millis;
+      ulong hot_cu_threshold;
     } jit;
   } development;
 

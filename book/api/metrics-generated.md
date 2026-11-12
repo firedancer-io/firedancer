@@ -596,10 +596,8 @@
 | <span class="metrics-name">execle_&#8203;account_&#8203;lthash_&#8203;skipped</span> | counter | Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped |
 | <span class="metrics-name">execle_&#8203;bank_&#8203;switched</span> | counter | Cache invalidations due to transaction execution from a different block |
 | <span class="metrics-name">execle_&#8203;cu_&#8203;consumed</span> | counter | Compute units consumed by executed transactions |
-| <span class="metrics-name">execle_&#8203;transpiled_&#8203;executed</span> | counter | sBPF program invocations run as ahead-of-time transpiled code |
+| <span class="metrics-name">execle_&#8203;transpiled_&#8203;executed</span> | counter | sBPF program invocations run as transpiled code |
 | <span class="metrics-name">execle_&#8203;transpiled_&#8203;bailed</span> | counter | Transpiled invocations that bailed to the interpreter |
-| <span class="metrics-name">execle_&#8203;jit_&#8203;requested</span> | counter | Programs sent to the JIT compiler |
-| <span class="metrics-name">execle_&#8203;jit_&#8203;request_&#8203;refused</span> | counter | JIT requests held back because the compiler link was full |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">load</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction checks and account loading) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">execute</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction execution, including VM setup) |
 | <span class="metrics-name">execle_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction result commit) |
@@ -1378,10 +1376,8 @@
 | <span class="metrics-name">execrp_&#8203;cpi_&#8203;executed</span> | counter | Cross-program invocations executed |
 | <span class="metrics-name">execrp_&#8203;account_&#8203;lthash_&#8203;skipped</span> | counter | Committed writable accounts left byte-identical by their transaction, so their in-band lthash update was skipped |
 | <span class="metrics-name">execrp_&#8203;bank_&#8203;switched</span> | counter | Cache invalidations due to transaction execution from a different block |
-| <span class="metrics-name">execrp_&#8203;transpiled_&#8203;executed</span> | counter | sBPF program invocations run as ahead-of-time transpiled code |
+| <span class="metrics-name">execrp_&#8203;transpiled_&#8203;executed</span> | counter | sBPF program invocations run as transpiled code |
 | <span class="metrics-name">execrp_&#8203;transpiled_&#8203;bailed</span> | counter | Transpiled invocations that bailed to the interpreter |
-| <span class="metrics-name">execrp_&#8203;jit_&#8203;requested</span> | counter | Programs sent to the JIT compiler |
-| <span class="metrics-name">execrp_&#8203;jit_&#8203;request_&#8203;refused</span> | counter | JIT requests held back because the compiler link was full |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">load</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction checks and account loading) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">execute</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction execution, including VM setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction result commit) |
@@ -2111,13 +2107,17 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">jitmap_&#8203;program_&#8203;placed</span> | counter | Programs placed into the JIT code arena |
-| <span class="metrics-name">jitmap_&#8203;program_&#8203;duplicate_&#8203;hit</span> | counter | Compile results that matched a program already in the arena |
+| <span class="metrics-name">jitmap_&#8203;program_&#8203;duplicate_&#8203;hit</span> | counter | Programs bound to code already in the arena |
 | <span class="metrics-name">jitmap_&#8203;program_&#8203;rejected</span> | counter | Compile results that failed validation or did not fit the arena |
 | <span class="metrics-name">jitmap_&#8203;program_&#8203;stale_&#8203;dropped</span> | counter | Compile results whose program cache record had moved on |
 | <span class="metrics-name">jitmap_&#8203;result_&#8203;overrun_&#8203;dropped</span> | counter | Compile results lost because the tile fell behind |
 | <span class="metrics-name">jitmap_&#8203;arena_&#8203;used_&#8203;bytes</span> | gauge | Bytes of JIT code arena in use |
 | <span class="metrics-name">jitmap_&#8203;arena_&#8203;capacity_&#8203;bytes</span> | gauge | Bytes of JIT code arena |
 | <span class="metrics-name">jitmap_&#8203;program_&#8203;count</span> | gauge | Distinct programs in the JIT code arena |
+| <span class="metrics-name">jitmap_&#8203;program_&#8203;requested</span> | counter | Hot programs sent to the compiler |
+| <span class="metrics-name">jitmap_&#8203;program_&#8203;failed</span> | counter | Programs the compiler could not compile |
+| <span class="metrics-name">jitmap_&#8203;request_&#8203;timed_&#8203;out</span> | counter | Compile requests abandoned at their deadline |
+| <span class="metrics-name">jitmap_&#8203;program_&#8203;freed</span> | counter | Programs removed from the JIT code arena |
 
 </div>
 

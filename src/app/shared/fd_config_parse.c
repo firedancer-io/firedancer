@@ -104,6 +104,8 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( bool,   development.jit.enabled                             );
   CFG_POP      ( ulong,  development.jit.arena_size_mib                      );
+  CFG_POP      ( ulong,  development.jit.sweep_interval_millis               );
+  CFG_POP      ( ulong,  development.jit.hot_cu_threshold                    );
 
 
   return config;

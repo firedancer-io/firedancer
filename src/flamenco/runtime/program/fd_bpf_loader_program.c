@@ -560,7 +560,7 @@ bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
 
   long const regime1 = fd_tickcount();
 
-  fd_vm_transpiled_exec_func_t transpiled = vm->trace ? NULL : fd_transpile_bind_exec( instr_ctx->runtime->transpile, cache_entry, &instr_ctx->bank->f.features );
+  fd_vm_transpiled_exec_func_t transpiled = vm->trace ? NULL : fd_transpile_bind_exec( instr_ctx->runtime->transpile, cache_entry );
   int exec_err;
   if( transpiled ) {
     vm->transpiled.rt = &fd_transpile_rt;
@@ -573,6 +573,8 @@ bpf_execute( fd_exec_instr_ctx_t * instr_ctx,
     }
   } else {
     exec_err = fd_vm_exec( vm );
+    fd_transpile_bind_heat( instr_ctx->runtime->transpile, cache_entry, &instr_ctx->bank->f.features,
+                            (ulong)( vm->entry_cu - fd_long_max( vm->cu, 0L ) ) );
   }
   instr_ctx->txn_out->details.compute_budget.compute_meter = (ulong)vm->cu;
 

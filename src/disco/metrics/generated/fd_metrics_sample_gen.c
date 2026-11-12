@@ -1144,7 +1144,7 @@ static fd_metrics_sample_field_t const fields_pack[ 316 ] = {
   { 0, 0U, FD_METRICS_SAMPLE_CLOSE, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_execle[ 251 ] = {
+static fd_metrics_sample_field_t const fields_execle[ 249 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -1231,8 +1231,6 @@ static fd_metrics_sample_field_t const fields_execle[ 251 ] = {
   { FD_METRICS_COUNTER_EXECLE_CU_CONSUMED_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_TRANSPILED_EXECUTED_OFF, 68U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_TRANSPILED_BAILED_OFF, 69U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_COUNTER_EXECLE_JIT_REQUESTED_OFF, 449213385U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_COUNTER_EXECLE_JIT_REQUEST_REFUSED_OFF, 365775702U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_TXN_REGIME_DURATION_NANOS_OFF, 32U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_TXN_REGIME_DURATION_NANOS_LOAD_OFF, 1U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECLE_TXN_REGIME_DURATION_NANOS_EXECUTE_OFF, 2U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
@@ -3512,7 +3510,7 @@ static fd_metrics_sample_field_t const fields_ipecho[ 55 ] = {
   { FD_METRICS_GAUGE_IPECHO_PORT_CHECK_TCP_IN_FLIGHT_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_execrp[ 248 ] = {
+static fd_metrics_sample_field_t const fields_execrp[ 246 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -3595,8 +3593,6 @@ static fd_metrics_sample_field_t const fields_execrp[ 248 ] = {
   { FD_METRICS_COUNTER_EXECRP_BANK_SWITCHED_OFF, 64U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_TRANSPILED_EXECUTED_OFF, 70U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_TRANSPILED_BAILED_OFF, 71U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_COUNTER_EXECRP_JIT_REQUESTED_OFF, 443668334U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
-  { FD_METRICS_COUNTER_EXECRP_JIT_REQUEST_REFUSED_OFF, 300566068U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_TXN_REGIME_DURATION_NANOS_OFF, 33U, FD_METRICS_SAMPLE_OPEN, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_TXN_REGIME_DURATION_NANOS_LOAD_OFF, 1U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
   { FD_METRICS_COUNTER_EXECRP_TXN_REGIME_DURATION_NANOS_EXECUTE_OFF, 2U, FD_METRICS_SAMPLE_NS, NULL, 0UL },
@@ -4776,7 +4772,7 @@ static fd_metrics_sample_field_t const fields_jit[ 41 ] = {
   { FD_METRICS_COUNTER_JIT_REQUEST_OVERRUN_DROPPED_OFF, 27U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
-static fd_metrics_sample_field_t const fields_jitmap[ 46 ] = {
+static fd_metrics_sample_field_t const fields_jitmap[ 50 ] = {
   { FD_METRICS_GAUGE_TILE_PID_OFF, 8U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_TID_OFF, 9U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_TILE_LAST_CPU_INDEX_OFF, 10U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
@@ -4823,6 +4819,10 @@ static fd_metrics_sample_field_t const fields_jitmap[ 46 ] = {
   { FD_METRICS_GAUGE_JITMAP_ARENA_USED_BYTES_OFF, 30U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_JITMAP_ARENA_CAPACITY_BYTES_OFF, 31U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
   { FD_METRICS_GAUGE_JITMAP_PROGRAM_COUNT_OFF, 32U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_JITMAP_PROGRAM_REQUESTED_OFF, 33U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_JITMAP_PROGRAM_FAILED_OFF, 34U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_JITMAP_REQUEST_TIMED_OUT_OFF, 35U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
+  { FD_METRICS_COUNTER_JITMAP_PROGRAM_FREED_OFF, 36U, FD_METRICS_SAMPLE_U64, NULL, 0UL },
 };
 
 static fd_metrics_sample_field_t const fields_link[ 9 ] = {
@@ -4848,7 +4848,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "dedup", 28U, fields_dedup, 43UL, 552UL },
   { "resolv", 29U, fields_resolv, 81UL, 915UL },
   { "pack", 30U, fields_pack, 316UL, 3355UL },
-  { "execle", 31U, fields_execle, 251UL, 2653UL },
+  { "execle", 31U, fields_execle, 249UL, 2623UL },
   { "shred", 32U, fields_shred, 177UL, 1962UL },
   { "accdb", 33U, fields_accdb, 132UL, 1361UL },
   { "replay", 34U, fields_replay, 307UL, 3296UL },
@@ -4871,7 +4871,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "waker", 50U, fields_waker, 40UL, 536UL },
   { "mwaitx", 51U, fields_mwaitx, 44UL, 564UL },
   { "ipecho", 52U, fields_ipecho, 55UL, 674UL },
-  { "execrp", 53U, fields_execrp, 248UL, 2629UL },
+  { "execrp", 53U, fields_execrp, 246UL, 2599UL },
   { "votor", 54U, fields_votor, 357UL, 3719UL },
   { "gui", 55U, fields_gui, 298UL, 3184UL },
   { "event", 56U, fields_event, 54UL, 699UL },
@@ -4881,7 +4881,7 @@ fd_metrics_sample_schema_t const fd_metrics_sample_tiles[] = {
   { "snapsv", 60U, fields_snapsv, 46UL, 589UL },
   { "motor", 62U, fields_motor, 38UL, 512UL },
   { "jit", 529746015U, fields_jit, 41UL, 551UL },
-  { "jitmap", 442461820U, fields_jitmap, 46UL, 611UL },
+  { "jitmap", 442461820U, fields_jitmap, 50UL, 659UL },
   { NULL, 0U, NULL, 0UL, 0UL }
 };
 
