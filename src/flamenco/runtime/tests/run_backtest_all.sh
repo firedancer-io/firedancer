@@ -15,3 +15,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l double-disinflation-rate-f6
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l replace-ata-with-p-ata-f7c913c6 -m 2000000 -e 316
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l loader-v3-remove-extend-program-ea633176 -m 2000000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l unbound-loader-v3-instruction-data-ea633176 -m 2000000 -e 330
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l loader-v3-allow-prefunded-programdata-ea633176 -m 2000000 -e 330

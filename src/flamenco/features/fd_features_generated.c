@@ -2440,6 +2440,13 @@ fd_feature_id_t const ids[] = {
     .implemented               = 1,
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, loader_v3_allow_prefunded_programdata)>>3,
+    .id                        = {"\x4a\xf2\xd2\xe3\x41\x96\xca\xa4\x5a\x0d\xb3\x08\x2f\x48\x79\x13\x37\xc8\xbd\x2c\x0e\xf2\x81\xbd\x89\xb7\x7e\x79\xdb\xb7\x59\xc2"},
+                                 /* 63Zvc4ixE2NQsP1ef9R5AWQyty96BhRp7NiSuejUmXGM */
+    .name                      = "loader_v3_allow_prefunded_programdata",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2768,6 +2775,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_309 0xb0e642812b3e0576UL, .val = &ids[309]
 #define MAP_PERFECT_310 0x6c4e897c0a55e53dUL, .val = &ids[310]
 #define MAP_PERFECT_311 0x89af830e463a0407UL, .val = &ids[311]
+#define MAP_PERFECT_312 0xa4ca9641e3d2f24aUL, .val = &ids[312]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -3090,4 +3098,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, replace_ata_with_p_ata               
 FD_STATIC_ASSERT( offsetof( fd_features_t, loaderv3_programdata_size_floor                         )>>3==309UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_remove_extend_program                         )>>3==310UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, unbound_loader_v3_instruction_data                      )>>3==311UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_allow_prefunded_programdata                   )>>3==312UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
