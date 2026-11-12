@@ -6,6 +6,7 @@ ifdef FD_HAS_DOUBLE
 .PHONY: firedancer-dev
 
 $(call add-objs,commands/gossip,fd_firedancer_dev)
+$(call add-objs,commands/tiny,fd_firedancer_dev)
 $(call add-objs,commands/bench,fd_firedancer_dev)
 $(call add-objs,commands/dev,fd_firedancer_dev)
 $(call add-objs,commands/backtest,fd_firedancer_dev)

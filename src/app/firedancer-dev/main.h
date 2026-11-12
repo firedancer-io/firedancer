@@ -230,6 +230,7 @@ extern action_t fd_action_txn;
 extern action_t fd_action_udpecho;
 extern action_t fd_action_wksp;
 extern action_t fd_action_gossip;
+extern action_t fd_action_tiny;
 extern action_t fd_action_backtest;
 extern action_t fd_action_snapshot_load;
 extern action_t fd_action_shred_version;
@@ -272,6 +273,7 @@ action_t * ACTIONS[] = {
   &fd_action_udpecho,
   &fd_action_wksp,
   &fd_action_gossip,
+  &fd_action_tiny,
   &fd_action_backtest,
   &fd_action_snapshot_load,
   &fd_action_shred_version,
