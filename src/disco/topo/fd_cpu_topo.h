@@ -37,6 +37,15 @@ FD_PROTOTYPES_BEGIN
 void
 fd_topo_cpus_init( fd_topo_cpus_t * cpus );
 
+/* Restrict a private topology snapshot to the launcher's allowed CPUs.
+   The online flag then means available to this process.  Indices and
+   cache/NUMA IDs are preserved.  Siblings outside the resulting set are
+   removed from this view, not assumed physically offline or idle. */
+
+void
+fd_topo_cpus_restrict( fd_topo_cpus_t *   cpus,
+                       fd_cpuset_t const * allowed );
+
 void
 fd_topo_cpus_printf( fd_topo_cpus_t * cpus );
 
