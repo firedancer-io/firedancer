@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24464608UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24465200UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -131,6 +131,8 @@ static char const * const jw_redacted_keys[] = {
   "net.bind_address",
   "tiles.quic.ssl_key_log_file",
   "tiles.bundle.url",
+  "tiles.bundle.builder_url",
+  "tiles.bundle.relayer_url",
   "tiles.event.url",
   "tiles.shred.additional_shred_destinations_retransmit",
   "tiles.shred.additional_shred_destinations_leader",
@@ -168,6 +170,9 @@ static char const * const jw_reported_keys[] = {
   "net.xdp.rss_queue_mode",
   "net.xdp.listen_gre",
   "net.xdp.native_bond",
+  "tiles.bundle.builder_protocol",
+  "tiles.bundle.strategy",
+  "tiles.bundle.builder_slot_end",
   "tiles.bundle.tls_domain_name",
   "tiles.bundle.tip_distribution_program_addr",
   "tiles.bundle.tip_payment_program_addr",
@@ -578,6 +583,13 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "bundle" );
       jw_bool ( &w, "enabled",                       config->tiles.bundle.enabled );
       jw_url  ( &w, "url",                           config->tiles.bundle.url );
+      jw_url  ( &w, "builder_url",                   config->tiles.bundle.builder_url );
+      jw_str  ( &w, "builder_protocol",              config->tiles.bundle.builder_protocol );
+      jw_url  ( &w, "relayer_url",                   config->tiles.bundle.relayer_url );
+      jw_bool ( &w, "advertise_tpu",                 config->tiles.bundle.advertise_tpu );
+      jw_bool ( &w, "forward_shreds",                config->tiles.bundle.forward_shreds );
+      jw_str  ( &w, "strategy",                      config->tiles.bundle.strategy );
+      jw_str  ( &w, "builder_slot_end",              config->tiles.bundle.builder_slot_end );
       jw_str  ( &w, "tls_domain_name",               config->tiles.bundle.tls_domain_name );
       jw_str  ( &w, "tip_distribution_program_addr", config->tiles.bundle.tip_distribution_program_addr );
       jw_str  ( &w, "tip_payment_program_addr",      config->tiles.bundle.tip_payment_program_addr );

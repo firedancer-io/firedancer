@@ -55,13 +55,35 @@ struct fd_txn_m {
        the block engine, and the validator will crank the tip payment
        program with these values, if it is not using them already.
        These fields are provided on every transaction in a bundle;
-       pack uses the values from the first transaction. */
+       pack uses the values from the first transaction.
+
+       A block engine that builds whole blocks (Harmonic) sends each
+       block as a sequence of bundles.  slot is the leader slot the
+       block is for and seq the position of the bundle in it, from 1.
+       atomic is 1 if the bundle commits all or nothing, which is every
+       bundle except a standalone transaction of a block.
+
+       A block engine that schedules for us and gets execution results
+       back (BAM) sets want_result.  slot is the last slot the bundle
+       may execute in, seq identifies the bundle in the result, and
+       atomic is 1 if the bundle reverts on error.  preprocess_failed
+       marks a transaction of such a bundle that failed verify, dedup
+       or resolv, so a result can still be reported for the bundle.
+       TODO: those stages still drop the rest of the bundle instead of
+       setting it.
+
+       slot and seq are 0 for Jito bundles, and atomic is 1. */
     ulong bundle_id;
     ulong bundle_txn_cnt;
+    ulong slot;
+    ulong seq;
     uchar commission;
     uchar commission_pubkey[ 32 ];
+    uchar atomic;
+    uchar want_result;
+    uchar preprocess_failed;
 
-    /* alignof is 8, so 7 bytes of padding here */
+    /* alignof is 8, so 4 bytes of padding here */
 
   } block_engine;
 

@@ -99,6 +99,7 @@
 #define IN_KIND_IPECHO  ( 7UL)
 #define IN_KIND_GOSSIP  ( 8UL)
 #define IN_KIND_ROOTEDR (11UL) /* Alpenglow */
+#define IN_KIND_BUNDLE  (12UL)
 
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
@@ -417,6 +418,14 @@ before_frag( fd_shred_ctx_t * ctx,
     FD_TEST( sig!=0UL && sig<=USHORT_MAX );
     fd_shredder_set_shred_version    ( ctx->shredder, (ushort)sig );
     fd_fec_resolver_set_shred_version( ctx->resolver, (ushort)sig );
+    return 1;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BUNDLE ) ) {
+    /* The block builder's shred receiver, see fd_bundle_shred_sig */
+    fd_shred_dest_weighted_t * dest = &ctx->adtl_dests_leader[ ctx->adtl_dests_leader_cnt-1UL ];
+    dest->ip4  = (uint)sig;
+    dest->port = (ushort)(sig>>32);
     return 1;
   }
 
@@ -1478,6 +1487,15 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( FD_LIKELY( !strcmp( link->name, "replay_slot"   ) ) ) ctx->in_kind[ i ] = IN_KIND_ROOTEDR;
     else if( FD_LIKELY( !strcmp( link->name, "gossip_ciaddr" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP;
+    else if( FD_LIKELY( !strcmp( link->name, "bundle_shred"  ) ) ) {
+      /* The block builder's shred receiver is one more leader
+         destination, unused (zero) until the bundle tile sends one */
+      if( FD_UNLIKELY( ctx->adtl_dests_leader_cnt>=FD_TOPO_ADTL_DESTS_MAX ) ) {
+        FD_LOG_ERR(( "tiles.bundle.forward_shreds needs fewer than %lu tiles.shred.additional_shred_destinations_leader", FD_TOPO_ADTL_DESTS_MAX ));
+      }
+      ctx->adtl_dests_leader[ ctx->adtl_dests_leader_cnt++ ] = (fd_shred_dest_weighted_t){0};
+      ctx->in_kind[ i ] = IN_KIND_BUNDLE;
+    }
 
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 

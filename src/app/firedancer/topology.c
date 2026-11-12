@@ -918,7 +918,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "bundle"       );
 
     /**/                 fd_topob_link( topo, "bundle_verif", "bundle_verif", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,         1UL );
-    /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  65536UL,                                  9UL,                       1UL );
+    /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  65536UL,                                  FD_KEYGUARD_BAM_AUTH_MTU,  1UL );
     /**/                 fd_topob_link( topo, "sign_bundle",  "sign_bundle",  128UL,                                    64UL,                      1UL );
     /**/                 fd_topob_link( topo, "pack_sign",    "pack_sign",    65536UL,                                  1232UL,                    1UL );
     /**/                 fd_topob_link( topo, "sign_pack",    "sign_pack",    128UL,                                    64UL,                      1UL );
@@ -927,6 +927,25 @@ fd_topo_initialize( config_t * config ) {
 
     /**/                 fd_topob_tile_out( topo, "bundle", 0UL, "bundle_verif", 0UL );
     FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "verify", i,             "metric_in", "bundle_verif",   0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+
+    if( config->tiles.bundle.advertise_tpu ) {
+      fd_topob_wksp( topo, "bundle_tpu" );
+
+      /**/               fd_topob_link( topo, "bundle_tpu",   "bundle_tpu",   128UL,                                    sizeof(fd_bundle_tpu_t),   1UL );
+
+      /**/               fd_topob_tile_out( topo, "bundle", 0UL,                        "bundle_tpu",     0UL                                                );
+      /**/               fd_topob_tile_in(  topo, "gossip", 0UL,           "metric_in", "bundle_tpu",     0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    }
+
+    if( config->tiles.bundle.forward_shreds ) {
+      fd_topob_wksp( topo, "bundle_shred" );
+
+      /* The shred receiver is in the sig, see fd_bundle_shred_sig */
+      /**/               fd_topob_link( topo, "bundle_shred", "bundle_shred", 4UL,                                      0UL,                       1UL );
+
+      /**/               fd_topob_tile_out( topo, "bundle", 0UL,                        "bundle_shred",   0UL                                                );
+      FOR(shred_tile_cnt) fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "bundle_shred",   0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+    }
 
     /**/                 fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "bundle_sign",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/                 fd_topob_tile_out( topo, "bundle", 0UL,                        "bundle_sign",    0UL                                                );
@@ -940,7 +959,21 @@ fd_topo_initialize( config_t * config ) {
       /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_pack",      0UL                                                );
     }
 
-    if( leader_enabled ) fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "replay_slot",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    if( leader_enabled ) {
+      fd_topob_wksp( topo, "pack_bundle" );
+
+      /**/               fd_topob_link( topo, "pack_bundle",  "pack_bundle",  128UL,                                    sizeof(fd_pack_leader_state_t), 1UL );
+
+      /**/               fd_topob_tile_out( topo, "pack",   0UL,                        "pack_bundle",    0UL                                                );
+      /**/               fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "pack_bundle",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+      /**/               fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "replay_slot",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+      FOR(execle_tile_cnt) fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "execle_poh",     i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+
+      fd_topo_obj_t * active_obj = fd_topob_obj( topo, "fseq", "pack_bundle" );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bundle", 0UL ) ], active_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "pack",   0UL ) ], active_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+      FD_TEST( fd_pod_insert_ulong( topo->props, "bundle_active", active_obj->id ) );
+    }
 
     if( config->tiles.gui.enabled ) { /* GUI is the only consumer of bundle_status */
       fd_topob_wksp( topo, "bundle_status" );
@@ -1861,6 +1894,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->pack.bench_max_shreds_per_block    = config->development.bench.max_shreds_per_block;
     tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
     tile->pack.schedule_strategy             = config->tiles.pack.schedule_strategy_enum;
+    tile->pack.builder_slot_end              = config->tiles.bundle.builder_slot_end_enum;
     tile->pack.acct_blocklist_cnt            = config->tiles.pack.account_blocklist_cnt;
 
     for( ulong i=0UL; i<tile->pack.acct_blocklist_cnt; i++ ) {
@@ -2018,10 +2052,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->backtest.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
-    fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
-    tile->bundle.url_len = strnlen( tile->bundle.url, sizeof(tile->bundle.url)-1UL );
-    fd_cstr_ncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, sizeof(tile->bundle.sni) );
-    tile->bundle.sni_len = strnlen( tile->bundle.sni, sizeof(tile->bundle.sni)-1UL );
+    fd_bundle_tile_add_server( tile, config->tiles.bundle.url,         config->tiles.bundle.tls_domain_name, FD_BUNDLE_PROTOCOL_JITO                     );
+    fd_bundle_tile_add_server( tile, config->tiles.bundle.builder_url, "",                                   config->tiles.bundle.builder_protocol_enum );
+    fd_bundle_tile_add_server( tile, config->tiles.bundle.relayer_url, "",                                   FD_BUNDLE_PROTOCOL_RELAYER                  );
+    tile->bundle.strategy = config->tiles.bundle.strategy_enum;
     fd_cstr_ncpy( tile->bundle.identity_key_path, identity_key_path, sizeof(tile->bundle.identity_key_path) );
     fd_cstr_ncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
     tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;

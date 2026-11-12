@@ -7,6 +7,7 @@
 #include "../platform/fd_sys_util.h"
 #include "../../util/tile/fd_tile_private.h"
 #include "../../ballet/toml/fd_toml.h"
+#include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
 #include "../../disco/net/fd_net_tile.h"
@@ -416,6 +417,25 @@ fd_config_fill( fd_config_t * config,
   }
   else if( FD_LIKELY( !strcmp( config->tiles.pack.schedule_strategy, "auction"  ) ) ) config->tiles.pack.schedule_strategy_enum = 2;
   else FD_LOG_ERR(( "[tiles.pack.schedule_strategy] %s not recognized", config->tiles.pack.schedule_strategy ));
+
+  if( config->tiles.bundle.builder_url[ 0 ] ) {
+    if(      FD_LIKELY( !config->tiles.bundle.builder_protocol[ 0 ]                ) ) config->tiles.bundle.builder_protocol_enum = fd_bundle_builder_protocol( config->tiles.bundle.builder_url );
+    else if( FD_LIKELY( !strcmp( config->tiles.bundle.builder_protocol, "harmonic" ) ) ) config->tiles.bundle.builder_protocol_enum = FD_BUNDLE_PROTOCOL_HARMONIC;
+    else if( FD_LIKELY( !strcmp( config->tiles.bundle.builder_protocol, "bam"      ) ) ) config->tiles.bundle.builder_protocol_enum = FD_BUNDLE_PROTOCOL_BAM;
+    else FD_LOG_ERR(( "[tiles.bundle.builder_protocol] \"%s\" not recognized", config->tiles.bundle.builder_protocol ));
+    if( FD_UNLIKELY( config->tiles.bundle.builder_protocol_enum<0 ) ) {
+      FD_LOG_ERR(( "[tiles.bundle.builder_url] \"%s\" is not a known block builder, set [tiles.bundle.builder_protocol]", config->tiles.bundle.builder_url ));
+    }
+  }
+
+  if(      FD_LIKELY( !strcmp( config->tiles.bundle.strategy, "fba"  ) ) ) config->tiles.bundle.strategy_enum = FD_BUNDLE_STRATEGY_FBA;
+  else if( FD_LIKELY( !strcmp( config->tiles.bundle.strategy, "fifo" ) ) ) config->tiles.bundle.strategy_enum = FD_BUNDLE_STRATEGY_FIFO;
+  else if( FD_LIKELY( !strcmp( config->tiles.bundle.strategy, "mrev" ) ) ) config->tiles.bundle.strategy_enum = FD_BUNDLE_STRATEGY_MREV;
+  else FD_LOG_ERR(( "[tiles.bundle.strategy] %s not recognized", config->tiles.bundle.strategy ));
+
+  if(      FD_LIKELY( !strcmp( config->tiles.bundle.builder_slot_end, "builder" ) ) ) config->tiles.bundle.builder_slot_end_enum = FD_BUNDLE_SLOT_END_BUILDER;
+  else if( FD_LIKELY( !strcmp( config->tiles.bundle.builder_slot_end, "txns"    ) ) ) config->tiles.bundle.builder_slot_end_enum = FD_BUNDLE_SLOT_END_TXNS;
+  else FD_LOG_ERR(( "[tiles.bundle.builder_slot_end] %s not recognized", config->tiles.bundle.builder_slot_end ));
 
   fd_config_fill_net( config );
   fd_config_fillf( config );
