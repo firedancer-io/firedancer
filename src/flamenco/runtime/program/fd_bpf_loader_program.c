@@ -1342,32 +1342,55 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Pass an extra account to avoid the overly strict unbalanced instruction error */
       /* Invoke the system program to create the new account */
       uchar instr_data[FD_TXN_MTU];
-      create_account_t create_acct = {
-        .lamports = fd_rent_exempt_minimum_balance( rent, programdata_len ),
-        .space    = programdata_len,
-        .owner    = *program_id,
-      };
-      if( !create_acct.lamports ) {
-        create_acct.lamports = 1UL;
-      }
-
-      fd_system_program_instruction_t instr = {
-        .discriminant = FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT,
-        .inner = {
-          .create_account = create_acct,
+      fd_system_program_instruction_t instr;
+      fd_vm_rust_account_meta_t       acct_metas[ 3UL ];
+      ulong                           acct_metas_cnt = 0UL;
+      /* https://github.com/anza-xyz/agave/blob/v4.5/programs/bpf_loader/src/lib.rs#L348-L363 */
+      if( FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, loader_v3_allow_prefunded_programdata ) ) {
+        fd_guarded_borrowed_account_t programdata = {0};
+        FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 1UL, &programdata );
+        ulong top_up_lamports = fd_ulong_sat_sub( fd_rent_exempt_minimum_balance( rent, programdata_len ),
+                                                  fd_borrowed_account_get_lamports( &programdata ) );
+        instr = (fd_system_program_instruction_t) {
+          .discriminant = FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT_ALLOW_PREFUND,
+          .inner = {
+            .create_account_allow_prefund = {
+              .lamports = top_up_lamports,
+              .space    = programdata_len,
+              .owner    = *program_id,
+            },
+          }
+        };
+        fd_native_cpi_create_account_meta( programdata_key, 1U, 1U, &acct_metas[ acct_metas_cnt++ ] );
+        if( top_up_lamports>0UL ) {
+          fd_native_cpi_create_account_meta( payer_key, 1U, 1U, &acct_metas[ acct_metas_cnt++ ] );
         }
-      };
+      } else {
+        create_account_t create_acct = {
+          .lamports = fd_rent_exempt_minimum_balance( rent, programdata_len ),
+          .space    = programdata_len,
+          .owner    = *program_id,
+        };
+        if( !create_acct.lamports ) {
+          create_acct.lamports = 1UL;
+        }
+
+        instr = (fd_system_program_instruction_t) {
+          .discriminant = FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT,
+          .inner = {
+            .create_account = create_acct,
+          }
+        };
+        fd_native_cpi_create_account_meta( payer_key,       1U, 1U, &acct_metas[ acct_metas_cnt++ ] );
+        fd_native_cpi_create_account_meta( programdata_key, 1U, 1U, &acct_metas[ acct_metas_cnt++ ] );
+      }
+      fd_native_cpi_create_account_meta( buffer_key, 0U, 1U, &acct_metas[ acct_metas_cnt++ ] );
 
       ulong instr_data_sz;
       err = fd_system_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_CRIT(( "Failed to encode SystemInstruction with error %d", err ));
       }
-
-      fd_vm_rust_account_meta_t acct_metas[ 3UL ];
-      fd_native_cpi_create_account_meta( payer_key,       1U, 1U, &acct_metas[ 0UL ] );
-      fd_native_cpi_create_account_meta( programdata_key, 1U, 1U, &acct_metas[ 1UL ] );
-      fd_native_cpi_create_account_meta( buffer_key,      0U, 1U, &acct_metas[ 2UL ] );
 
       /* caller_program_id == program_id */
       fd_pubkey_t signers[ 1UL ];
@@ -1380,7 +1403,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
                                          instr_data,
                                          instr_data_sz,
                                          acct_metas,
-                                         3UL,
+                                         acct_metas_cnt,
                                          signers,
                                          1UL );
       if( FD_UNLIKELY( err ) ) {
