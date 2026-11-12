@@ -365,6 +365,53 @@ test_load_complete_signal( void ) {
 }
 
 static void
+test_snapld_ctrl_frag_matches_ack( void ) {
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  test_ctx_wake_init( ctx );
+  ctx->in_kind[ 0 ]  = IN_KIND_SNAPLD;
+  ctx->in_kind[ 1 ]  = IN_KIND_ACK;
+  ctx->flush_ack_cnt = 2;
+
+  for( ulong in_idx=0UL; in_idx<2UL; in_idx++ ) {
+    ulong publish_cnt = test_publish_cnt;
+
+    ctx->state     = FD_SNAPCT_STATE_SHUTDOWN;
+    ctx->flush_ack = 0;
+    ctx->malformed = 0;
+    returnable_frag( ctx, in_idx, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL, NULL );
+    FD_TEST( ctx->state==FD_SNAPCT_STATE_SHUTDOWN && !ctx->flush_ack && !ctx->malformed );
+
+    ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET;
+    returnable_frag( ctx, in_idx, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL );
+    FD_TEST( ctx->flush_ack==1 && !ctx->malformed );
+
+    returnable_frag( ctx, in_idx, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL, NULL );
+    FD_TEST( !ctx->malformed );
+
+    ctx->state = FD_SNAPCT_STATE_READING_FULL_HTTP;
+    returnable_frag( ctx, in_idx, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL, NULL );
+    FD_TEST( ctx->malformed && ctx->flush_ack==1 );
+
+    FD_TEST( test_publish_cnt==publish_cnt );
+
+    ulong const fatal_sigs[ 2 ] = { FD_SNAPSHOT_MSG_CTRL_FAIL, FD_SNAPSHOT_MSG_CTRL_DONE };
+    for( ulong i=0UL; i<2UL; i++ ) {
+      ctx->state = FD_SNAPCT_STATE_SHUTDOWN;
+      pid_t pid = fork();
+      FD_TEST( pid>=0 );
+      if( !pid ) {
+        returnable_frag( ctx, in_idx, 0UL, fatal_sigs[ i ], 0UL, 0UL, 0UL, 0UL, 0UL, NULL );
+        _exit( 0 );
+      }
+      int status;
+      FD_TEST( waitpid( pid, &status, 0 )==pid );
+      FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+    }
+  }
+}
+
+static void
 test_contact_info_slot_reuse_after_unallowed_peer_expires( void ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
 
@@ -1878,6 +1925,7 @@ main( int     argc,
   test_block_list_contact_info_insert();
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
+  test_snapld_ctrl_frag_matches_ack();
   test_start_after_init_acks();
   test_full_fini_full_only();
   test_meta_repins_full();
