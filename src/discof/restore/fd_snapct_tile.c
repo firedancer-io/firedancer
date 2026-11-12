@@ -1954,6 +1954,10 @@ process_ctrl_ack( fd_snapct_tile_t * ctx,
 }
 
 static void
+ctrl_ack_frag( fd_snapct_tile_t *  ctx,
+               ulong               sig );
+
+static void
 snapld_frag( fd_snapct_tile_t *  ctx,
              ulong               sig,
              ulong               sz,
@@ -2025,43 +2029,6 @@ snapld_frag( fd_snapct_tile_t *  ctx,
 
     return;
   }
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_FAIL ) ) {
-    if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
-                   ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ||
-                   ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ||
-                   ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ) {
-      ctx->flush_ack++;
-      FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
-    } else {
-      FD_LOG_ERR(( "unexpected control frag %lu (%s) in state %d (%s)", sig, fd_ssctrl_msg_ctrl_str( sig ), ctx->state, fd_snapct_state_str( ctx->state ) ));
-    }
-    return;
-  }
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_ERROR ) ) {
-    /* CTRL_ERROR message directly from snapld can be snapld-generated
-       or snapct-generated-and-forwarded. */
-    switch( ctx->state ) {
-      case FD_SNAPCT_STATE_READING_FULL_FILE:
-      case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:
-      case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
-      case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:
-      case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI:
-      case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE:
-      case FD_SNAPCT_STATE_READING_FULL_HTTP:
-      case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
-      case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:
-      case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:
-      case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
-      case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
-        FD_LOG_WARNING(( "received error from snapld in state %d (%s)",
-                         ctx->state, fd_snapct_state_str( ctx->state ) ));
-        ctx->malformed = 1;
-        break;
-      default:
-        break;
-    }
-    return;
-  }
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) {
     int full = 0;
     switch( ctx->state ) {
@@ -2093,9 +2060,7 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     return;
   }
   if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_DATA ) ) {
-    if( process_ctrl_ack( ctx, sig ) ) {
-      FD_LOG_ERR(( "unexpected control frag %lu (%s) in state %d (%s)", sig, fd_ssctrl_msg_ctrl_str( sig ), ctx->state, fd_snapct_state_str( ctx->state ) ));
-    }
+    ctrl_ack_frag( ctx, sig );
     return;
   }
 
