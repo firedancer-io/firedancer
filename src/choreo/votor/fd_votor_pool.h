@@ -13,7 +13,6 @@
 #define FD_VOTOR_POOL_ERR_DUPLICATE          (-3)
 #define FD_VOTOR_POOL_ERR_SLASHABLE          (-4)
 #define FD_VOTOR_POOL_ERR_CERT_VERIFY        (-5)
-#define FD_VOTOR_POOL_ERR_VOTE_VERIFY        (-6)
 
 #define FD_VOTOR_POOL_QUORUM_REACHED_FINAL          (FD_CERT_KIND_FINAL)
 #define FD_VOTOR_POOL_QUORUM_REACHED_FAST_FINAL     (FD_CERT_KIND_FAST_FINAL)
@@ -71,6 +70,7 @@ struct fd_votor_pool_metrics {
   ulong finalized_slot;
   ulong pool_events_cnt;
   ulong bls_verify_cnt;
+  ulong sig_validate_cnt; /* g2 subgroup checks of vote sigs and their sums */
 };
 typedef struct fd_votor_pool_metrics fd_votor_pool_metrics_t;
 
@@ -151,7 +151,12 @@ fd_votor_pool_add_cert( fd_votor_pool_t * self,
                         int               verified,
                         fd_bls_set_t *    bad );
 
-/* Definition 12. Pool::add_vote */
+/* Definition 12. Pool::add_vote
+
+   verified: the vote's sig is known to be in G2 (our own signed vote).
+   Otherwise its G2 membership is never checked on its own: aggregates
+   of vote sigs are subgroup checked before pairing, and a vote outside
+   G2 lands in bad once an aggregate containing it is verified. */
 
 int
 fd_votor_pool_add_vote( fd_votor_pool_t * self,
@@ -159,6 +164,11 @@ fd_votor_pool_add_vote( fd_votor_pool_t * self,
                         int               verified,
                         fd_bls_set_t *    bad,
                         uchar *           quorum_reached );
+
+/* fd_votor_pool_agg_rewards verifies slot's top notar hash and skip
+   aggregates for a reward cert, removing bad votes from the pool (into
+   bad).  Returns the top notar hash after removals, NULL (notar null)
+   if no notar hash has a valid vote. */
 
 fd_block_hash_t const *
 fd_votor_pool_agg_rewards( fd_votor_pool_t * self,
