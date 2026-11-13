@@ -553,7 +553,7 @@ write_bench( config_t const * config,
   char * tps_str = COUNTF( (double)tps_sum/window_seconds( num_tps_samples ) );
 
   PRINT( ROWH( "◎", BGREEN, "bench       " )
-         K( "tps" ) "%s"
+         K( "sent tps" ) "%s"
          K( "benchg" ), tps_str );
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "benchg" ) ) ) continue;
