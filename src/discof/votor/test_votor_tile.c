@@ -1,6 +1,7 @@
 #define FD_TILE_TEST 1
 #include "fd_votor_tile.c"
 #include "../../choreo/votor/fd_votor_pool.c" /* the pool's private slot state */
+#include "../../choreo/votor/test_fd_cert_builder.h" /* test_bls_torsion */
 
 #include <stdlib.h>
 
@@ -2726,6 +2727,27 @@ test_reward_certs( void ) {
   reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
   FD_TEST( fd_bls_set_cnt( reward->agg_notar.set )==1UL && fd_bls_set_cnt( reward->agg_skip.set )==1UL && fd_bls_set_test( reward->agg_skip.set, 1UL ) );
 
+  /* A late vote outside G2 is admitted (the subgroup check is deferred
+     to the aggregate), then left out and its voter banned. */
+
+  vote.kind  = FD_VOTE_KIND_NOTAR;
+  vote.notar = (fd_vote_notar_t){ .slot = slot, .rank = 2, .shred_version = 1 };
+  memcpy( &vote.notar.block_hash, &hash, sizeof(fd_block_hash_t) );
+  vote.notar.sig = reward_vote_sig( epoch_info, 2UL, FD_VOTE_KIND_NOTAR, slot, &hash );
+  fd_bls_sig_t torsion; test_bls_torsion( &torsion ); fd_bls_sig_add( &vote.notar.sig, &vote.notar.sig, &torsion );
+  FD_TEST( fd_votor_pool_add_vote( ctx.pool, &vote, 0, ctx.scratch.bad, &quorum )==FD_VOTOR_POOL_SUCCESS && fd_bls_set_is_null( ctx.scratch.bad ) );
+  fd_pubkey_t t_id; memcpy( t_id.uc, epoch_info->validators[2].id_key, sizeof(fd_pubkey_t) );
+  peer_t * t_peer = peers_insert( ctx.peers, t_id );
+  t_peer->ban_ts         = LONG_MIN;
+  t_peer->tx_conn        = NULL;
+  memset( t_peer->rx_conn, 0, sizeof(t_peer->rx_conn) );
+  t_peer->reconn_pending = 0;
+  publish_reward_cert( &ctx, stem, slot );
+  FD_TEST( seqs[0]==4UL && t_peer->ban_ts!=LONG_MIN );
+  meta   = mcache+fd_mcache_line_idx( 3UL, 128UL );
+  reward = &((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx.votor_out_mem, meta->chunk ))->reward;
+  FD_TEST( fd_bls_set_cnt( reward->agg_notar.set )==1UL && fd_bls_set_test( reward->agg_notar.set, 0UL ) && fd_bls_sig_validate( &reward->agg_notar.sig ) );
+
   peers_delete( peers_leave( ctx.peers ) );
   fd_votor_pool_delete( fd_votor_pool_leave( ctx.pool ) );
   FD_LOG_NOTICE(( "pass: test_reward_certs" ));
@@ -2733,6 +2755,68 @@ test_reward_certs( void ) {
 
 /* Test that an adopted history raises the leader floor, and a lower one
    leaves it alone. */
+
+/* A vote outside G2 is admitted on arrival (its subgroup check is
+   deferred to the aggregate).  The vote that brings the slot to
+   quorum verifies the aggregate, which leaves it out and bans its
+   sender, no honest one. */
+
+static void
+test_vote_rx_bans_non_g2( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_quic_conn_t  conn;
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 4UL, 10UL );
+  fd_epoch_info_t * epoch_info = test_epoch( stakes, 4UL, 1 );
+  memset( &ctx, 0, sizeof(fd_votor_tile_t) );
+  ctx.init            = 1;
+  ctx.curr_epoch_info = epoch_info;
+  ctx.curr_epoch_slot = 0UL;
+  ctx.next_epoch_slot = ULONG_MAX;
+  ctx.shred_version   = 1;
+  ctx.pool            = test_pool( epoch_info, 0UL );
+  ctx.peers           = peers_join( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
+  ctx.reconn_prq      = reconn_prq_join( reconn_prq_new( reconn_prq_mem, RECONN_MAX ) );
+  FD_TEST( ctx.peers && ctx.reconn_prq );
+  fd_clock_tile_init( ctx.clock );
+  for( ulong i=0UL; i<FD_VOTOR_SLOTS_PER_WINDOW; i++ ) ctx.reward_certs[ i ].slot = ULONG_MAX;
+
+  peer_t * peer[ 4 ];
+  for( ulong r=0UL; r<4UL; r++ ) {
+    fd_pubkey_t id; memcpy( id.uc, epoch_info->validators[ r ].id_key, sizeof(fd_pubkey_t) );
+    peer[ r ] = test_peer( &ctx, id.uc[ 0 ], (ushort)r );
+    peer[ r ]->ban_ts = LONG_MIN;
+  }
+  memset( &conn, 0, sizeof(fd_quic_conn_t) );
+  conn.state = FD_QUIC_CONN_STATE_ACTIVE;
+
+  ulong           slot = 2UL;
+  fd_block_hash_t hash; memset( &hash, 9, sizeof(fd_block_hash_t) );
+  ulong           order[ 4 ] = { 3UL, 0UL, 1UL, 2UL }; /* the bad voter first */
+  for( ulong i=0UL; i<4UL; i++ ) {
+    ulong     r    = order[ i ];
+    fd_vote_t vote = { .kind = FD_VOTE_KIND_NOTAR, .notar = { .slot = slot, .shred_version = 1 } };
+    memcpy( &vote.notar.block_hash, &hash, sizeof(fd_block_hash_t) );
+    vote.notar.sig = reward_vote_sig( epoch_info, r, FD_VOTE_KIND_NOTAR, slot, &hash );
+    if( r==3UL ) { fd_bls_sig_t t; test_bls_torsion( &t ); fd_bls_sig_add( &vote.notar.sig, &vote.notar.sig, &t ); }
+    uchar buf[ FD_VOTE_SER_MAX ];
+    ulong sz = fd_vote_ser( &vote, buf );
+    fd_quic_conn_set_context( &conn, &peer[ r ]->id_key );
+    ulong ok = ctx.metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SUCCESS_IDX ];
+    quic_server_datagram_rx( &conn, buf, sz, &ctx );
+    FD_TEST( ctx.metrics.vote_rx[ FD_METRICS_ENUM_VOTE_RX_RESULT_V_SUCCESS_IDX ]==ok+1UL );
+    if( !i ) FD_TEST( peer[ 3 ]->ban_ts==LONG_MIN ); /* admitted, not yet checked */
+  }
+  FD_TEST( peer[ 3 ]->ban_ts!=LONG_MIN );
+  for( ulong r=0UL; r<3UL; r++ ) FD_TEST( peer[ r ]->ban_ts==LONG_MIN );
+  fd_cert_notar_t cert;
+  FD_TEST( fd_votor_pool_notar_cert( ctx.pool, slot, &cert ) && !fd_bls_set_test( cert.agg.set, 3UL ) );
+
+  peers_delete( peers_leave( ctx.peers ) );
+  fd_votor_pool_delete( fd_votor_pool_leave( ctx.pool ) );
+  FD_LOG_NOTICE(( "pass: test_vote_rx_bans_non_g2" ));
+}
 
 static void
 test_history_raises_the_leader_floor( void ) {
@@ -3206,6 +3290,7 @@ main( int     argc,
   test_write_vote_history();
   test_boot_vote_history_floor();
   test_reward_certs();
+  test_vote_rx_bans_non_g2();
   test_history_raises_the_leader_floor();
   test_failover_off();
   test_switch_runs_the_failover_rule();

@@ -9,6 +9,7 @@ $(call make-unit-test,test_fd_epoch_info,test_fd_epoch_info,fd_choreo fd_ballet 
 $(call make-unit-test,test_fd_cert,test_fd_cert,fd_choreo fd_ballet fd_util)
 $(call make-unit-test,test_fd_votor_hist,test_fd_votor_hist,fd_choreo fd_ballet fd_util)
 $(call make-unit-test,test_fd_votor_pool,test_fd_votor_pool,fd_choreo fd_ballet fd_util)
+$(call make-unit-test,bench_fd_votor_pool,bench_fd_votor_pool,fd_choreo fd_ballet fd_util)
 $(call make-unit-test,test_fd_finality_tracker,test_fd_finality_tracker,fd_choreo fd_ballet fd_util)
 $(call make-unit-test,test_fd_parent_ready_tracker,test_fd_parent_ready_tracker,fd_choreo fd_ballet fd_util)
 $(call make-unit-test,test_fd_votor_loop,test_fd_votor_loop,fd_choreo fd_ballet fd_util)
