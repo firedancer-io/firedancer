@@ -1,5 +1,11 @@
 #define _GNU_SOURCE
+/* Every point the pool feeds a pairing must be in G2 (the vote sigs'
+   subgroup check is deferred to the aggregate).  Interposed below. */
+#define fd_bls_agg_verify_hashed   test_agg_verify_hashed
+#define fd_bls_agg_verify_subtract test_agg_verify_subtract
 #include "fd_votor_pool.c"
+#undef fd_bls_agg_verify_hashed
+#undef fd_bls_agg_verify_subtract
 #include "test_fd_cert_builder.h"
 #include "fd_cert_serde.h"
 #include "fd_vote_serde.h"
@@ -7,6 +13,36 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+
+int fd_bls_agg_verify_hashed  ( fd_bls_hash_t const * hash, fd_bls_pub_t const * pub, fd_bls_sig_t const * sig );
+int fd_bls_agg_verify_subtract( fd_bls_agg_t * agg, uchar const * msg, ulong msg_sz, fd_bls_pub_t const * pub, fd_bls_sig_t const * sig, fd_bls_set_t * bad );
+
+static ulong g_pairing_cnt; /* aggregate pairings */
+static ulong g_bisect_cnt;  /* bisections */
+
+int
+test_agg_verify_hashed( fd_bls_hash_t const * hash,
+                        fd_bls_pub_t const *  pub,
+                        fd_bls_sig_t const *  sig ) {
+  FD_TEST( fd_bls_sig_validate( sig ) );
+  g_pairing_cnt++;
+  return fd_bls_agg_verify_hashed( hash, pub, sig );
+}
+
+int
+test_agg_verify_subtract( fd_bls_agg_t *       agg,
+                          uchar const *        msg,
+                          ulong                msg_sz,
+                          fd_bls_pub_t const * pub,
+                          fd_bls_sig_t const * sig,
+                          fd_bls_set_t *       bad ) {
+  FD_TEST( fd_bls_sig_validate( &agg->sig ) );
+  for( ulong r = fd_bls_set_const_iter_init( agg->set ); !fd_bls_set_const_iter_done( r ); r = fd_bls_set_const_iter_next( agg->set, r ) ) FD_TEST( fd_bls_sig_validate( sig+r ) );
+  g_pairing_cnt++;
+  int err = fd_bls_agg_verify_subtract( agg, msg, msg_sz, pub, sig, bad );
+  g_bisect_cnt += !fd_bls_set_is_null( bad );
+  return err;
+}
 
 /* Slot state */
 
@@ -91,6 +127,7 @@ make_state( ulong                   slot,
   slot_state_t * slot_state = &slot_state_mem;
   slot_state_null( slot_state, &g_states );
   assert_maps_empty( slot_state );
+  for( ulong ks=0UL; ks<FD_VOTOR_VOTES_PER_SLOT_MAX; ks++ ) FD_TEST( fd_bls_set_is_null( slot_state->sig_ok[ ks ] ) );
   g_states.curr_epoch_info = epoch_info;
 
   slot_state->slot     = slot;
@@ -136,6 +173,31 @@ check_sig_sums( slot_state_t const * ss ) {
   }
 }
 
+/* Invariant behind the deferred subgroup check: a live vote whose G2
+   bit is set has a stored sig in G2 (a notar fallback bit only for the
+   rank's j-th vote).  Bits of removed votes are stale, rewritten on the
+   kind slot's next write. */
+
+static void
+check_sig_ok( slot_state_t const * ss ) {
+  slot_votes_t const * v = &ss->votes;
+  for( ulong ks=0UL; ks<FD_VOTOR_VOTES_PER_SLOT_MAX; ks++ ) {
+    fd_bls_set_t const * ok = ss->sig_ok[ ks ];
+    for( ulong r = fd_bls_set_const_iter_init( ok ); !fd_bls_set_const_iter_done( r ); r = fd_bls_set_const_iter_next( ok, r ) ) {
+      int live;
+      switch( ks ) {
+      case 0:  live = fd_bls_set_test( v->notar_set, r ) || fd_bls_set_test( v->skip_agg.set, r );                 break;
+      case 4:  live = fd_bls_set_test( v->skip_fallback_agg.set, r ) || fd_bls_set_test( v->final_agg.set, r );    break;
+      default: live = ks-1UL<v->notar_fallback_sig_cnt[ r ];                                                       break;
+      }
+      if( !live ) continue;
+      uchar c[ FD_BLS_SIG_COMPRESSED_SZ ]; fd_bls_sig_t sig;
+      sig_read( ss, &g_states, ks, r, 1UL, c );
+      FD_TEST( !fd_bls_sig_de_compressed_unchecked( &sig, c ) && fd_bls_sig_validate( &sig ) );
+    }
+  }
+}
+
 typedef struct {
   struct {
     fd_cert_t     certs          [ SLOT_STATE_OUT_CERT_MAX   ]; ulong certs_cnt;
@@ -147,14 +209,17 @@ typedef struct {
   int ok;
 } out_t;
 
+static int g_verified; /* add_vote_helper's verified */
+
 static void
 add_vote_helper( slot_state_t *       ss,
                  fd_vote_t const *       vote,
                  fd_epoch_info_t const * epoch_info,
                  out_t *                 t ) {
   ulong stake = fd_epoch_info_validator( epoch_info, fd_vote_rank( vote ) )->stake;
-  t->ok = slot_state_add_vote( ss, &g_states, vote, stake, t->o.certs, &t->o.certs_cnt, t->o.safe_to_notar, &t->o.safe_to_notar_cnt, t->o.safe_to_skip, &t->o.safe_to_skip_cnt, t->o.block_to_repair, &t->o.block_to_repair_cnt, t->o.bad );
+  t->ok = slot_state_add_vote( ss, &g_states, vote, g_verified, stake, t->o.certs, &t->o.certs_cnt, t->o.safe_to_notar, &t->o.safe_to_notar_cnt, t->o.safe_to_skip, &t->o.safe_to_skip_cnt, t->o.block_to_repair, &t->o.block_to_repair_cnt, t->o.bad );
   check_sig_sums( ss );
+  check_sig_ok( ss );
   ulong ram = 0UL, disk = 0UL;
   for( ulong ks=0UL; ks<FD_VOTOR_VOTES_PER_SLOT_MAX; ks++ ) for( ulong w=0UL; w<fd_bls_set_word_cnt; w++ ) { uint pg = ss->sig_pg[ ks ][ w ]; ram += pg && pg!=SIG_PG_DISK; disk += pg==SIG_PG_DISK; }
   switch( g_disk ) {
@@ -1394,7 +1459,7 @@ test_hash_stake_spill( void ) {
   add_vote_helper( ss, &heavy, epoch_info, &t );
   int has_notar = 0; for( ulong i=0UL; i<t.o.certs_cnt; i++ ) has_notar |= t.o.certs[i].kind==FD_CERT_KIND_NOTAR && !memcmp( &t.o.certs[i].notar.block_hash, &hash[ 39 ], sizeof(fd_block_hash_t) ) && t.o.certs[i].notar.stake==201UL;
   FD_TEST( t.ok && fd_bls_set_is_null( t.o.bad ) && has_notar && ss->votes.top_notar_stake==201UL );
-  fd_bls_agg_t reward[1]; FD_TEST( slot_state_notar_reward_agg( ss, &g_states, reward ) && fd_bls_set_cnt( reward->set )==2UL );
+  fd_bls_agg_t reward[1]; hash_agg( ss, &g_states, 0, hash_stake_query( ss, fd, 0, &ss->votes.top_notar_hash ), reward ); FD_TEST( fd_bls_set_cnt( reward->set )==2UL );
 
   /* notar fallback: 12 ranks x 3 hashes */
   for( ulong rank=1UL; rank<13UL; rank++ ) {
@@ -1416,6 +1481,429 @@ test_hash_stake_spill( void ) {
   slot_state_null( ss, &g_states );
   assert_maps_empty( ss );
   FD_TEST( hash_stake_query( ss, fd, 0, &hash[ 39 ] )==ULONG_MAX );
+  free( em );
+}
+
+/* Deferred G2 subgroup check of vote sigs.  Poisons: 0 sig+T, 1 T,
+   2 T13, 3 sig+T13, 4 test_bls_torsion, 5 infinity (in G2, caught by
+   bisection), T = test_bls_pure_torsion, T13 of order 13. */
+
+#define POISON_CNT (6)
+
+static uint const vs_kinds[ 5 ] = { FD_VOTE_KIND_NOTAR, FD_VOTE_KIND_NOTAR_FALLBACK, FD_VOTE_KIND_SKIP, FD_VOTE_KIND_SKIP_FALLBACK, FD_VOTE_KIND_FINAL };
+
+static fd_vote_t
+vs_vote( uint                    kind,
+         ulong                   rank,
+         ulong                   slot,
+         fd_block_hash_t const * hash ) {
+  fd_bls_sec_t * sk = &g_state_sk[ rank ];
+  ushort         r  = (ushort)rank;
+  switch( kind ) {
+  case FD_VOTE_KIND_NOTAR:          return fd_vote_construct_notar         ( sec_sign_fn, sk, test_bls_public_key, slot, hash, r, STATE_SHRED_VERSION );
+  case FD_VOTE_KIND_NOTAR_FALLBACK: return fd_vote_construct_notar_fallback( sec_sign_fn, sk, test_bls_public_key, slot, hash, r, STATE_SHRED_VERSION );
+  case FD_VOTE_KIND_SKIP:           return fd_vote_construct_skip          ( sec_sign_fn, sk, test_bls_public_key, slot,       r, STATE_SHRED_VERSION );
+  case FD_VOTE_KIND_SKIP_FALLBACK:  return fd_vote_construct_skip_fallback ( sec_sign_fn, sk, test_bls_public_key, slot,       r, STATE_SHRED_VERSION );
+  case FD_VOTE_KIND_FINAL:          return fd_vote_construct_final         ( sec_sign_fn, sk, test_bls_public_key, slot,       r, STATE_SHRED_VERSION );
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+}
+
+static fd_bls_sig_t *
+vs_sig( fd_vote_t * vote ) {
+  return (fd_bls_sig_t *)fd_vote_sig( vote );
+}
+
+/* vs_wrong replaces vote's sig with one in G2 by the same key over
+   another slot. */
+
+static void
+vs_wrong( fd_vote_t *             vote,
+          ulong                   rank,
+          fd_block_hash_t const * hash ) {
+  fd_vote_t w = vs_vote( vote->kind, rank, fd_vote_slot( vote )+1000UL, hash );
+  *vs_sig( vote ) = *fd_vote_sig( &w );
+}
+
+/* vs_poison applies poison p to sig, returning 0 if unavailable. */
+
+static int
+vs_poison( fd_bls_sig_t * sig,
+           int            p ) {
+  fd_bls_sig_t t;
+  switch( p ) {
+  case 0: test_bls_pure_torsion( &t ); fd_bls_sig_add( sig, sig, &t ); break;
+  case 1: test_bls_pure_torsion( sig );                                break;
+  case 2: if( !test_bls_small_torsion( sig ) ) return 0;               break;
+  case 3: if( !test_bls_small_torsion( &t  ) ) return 0; fd_bls_sig_add( sig, sig, &t ); break;
+  case 4: test_bls_torsion( sig );                                     break;
+  case 5: memset( sig, 0, sizeof(fd_bls_sig_t) );                      break;
+  default: FD_LOG_CRIT(( "unreachable" ));
+  }
+  FD_TEST( p==5 ? fd_bls_sig_is_inf( sig ) : !fd_bls_sig_validate( sig ) );
+  return 1;
+}
+
+static uint
+vs_cert_kind( uint vote_kind ) {
+  switch( vote_kind ) {
+  case FD_VOTE_KIND_NOTAR:          return FD_CERT_KIND_NOTAR;
+  case FD_VOTE_KIND_NOTAR_FALLBACK: return FD_CERT_KIND_NOTAR_FALLBACK;
+  case FD_VOTE_KIND_SKIP:
+  case FD_VOTE_KIND_SKIP_FALLBACK:  return FD_CERT_KIND_SKIP;
+  case FD_VOTE_KIND_FINAL:          return FD_CERT_KIND_FINAL;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+}
+
+/* vs_cert_check: c verifies, its wire sig passes the checked decode
+   (what a peer, e.g. Agave, applies), its round trip verifies, and no
+   rank of excl signed it. */
+
+static void
+vs_cert_check( fd_cert_t const *       c,
+               fd_epoch_info_t const * epoch_info,
+               fd_bls_set_t const *    excl ) {
+  FD_TEST( fd_cert_verify( c, epoch_info )==FD_CERT_VERIFY_SUCCESS );
+  uchar buf[ FD_CERT_SER_MAX ];
+  ulong sz  = fd_cert_ser( c, buf );
+  ulong off = 2UL+sizeof(ulong)+( fd_cert_block_hash( c ) ? sizeof(fd_block_hash_t) : 0UL );
+  fd_bls_sig_t sig; FD_TEST( !fd_bls_sig_de( &sig, buf+off ) );
+  fd_cert_t rt; ulong bit_cnt;
+  FD_TEST( !fd_cert_de( &rt, &bit_cnt, buf, sz ) );
+  if( rt.kind==FD_CERT_KIND_SKIP ) rt.skip.stake = c->skip.stake; else if( rt.kind==FD_CERT_KIND_NOTAR_FALLBACK ) rt.notar_fallback.stake = c->notar_fallback.stake;
+  FD_TEST( fd_cert_verify( &rt, epoch_info )==FD_CERT_VERIFY_SUCCESS );
+  fd_bls_agg_t const * a[ 2 ] = { NULL, NULL };
+  switch( c->kind ) {
+  case FD_CERT_KIND_FINAL:          a[0] = &c->final.agg;                                                      break;
+  case FD_CERT_KIND_FAST_FINAL:     a[0] = &c->fast_final.agg;                                                 break;
+  case FD_CERT_KIND_NOTAR:          a[0] = &c->notar.agg;                                                      break;
+  case FD_CERT_KIND_NOTAR_FALLBACK: a[0] = &c->notar_fallback.agg_notar; a[1] = &c->notar_fallback.agg_notar_fallback; break;
+  case FD_CERT_KIND_SKIP:           a[0] = &c->skip.agg_skip;            a[1] = &c->skip.agg_skip_fallback;            break;
+  }
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( !a[i] ) continue;
+    fd_bls_set_t x[ fd_bls_set_word_cnt ]; fd_bls_set_intersect( x, a[i]->set, excl );
+    FD_TEST( fd_bls_set_is_null( x ) );
+  }
+}
+
+/* vs_run adds votes[0,cnt) to ss, accumulating bad into seen, and
+   returns the index into certs of the first cert of kind (ULONG_MAX
+   if none), stopping there. */
+
+static fd_cert_t vs_cert;
+
+static int
+vs_run( slot_state_t *          ss,
+        fd_epoch_info_t const * epoch_info,
+        fd_vote_t const *       votes,
+        ulong                   cnt,
+        uint                    cert_kind,
+        fd_bls_set_t *          seen ) {
+  out_t t;
+  fd_bls_set_null( seen );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    add_vote_helper( ss, &votes[i], epoch_info, &t );
+    fd_bls_set_union( seen, seen, t.o.bad );
+    for( ulong j=0UL; j<t.o.certs_cnt; j++ ) {
+      slot_state_add_cert( ss, &t.o.certs[j] );
+      if( t.o.certs[j].kind==cert_kind ) { vs_cert = t.o.certs[j]; return 1; }
+    }
+  }
+  return 0;
+}
+
+static int
+vs_set_eq2( fd_bls_set_t const * s,
+            ulong                a,
+            ulong                b ) {
+  return fd_bls_set_cnt( s )==( 1UL+(ulong)(a!=b) ) && fd_bls_set_test( s, a ) && fd_bls_set_test( s, b );
+}
+
+/* One poisoned voter per kind and poison: it alone is reported and
+   removed, the cert forms without it and passes peer checks.  Only
+   infinity (in G2) needs a bisection. */
+
+static void
+test_deferred_poison_kinds( void ) {
+  ulong n = 11UL;
+  generate_validators( n );
+  void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  fd_block_hash_t hash; state_random_hash( &hash );
+  ulong order[ 11 ] = { 3UL, 0UL, 1UL, 2UL, 4UL, 5UL, 6UL, 7UL, 8UL, 9UL, 10UL };
+
+  for( ulong k=0UL; k<5UL; k++ ) {
+    for( int p=0; p<POISON_CNT; p++ ) {
+      fd_vote_t votes[ 11 ];
+      for( ulong i=0UL; i<n; i++ ) votes[i] = vs_vote( vs_kinds[k], order[i], slot, &hash );
+      if( !vs_poison( vs_sig( &votes[0] ), p ) ) continue;
+      slot_state_t * ss = make_state( slot, epoch_info );
+      ss->own_rank = USHORT_MAX;
+      ulong bisect = g_bisect_cnt;
+      fd_bls_set_t seen[ fd_bls_set_word_cnt ];
+      FD_TEST( vs_run( ss, epoch_info, votes, n, vs_cert_kind( vs_kinds[k] ), seen ) );
+      FD_TEST( vs_set_eq2( seen, 3UL, 3UL ) );
+      vs_cert_check( &vs_cert, epoch_info, seen );
+      FD_TEST( g_bisect_cnt-bisect==(ulong)(p==5) );
+    }
+  }
+  free( em );
+}
+
+/* A poisoned vote on a spilled notar hash, whose aggregate is summed
+   from the stored sigs. */
+
+static void
+test_deferred_poison_spill( void ) {
+  ulong n = 40UL;
+  generate_validators( n );
+  void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  slot_state_t * ss = make_state( slot, epoch_info );
+  ss->own_rank = USHORT_MAX;
+  static fd_vote_t votes[ 40 ];
+  for( ulong i=0UL; i<HASH_STAKE_INLINE_MAX; i++ ) { fd_block_hash_t h; state_random_hash( &h ); votes[i] = vs_vote( FD_VOTE_KIND_NOTAR, i, slot, &h ); }
+  fd_block_hash_t hash; state_random_hash( &hash );
+  for( ulong i=HASH_STAKE_INLINE_MAX; i<n; i++ ) votes[i] = vs_vote( FD_VOTE_KIND_NOTAR, i, slot, &hash );
+  FD_TEST( vs_poison( vs_sig( &votes[ HASH_STAKE_INLINE_MAX ] ), 0 ) );
+  fd_bls_set_t seen[ fd_bls_set_word_cnt ];
+  FD_TEST( vs_run( ss, epoch_info, votes, n, FD_CERT_KIND_NOTAR, seen ) );
+  FD_TEST( hash_stake_query( ss, g_states.spill_fd, 0, &hash )>=HASH_STAKE_INLINE_MAX );
+  FD_TEST( vs_set_eq2( seen, HASH_STAKE_INLINE_MAX, HASH_STAKE_INLINE_MAX ) );
+  vs_cert_check( &vs_cert, epoch_info, seen );
+  free( em );
+}
+
+/* Torsion cancelling across two colluding voters.  With valid
+   projections the aggregate is a valid G2 signature and both are
+   accepted (Agave would reject each vote; the cert is still valid).
+   With an invalid projection both are reported, no honest voter. */
+
+static void
+test_deferred_cancelling_pair( void ) {
+  ulong n = 11UL;
+  generate_validators( n );
+  void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  fd_block_hash_t hash; state_random_hash( &hash );
+  ulong order[ 11 ] = { 3UL, 5UL, 0UL, 1UL, 2UL, 4UL, 6UL, 7UL, 8UL, 9UL, 10UL };
+  fd_bls_sig_t t, nt; test_bls_pure_torsion( &t ); fd_bls_sig_neg( &nt, &t );
+
+  for( ulong k=0UL; k<5UL; k++ ) {
+    for( int wrong=0; wrong<2; wrong++ ) {
+      fd_vote_t votes[ 11 ];
+      for( ulong i=0UL; i<n; i++ ) votes[i] = vs_vote( vs_kinds[k], order[i], slot, &hash );
+      if( wrong ) vs_wrong( &votes[0], 3UL, &hash );
+      fd_bls_sig_add( vs_sig( &votes[0] ), vs_sig( &votes[0] ), &t  );
+      fd_bls_sig_add( vs_sig( &votes[1] ), vs_sig( &votes[1] ), &nt );
+      FD_TEST( !fd_bls_sig_validate( vs_sig( &votes[0] ) ) && !fd_bls_sig_validate( vs_sig( &votes[1] ) ) );
+      slot_state_t * ss = make_state( slot, epoch_info );
+      ss->own_rank = USHORT_MAX;
+      fd_bls_set_t seen[ fd_bls_set_word_cnt ];
+      FD_TEST( vs_run( ss, epoch_info, votes, n, vs_cert_kind( vs_kinds[k] ), seen ) );
+      if( !wrong ) {
+        FD_TEST( fd_bls_set_is_null( seen ) );
+        fd_bls_agg_t const * a = vs_cert.kind==FD_CERT_KIND_SKIP ? ( vs_kinds[k]==FD_VOTE_KIND_SKIP ? &vs_cert.skip.agg_skip : &vs_cert.skip.agg_skip_fallback ) :
+                                 vs_cert.kind==FD_CERT_KIND_NOTAR_FALLBACK ? &vs_cert.notar_fallback.agg_notar_fallback :
+                                 vs_cert.kind==FD_CERT_KIND_NOTAR ? &vs_cert.notar.agg : &vs_cert.final.agg;
+        FD_TEST( fd_bls_set_test( a->set, 3UL ) && fd_bls_set_test( a->set, 5UL ) && fd_bls_sig_validate( &a->sig ) );
+      } else {
+        FD_TEST( vs_set_eq2( seen, 3UL, 5UL ) );
+      }
+      vs_cert_check( &vs_cert, epoch_info, seen );
+    }
+  }
+  free( em );
+}
+
+/* A torsion voter and a G2 voter over the wrong message in one
+   aggregate: bisecting with the torsion voter inside would flag honest
+   voters (the right half's value is derived, parent/left).  Exactly
+   the two are reported. */
+
+static void
+test_deferred_bisect_regression( void ) {
+  ulong n = 11UL;
+  generate_validators( n );
+  void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  fd_block_hash_t hash; state_random_hash( &hash );
+  ulong order[ 11 ] = { 0UL, 7UL, 1UL, 2UL, 3UL, 4UL, 5UL, 6UL, 8UL, 9UL, 10UL };
+  for( ulong k=0UL; k<5UL; k++ ) {
+    for( int p=0; p<5; p++ ) {
+      fd_vote_t votes[ 11 ];
+      for( ulong i=0UL; i<n; i++ ) votes[i] = vs_vote( vs_kinds[k], order[i], slot, &hash );
+      if( !vs_poison( vs_sig( &votes[0] ), p ) ) continue;
+      vs_wrong( &votes[1], 7UL, &hash );
+      slot_state_t * ss = make_state( slot, epoch_info );
+      ss->own_rank = USHORT_MAX;
+      fd_bls_set_t seen[ fd_bls_set_word_cnt ];
+      FD_TEST( vs_run( ss, epoch_info, votes, n, vs_cert_kind( vs_kinds[k] ), seen ) );
+      FD_TEST( vs_set_eq2( seen, 0UL, 7UL ) );
+      vs_cert_check( &vs_cert, epoch_info, seen );
+    }
+  }
+  free( em );
+}
+
+/* Notar fallback and skip certs from two partitions, poisoned in the
+   first, the second, or both. */
+
+static void
+test_deferred_fallback_pairs( void ) {
+  ulong n = 11UL;
+  generate_validators( n );
+  void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  fd_block_hash_t hash; state_random_hash( &hash );
+  for( int skip=0; skip<2; skip++ ) {
+    for( int where=1; where<4; where++ ) {
+      fd_vote_t votes[ 11 ];
+      for( ulong i=0UL; i<n; i++ ) votes[i] = vs_vote( i<4UL ? ( skip ? FD_VOTE_KIND_SKIP : FD_VOTE_KIND_NOTAR ) : ( skip ? FD_VOTE_KIND_SKIP_FALLBACK : FD_VOTE_KIND_NOTAR_FALLBACK ), i, slot, &hash );
+      if( where&1 ) FD_TEST( vs_poison( vs_sig( &votes[2] ), 0 ) );
+      if( where&2 ) FD_TEST( vs_poison( vs_sig( &votes[5] ), 4 ) );
+      slot_state_t * ss = make_state( slot, epoch_info );
+      ss->own_rank = USHORT_MAX;
+      fd_bls_set_t seen[ fd_bls_set_word_cnt ];
+      FD_TEST( vs_run( ss, epoch_info, votes, n, skip ? FD_CERT_KIND_SKIP : FD_CERT_KIND_NOTAR_FALLBACK, seen ) );
+      fd_bls_set_t want[ fd_bls_set_word_cnt ]; fd_bls_set_null( want );
+      if( where&1 ) fd_bls_set_insert( want, 2UL );
+      if( where&2 ) fd_bls_set_insert( want, 5UL );
+      FD_TEST( fd_bls_set_eq( seen, want ) );
+      vs_cert_check( &vs_cert, epoch_info, seen );
+      fd_bls_agg_t const * a0 = skip ? &vs_cert.skip.agg_skip : &vs_cert.notar_fallback.agg_notar;
+      fd_bls_agg_t const * a1 = skip ? &vs_cert.skip.agg_skip_fallback : &vs_cert.notar_fallback.agg_notar_fallback;
+      FD_TEST( !fd_bls_set_is_null( a0->set ) && !fd_bls_set_is_null( a1->set ) );
+    }
+  }
+  free( em );
+}
+
+/* The member checks of a second fallback on an aggregate skip the
+   members cached in G2 by the first. */
+
+static void
+test_deferred_cache( void ) {
+  ulong n = 11UL;
+  generate_validators( n );
+  void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  fd_block_hash_t hash; state_random_hash( &hash );
+  for( ulong k=0UL; k<5UL; k++ ) {
+    slot_state_t * ss = make_state( slot, epoch_info );
+    ss->own_rank = USHORT_MAX;
+    fd_vote_t votes[ 11 ];
+    for( ulong i=0UL; i<n; i++ ) votes[i] = vs_vote( vs_kinds[k], i, slot, &hash );
+    FD_TEST( vs_poison( vs_sig( &votes[3] ), 0 ) );
+    FD_TEST( vs_poison( vs_sig( &votes[7] ), 0 ) );
+    out_t t;
+    ulong v0 = g_states.sig_validate_cnt;
+    for( ulong i=0UL; i<7UL; i++ ) { g_verified = i==1UL; add_vote_helper( ss, &votes[i], epoch_info, &t ); g_verified = 0; }
+    FD_TEST( vs_set_eq2( t.o.bad, 3UL, 3UL ) && g_states.sig_validate_cnt-v0==7UL ); /* sum, 6 members, rank 1 verified */
+    ulong v1 = g_states.sig_validate_cnt;
+    add_vote_helper( ss, &votes[7], epoch_info, &t );
+    FD_TEST( vs_set_eq2( t.o.bad, 7UL, 7UL ) && g_states.sig_validate_cnt-v1==2UL ); /* sum, new member */
+    ulong v2 = g_states.sig_validate_cnt;
+    add_vote_helper( ss, &votes[8], epoch_info, &t );
+    FD_TEST( fd_bls_set_is_null( t.o.bad ) && t.o.certs_cnt && g_states.sig_validate_cnt-v2==1UL );
+  }
+  free( em );
+}
+
+/* Removing a rank's notar fallback vote moves its last stored sig into
+   the hole, and its cached G2 bit with it. */
+
+static void
+test_deferred_nf_swap( void ) {
+  ulong n = 11UL;
+  generate_validators( n );
+  void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  fd_block_hash_t ha; state_random_hash( &ha );
+  fd_block_hash_t hb; state_random_hash( &hb );
+  slot_state_t * ss = make_state( slot, epoch_info );
+  ss->own_rank = USHORT_MAX;
+  out_t t;
+  fd_vote_t a = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 3UL, slot, &ha ); vs_wrong( &a, 3UL, &ha ); /* G2, fails pairing */
+  fd_vote_t b = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 3UL, slot, &hb ); FD_TEST( vs_poison( vs_sig( &b ), 0 ) );
+  add_vote_helper( ss, &a, epoch_info, &t ); FD_TEST( t.ok );
+  add_vote_helper( ss, &b, epoch_info, &t ); FD_TEST( t.ok );
+  ulong honest[ 6 ] = { 0UL, 1UL, 2UL, 4UL, 5UL, 6UL };
+  fd_bls_set_t seen[ fd_bls_set_word_cnt ]; fd_bls_set_null( seen );
+  for( ulong i=0UL; i<6UL; i++ ) { fd_vote_t v = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, honest[i], slot, &ha ); add_vote_helper( ss, &v, epoch_info, &t ); fd_bls_set_union( seen, seen, t.o.bad ); }
+  FD_TEST( vs_set_eq2( seen, 3UL, 3UL ) && ss->votes.notar_fallback_sig_cnt[ 3 ]==1UL );
+  FD_TEST( !fd_bls_set_test( ss->sig_ok[ 1 ], 3UL ) && !fd_bls_set_test( ss->sig_ok[ 2 ], 3UL ) );
+  fd_bls_set_null( seen );
+  int cert = 0;
+  for( ulong i=0UL; i<6UL; i++ ) { fd_vote_t v = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, honest[i], slot, &hb ); add_vote_helper( ss, &v, epoch_info, &t ); fd_bls_set_union( seen, seen, t.o.bad ); }
+  FD_TEST( vs_set_eq2( seen, 3UL, 3UL ) && !ss->votes.notar_fallback_sig_cnt[ 3 ] );
+  fd_vote_t v = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 7UL, slot, &hb ); add_vote_helper( ss, &v, epoch_info, &t );
+  for( ulong i=0UL; i<t.o.certs_cnt; i++ ) if( t.o.certs[i].kind==FD_CERT_KIND_NOTAR_FALLBACK ) { cert = 1; vs_cert_check( &t.o.certs[i], epoch_info, seen ); }
+  FD_TEST( cert && fd_bls_set_is_null( t.o.bad ) );
+  free( em );
+}
+
+/* A kind slot reused after its vote is removed: the first occupant
+   (G2, wrong message) is cached in G2 by the fallback, the second is
+   outside G2 and must be checked again. */
+
+static void
+test_deferred_slot_reuse( void ) {
+  ulong n = 11UL;
+  generate_validators( n );
+  void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  fd_block_hash_t hash; state_random_hash( &hash );
+  for( ulong k=0UL; k<5UL; k++ ) {
+    slot_state_t * ss = make_state( slot, epoch_info );
+    ss->own_rank = USHORT_MAX;
+    out_t t;
+    fd_bls_set_t seen[ fd_bls_set_word_cnt ]; fd_bls_set_null( seen );
+    fd_vote_t w = vs_vote( vs_kinds[k], 3UL, slot, &hash ); vs_wrong( &w, 3UL, &hash );
+    add_vote_helper( ss, &w, epoch_info, &t );
+    for( ulong v=4UL; v<10UL; v++ ) { fd_vote_t g = vs_vote( vs_kinds[k], v, slot, &hash ); add_vote_helper( ss, &g, epoch_info, &t ); fd_bls_set_union( seen, seen, t.o.bad ); }
+    FD_TEST( vs_set_eq2( seen, 3UL, 3UL ) );
+    /* the reused slot is cleared on write, so the poison is caught by
+       the next verify (rank 3 back at quorum) */
+    fd_vote_t p = vs_vote( vs_kinds[k], 3UL, slot, &hash ); FD_TEST( vs_poison( vs_sig( &p ), 0 ) );
+    fd_bls_set_null( seen );
+    add_vote_helper( ss, &p, epoch_info, &t );
+    FD_TEST( !t.ok ); /* reported */
+    fd_bls_set_union( seen, seen, t.o.bad );
+    FD_TEST( vs_set_eq2( seen, 3UL, 3UL ) );
+  }
+  free( em );
+}
+
+/* The G2 cache is per notar fallback vote: a rank's vote j=0 cached in
+   G2 says nothing of its vote j=1. */
+
+static void
+test_deferred_nf_index( void ) {
+  ulong n = 11UL;
+  generate_validators( n );
+  void * em; fd_epoch_info_t * epoch_info = make_epoch( n, &em );
+  ulong slot = 1UL;
+  fd_block_hash_t ha; state_random_hash( &ha );
+  fd_block_hash_t hb; state_random_hash( &hb );
+  slot_state_t * ss = make_state( slot, epoch_info );
+  ss->own_rank = USHORT_MAX;
+  out_t t;
+  fd_bls_set_t seen[ fd_bls_set_word_cnt ]; fd_bls_set_null( seen );
+  fd_vote_t a3 = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 3UL, slot, &ha );
+  fd_vote_t a4 = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 4UL, slot, &ha ); FD_TEST( vs_poison( vs_sig( &a4 ), 0 ) );
+  add_vote_helper( ss, &a3, epoch_info, &t );
+  add_vote_helper( ss, &a4, epoch_info, &t );
+  for( ulong v=5UL; v<10UL; v++ ) { fd_vote_t g = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, v, slot, &ha ); add_vote_helper( ss, &g, epoch_info, &t ); fd_bls_set_union( seen, seen, t.o.bad ); }
+  FD_TEST( vs_set_eq2( seen, 4UL, 4UL ) && fd_bls_set_test( ss->sig_ok[ 1 ], 3UL ) );
+  fd_bls_set_null( seen );
+  fd_vote_t b3 = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 3UL, slot, &hb ); FD_TEST( vs_poison( vs_sig( &b3 ), 0 ) );
+  add_vote_helper( ss, &b3, epoch_info, &t );
+  FD_TEST( ss->votes.notar_fallback_sig_cnt[ 3 ]==2UL );
+  for( ulong v=5UL; v<11UL; v++ ) { fd_vote_t g = vs_vote( FD_VOTE_KIND_NOTAR_FALLBACK, v, slot, &hb ); add_vote_helper( ss, &g, epoch_info, &t ); fd_bls_set_union( seen, seen, t.o.bad ); }
+  FD_TEST( vs_set_eq2( seen, 3UL, 3UL ) && ss->votes.notar_fallback_sig_cnt[ 3 ]==1UL && fd_bls_set_test( ss->sig_ok[ 1 ], 3UL ) );
   free( em );
 }
 
@@ -1461,6 +1949,15 @@ test_slot_state( void ) {
     test_map_capacity();
     test_safe_to_skip_removes_table_mate();
     test_safe_to_skip_removes_head_middle_tail();
+    test_deferred_poison_kinds();
+    test_deferred_poison_spill();
+    test_deferred_cancelling_pair();
+    test_deferred_bisect_regression();
+    test_deferred_fallback_pairs();
+    test_deferred_cache();
+    test_deferred_nf_swap();
+    test_deferred_slot_reuse();
+    test_deferred_nf_index();
     test_notar_fallback_removes_head_middle_tail();
     test_skip_skip_fallback_conflict();
     test_notar_notar_fallback_conflict();
@@ -2594,27 +3091,36 @@ test_duplicate_votes( void ) {
   teardown_pool( pool );
 }
 
-/* auditor-internal#673: the subgroup check runs after the cheap
-   admission checks, and a failing signature is rejected */
+/* auditor-internal#673: a vote sig outside G2 is admitted (the
+   subgroup check is deferred to the aggregate) and takes only its own
+   rank's slot until an aggregate verify removes it. */
 
 static void
 test_vote_subgroup_after_duplicate( void ) {
   fd_votor_pool_t * pool = setup_pool();
-  fd_block_hash_t gh; genesis_hash( &gh );
-  ulong slot = 0UL;
+  fd_block_hash_t h; random_hash( &h );
+  ulong slot = 1UL;
 
-  fd_vote_t good = fd_vote_construct_notar( sec_sign_fn, &g_sk[0], test_bls_public_key, slot, &gh, 0, TEST_SHRED_VERSION );
+  fd_vote_t good = fd_vote_construct_notar( sec_sign_fn, &g_sk[1], test_bls_public_key, slot, &h, 1, TEST_SHRED_VERSION );
   fd_vote_t evil = good;
   test_bls_torsion( &evil.notar.sig );
 
-  FD_TEST( fd_votor_pool_add_vote( pool, &evil, 0, bad, &quorum_reached )==FD_VOTOR_POOL_ERR_VOTE_VERIFY );
+  FD_TEST( fd_votor_pool_add_vote( pool, &evil, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
   FD_TEST( fd_bls_set_is_null( bad ) );
+  FD_TEST( fd_votor_pool_add_vote( pool, &good, 0, bad, &quorum_reached )==FD_VOTOR_POOL_ERR_DUPLICATE );
+
+  fd_bls_set_t seen[ fd_bls_set_word_cnt ]; fd_bls_set_null( seen );
+  for( ulong v=2UL; v<8UL; v++ ) {
+    fd_vote_t vote = fd_vote_construct_notar( sec_sign_fn, &g_sk[v], test_bls_public_key, slot, &h, (ushort)v, TEST_SHRED_VERSION );
+    FD_TEST( fd_votor_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+    fd_bls_set_union( seen, seen, bad );
+    drain_events( pool );
+  }
+  FD_TEST( fd_bls_set_cnt( seen )==1UL && fd_bls_set_test( seen, 1UL ) );
+  FD_TEST( !has_notar_cert( pool, slot ) );
 
   FD_TEST( fd_votor_pool_add_vote( pool, &good, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
-  FD_TEST( fd_bls_set_is_null( bad ) );
-
-  FD_TEST( fd_votor_pool_add_vote( pool, &evil, 0, bad, &quorum_reached )==FD_VOTOR_POOL_ERR_DUPLICATE );
-  FD_TEST( fd_bls_set_is_null( bad ) );
+  FD_TEST( fd_bls_set_is_null( bad ) && has_notar_cert( pool, slot ) );
 
   teardown_pool( pool );
 }
@@ -3816,6 +4322,234 @@ test_bls_verify_cnt( void ) {
   teardown_pool( pool );
 }
 
+/* Reward aggregates poisoned with sigs outside G2: the bad voters are
+   removed from the pool, so a republish costs one verify per aggregate
+   and reports nothing. */
+
+static fd_vote_t
+vp_vote( uint                    kind,
+         ulong                   rank,
+         ulong                   slot,
+         fd_block_hash_t const * hash ) {
+  switch( kind ) {
+  case FD_VOTE_KIND_NOTAR:          return fd_vote_construct_notar         ( sec_sign_fn, &g_sk[ rank ], test_bls_public_key, slot, hash, (ushort)rank, TEST_SHRED_VERSION );
+  case FD_VOTE_KIND_NOTAR_FALLBACK: return fd_vote_construct_notar_fallback( sec_sign_fn, &g_sk[ rank ], test_bls_public_key, slot, hash, (ushort)rank, TEST_SHRED_VERSION );
+  case FD_VOTE_KIND_SKIP:           return fd_vote_construct_skip          ( sec_sign_fn, &g_sk[ rank ], test_bls_public_key, slot,       (ushort)rank, TEST_SHRED_VERSION );
+  case FD_VOTE_KIND_SKIP_FALLBACK:  return fd_vote_construct_skip_fallback ( sec_sign_fn, &g_sk[ rank ], test_bls_public_key, slot,       (ushort)rank, TEST_SHRED_VERSION );
+  case FD_VOTE_KIND_FINAL:          return fd_vote_construct_final         ( sec_sign_fn, &g_sk[ rank ], test_bls_public_key, slot,       (ushort)rank, TEST_SHRED_VERSION );
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+}
+
+static int
+vp_agg_verifies( fd_bls_agg_t const * agg,
+                 uint                 kind,
+                 ulong                slot,
+                 fd_block_hash_t const * hash ) {
+  uchar msg[ FD_VOTE_SIGNING_SER_MAX ];
+  ulong sz = fd_vote_signing_ser( kind, slot, hash, TEST_SHRED_VERSION, msg );
+  fd_bls_pub_t pub; fd_bls_pub_sum( &pub, g_epoch_info->pubkeys, agg->set );
+  return fd_bls_sig_validate( &agg->sig ) && fd_bls_agg_verify( msg, sz, &pub, &agg->sig );
+}
+
+static void
+test_deferred_rewards( void ) {
+  fd_votor_pool_t * pool = setup_pool();
+  ulong slot = 1UL;
+  fd_block_hash_t hash; random_hash( &hash );
+  add_notar_votes( pool, slot, &hash, 0UL, 7UL );
+  FD_TEST( has_notar_cert( pool, slot ) );
+  fd_vote_t v7 = vp_vote( FD_VOTE_KIND_NOTAR, 7UL, slot, &hash ); test_bls_pure_torsion( &v7.notar.sig );
+  fd_vote_t s9 = vp_vote( FD_VOTE_KIND_SKIP,  9UL, slot, NULL  ); fd_bls_sig_t t; test_bls_torsion( &t ); fd_bls_sig_add( &s9.skip.sig, &s9.skip.sig, &t );
+  FD_TEST( fd_votor_pool_add_vote( pool, &v7, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS && fd_bls_set_is_null( bad ) );
+  FD_TEST( fd_votor_pool_add_vote( pool, &s9, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS && fd_bls_set_is_null( bad ) );
+  add_skip_votes( pool, slot, 10UL, 11UL );
+
+  fd_bls_agg_t notar, skip;
+  ulong verify = fd_votor_pool_metrics( pool ).bls_verify_cnt;
+  fd_block_hash_t const * h = fd_votor_pool_agg_rewards( pool, slot, &notar, &skip, bad );
+  FD_TEST( h && fd_memeq( h, &hash, sizeof(fd_block_hash_t) ) );
+  FD_TEST( fd_bls_set_cnt( bad )==2UL && fd_bls_set_test( bad, 7UL ) && fd_bls_set_test( bad, 9UL ) );
+  FD_TEST( fd_bls_set_cnt( notar.set )==7UL && !fd_bls_set_test( notar.set, 7UL ) && vp_agg_verifies( &notar, FD_VOTE_KIND_NOTAR, slot, &hash ) );
+  FD_TEST( fd_bls_set_cnt( skip.set )==1UL && fd_bls_set_test( skip.set, 10UL ) && vp_agg_verifies( &skip, FD_VOTE_KIND_SKIP, slot, NULL ) );
+  FD_TEST( fd_votor_pool_metrics( pool ).bls_verify_cnt==verify+2UL );
+
+  ulong validate = fd_votor_pool_metrics( pool ).sig_validate_cnt;
+  ulong bisect   = g_bisect_cnt;
+  h = fd_votor_pool_agg_rewards( pool, slot, &notar, &skip, bad );
+  FD_TEST( h && fd_bls_set_is_null( bad ) && fd_bls_set_cnt( notar.set )==7UL && fd_bls_set_cnt( skip.set )==1UL );
+  FD_TEST( fd_votor_pool_metrics( pool ).bls_verify_cnt==verify+4UL && fd_votor_pool_metrics( pool ).sig_validate_cnt==validate+2UL && g_bisect_cnt==bisect );
+
+  /* the voters removed may vote again */
+  fd_vote_t g7 = vp_vote( FD_VOTE_KIND_NOTAR, 7UL, slot, &hash );
+  FD_TEST( fd_votor_pool_add_vote( pool, &g7, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  h = fd_votor_pool_agg_rewards( pool, slot, &notar, &skip, bad );
+  FD_TEST( h && fd_bls_set_is_null( bad ) && fd_bls_set_cnt( notar.set )==8UL );
+
+  teardown_pool( pool );
+}
+
+/* A removal that changes the top notar hash is retried in the same
+   publish with the new top, over as many changes as it takes. */
+
+static void
+test_deferred_rewards_top_change( void ) {
+  fd_votor_pool_t * pool = setup_pool();
+  ulong slot = 1UL;
+  fd_block_hash_t a; random_hash( &a );
+  fd_block_hash_t b; random_hash( &b );
+  add_notar_votes( pool, slot, &a, 0UL, 2UL );
+  fd_vote_t v2 = vp_vote( FD_VOTE_KIND_NOTAR, 2UL, slot, &b ); test_bls_pure_torsion( &v2.notar.sig );
+  FD_TEST( fd_votor_pool_add_vote( pool, &v2, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  add_notar_votes( pool, slot, &b, 3UL, 5UL );
+  fd_bls_agg_t notar, skip;
+  fd_block_hash_t const * h = fd_votor_pool_agg_rewards( pool, slot, &notar, &skip, bad );
+  FD_TEST( h && fd_memeq( h, &a, sizeof(fd_block_hash_t) ) );
+  FD_TEST( fd_bls_set_cnt( bad )==1UL && fd_bls_set_test( bad, 2UL ) );
+  FD_TEST( fd_bls_set_cnt( notar.set )==2UL && vp_agg_verifies( &notar, FD_VOTE_KIND_NOTAR, slot, &a ) );
+  h = fd_votor_pool_agg_rewards( pool, slot, &notar, &skip, bad );
+  FD_TEST( h && fd_memeq( h, &a, sizeof(fd_block_hash_t) ) && fd_bls_set_is_null( bad ) && fd_bls_set_cnt( notar.set )==2UL );
+  teardown_pool( pool );
+
+  /* C (4) -> B (3) -> A (2): two changes, the second over wrong
+     message G2 votes that are bisected out.  Our rank (0) does not
+     notar, so nothing verifies before the publish. */
+  pool = setup_pool();
+  fd_block_hash_t c; random_hash( &c );
+  add_notar_votes( pool, slot, &a, 9UL, 11UL );
+  for( ulong v=1UL; v<3UL; v++ ) {
+    fd_vote_t w = vp_vote( FD_VOTE_KIND_NOTAR, v, slot, &b ); w.notar.sig = vp_vote( FD_VOTE_KIND_NOTAR, v, slot+1000UL, &b ).notar.sig;
+    FD_TEST( fd_votor_pool_add_vote( pool, &w, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS && fd_bls_set_is_null( bad ) );
+  }
+  add_notar_votes( pool, slot, &b, 3UL, 4UL );
+  for( ulong v=4UL; v<7UL; v++ ) {
+    fd_vote_t t = vp_vote( FD_VOTE_KIND_NOTAR, v, slot, &c ); test_bls_pure_torsion( &t.notar.sig );
+    FD_TEST( fd_votor_pool_add_vote( pool, &t, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS && fd_bls_set_is_null( bad ) );
+  }
+  add_notar_votes( pool, slot, &c, 7UL, 8UL );
+  h = fd_votor_pool_agg_rewards( pool, slot, &notar, &skip, bad );
+  FD_TEST( h && fd_memeq( h, &a, sizeof(fd_block_hash_t) ) );
+  FD_TEST( fd_bls_set_cnt( bad )==5UL && fd_bls_set_test( bad, 1UL ) && fd_bls_set_test( bad, 2UL ) && fd_bls_set_test( bad, 4UL ) && fd_bls_set_test( bad, 5UL ) && fd_bls_set_test( bad, 6UL ) );
+  FD_TEST( fd_bls_set_cnt( notar.set )==2UL && fd_bls_set_test( notar.set, 9UL ) && fd_bls_set_test( notar.set, 10UL ) && vp_agg_verifies( &notar, FD_VOTE_KIND_NOTAR, slot, &a ) );
+  teardown_pool( pool );
+}
+
+/* Every voter of the only notar hash is bad: its removal leaves the
+   top hash unchanged (stale, no stake), and no notar aggregate is
+   published. */
+
+static void
+test_deferred_rewards_all_bad( void ) {
+  for( int p=0; p<2; p++ ) {
+    fd_votor_pool_t * pool = setup_pool();
+    ulong slot = 1UL;
+    fd_block_hash_t a; random_hash( &a );
+    fd_vote_t v0 = vp_vote( FD_VOTE_KIND_NOTAR, 0UL, slot, &a ); test_bls_pure_torsion( &v0.notar.sig );
+    fd_vote_t v1 = vp_vote( FD_VOTE_KIND_NOTAR, 1UL, slot, &a ); /* p==0 torsion, else G2 over the wrong message */
+    if( p ) v1.notar.sig = vp_vote( FD_VOTE_KIND_NOTAR, 1UL, slot+1000UL, &a ).notar.sig;
+    else    { fd_bls_sig_t t; test_bls_torsion( &t ); fd_bls_sig_add( &v1.notar.sig, &v1.notar.sig, &t ); }
+    FD_TEST( fd_votor_pool_add_vote( pool, &v0, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS && fd_bls_set_is_null( bad ) );
+    FD_TEST( fd_votor_pool_add_vote( pool, &v1, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS && fd_bls_set_is_null( bad ) );
+    fd_bls_agg_t notar, skip;
+    FD_TEST( !fd_votor_pool_agg_rewards( pool, slot, &notar, &skip, bad ) );
+    FD_TEST( fd_bls_set_cnt( bad )==2UL && fd_bls_set_test( bad, 0UL ) && fd_bls_set_test( bad, 1UL ) );
+    FD_TEST( fd_bls_set_is_null( notar.set ) && fd_bls_set_is_null( skip.set ) );
+    FD_TEST( !fd_votor_pool_agg_rewards( pool, slot, &notar, &skip, bad ) && fd_bls_set_is_null( bad ) && fd_bls_set_is_null( notar.set ) );
+    teardown_pool( pool );
+  }
+}
+
+/* Standstill re-sends our stored votes; one outside G2 (arrived from
+   the network under our rank) is skipped. */
+
+static void
+test_deferred_standstill( void ) {
+  fd_votor_pool_t * pool = setup_pool();
+  fd_block_hash_t h3; random_hash( &h3 );
+  fd_block_hash_t h4; random_hash( &h4 );
+  fd_vote_t n3 = vp_vote( FD_VOTE_KIND_NOTAR, 0UL, 3UL, &h3 ); test_bls_pure_torsion( &n3.notar.sig );
+  fd_vote_t f3 = vp_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 0UL, 3UL, &h4 );
+  fd_vote_t n4 = vp_vote( FD_VOTE_KIND_NOTAR, 0UL, 4UL, &h4 );
+  fd_vote_t s5 = vp_vote( FD_VOTE_KIND_SKIP,  0UL, 5UL, NULL ); test_bls_torsion( &s5.skip.sig );
+  fd_vote_t sf5= vp_vote( FD_VOTE_KIND_SKIP_FALLBACK, 0UL, 6UL, NULL );
+  fd_vote_t n7 = vp_vote( FD_VOTE_KIND_NOTAR, 0UL, 7UL, &h3 );
+  fd_vote_t f7 = vp_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 0UL, 7UL, &h4 ); test_bls_pure_torsion( &f7.notar_fallback.sig );
+  fd_vote_t g8 = vp_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 0UL, 8UL, &h3 );
+  fd_vote_t t8 = vp_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 0UL, 8UL, &h4 ); test_bls_pure_torsion( &t8.notar_fallback.sig );
+  FD_TEST( fd_votor_pool_add_vote( pool, &n3, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  FD_TEST( fd_votor_pool_add_vote( pool, &f3, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  FD_TEST( fd_votor_pool_add_vote( pool, &n4, 1, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  FD_TEST( fd_votor_pool_add_vote( pool, &s5, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  FD_TEST( fd_votor_pool_add_vote( pool, &sf5,1, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  FD_TEST( fd_votor_pool_add_vote( pool, &n7, 1, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  FD_TEST( fd_votor_pool_add_vote( pool, &f7, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  FD_TEST( fd_votor_pool_add_vote( pool, &g8, 1, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS ); /* j=0 known in G2 */
+  FD_TEST( fd_votor_pool_add_vote( pool, &t8, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS ); /* j=1 is not */
+  fd_vote_t t9 = vp_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 0UL, 9UL, &h3 ); test_bls_pure_torsion( &t9.notar_fallback.sig );
+  fd_vote_t g9 = vp_vote( FD_VOTE_KIND_NOTAR_FALLBACK, 0UL, 9UL, &h4 );
+  FD_TEST( fd_votor_pool_add_vote( pool, &t9, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS ); /* j=0 is not in G2 */
+  FD_TEST( fd_votor_pool_add_vote( pool, &g9, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS ); /* j=1, unchecked, is */
+  fd_vote_t t10 = vp_vote( FD_VOTE_KIND_FINAL,         0UL, 10UL, NULL ); test_bls_pure_torsion( &t10.final.sig );
+  fd_vote_t t11 = vp_vote( FD_VOTE_KIND_SKIP_FALLBACK, 0UL, 11UL, NULL ); test_bls_torsion( &t11.skip_fallback.sig );
+  FD_TEST( fd_votor_pool_add_vote( pool, &t10, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  FD_TEST( fd_votor_pool_add_vote( pool, &t11, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+  drain_events( pool );
+  ulong validate = fd_votor_pool_metrics( pool ).sig_validate_cnt;
+  fd_standstill_t s = recover_from_standstill( pool );
+  FD_TEST( s.vote_cnt==6UL );
+  FD_TEST( s.votes[5].kind==FD_VOTE_KIND_NOTAR_FALLBACK && s.votes[5].notar_fallback.slot==9UL && fd_memeq( &s.votes[5].notar_fallback.block_hash, &h4, sizeof(fd_block_hash_t) ) && fd_bls_sig_eq( &s.votes[5].notar_fallback.sig, &g9.notar_fallback.sig ) );
+  FD_TEST( s.votes[3].kind==FD_VOTE_KIND_NOTAR && s.votes[3].notar.slot==7UL );
+  FD_TEST( s.votes[4].kind==FD_VOTE_KIND_NOTAR_FALLBACK && s.votes[4].notar_fallback.slot==8UL && fd_memeq( &s.votes[4].notar_fallback.block_hash, &h3, sizeof(fd_block_hash_t) ) );
+  FD_TEST( s.votes[0].kind==FD_VOTE_KIND_NOTAR_FALLBACK && s.votes[0].notar_fallback.slot==3UL && fd_memeq( &s.votes[0].notar_fallback.block_hash, &h4, sizeof(fd_block_hash_t) ) && fd_bls_sig_eq( &s.votes[0].notar_fallback.sig, &f3.notar_fallback.sig ) );
+  FD_TEST( s.votes[1].kind==FD_VOTE_KIND_NOTAR && s.votes[1].notar.slot==4UL && fd_bls_sig_eq( &s.votes[1].notar.sig, &n4.notar.sig ) );
+  FD_TEST( s.votes[2].kind==FD_VOTE_KIND_SKIP_FALLBACK && s.votes[2].skip_fallback.slot==6UL && fd_bls_sig_eq( &s.votes[2].skip_fallback.sig, &sf5.skip_fallback.sig ) );
+  for( ulong i=0UL; i<s.vote_cnt; i++ ) FD_TEST( fd_bls_sig_validate( fd_vote_sig( &s.votes[i] ) ) );
+  (void)validate;
+  teardown_pool( pool );
+}
+
+/* One staked voter poisons an aggregate of every kind in many slots.
+   Each cert still forms, the voter is reported every time, nothing is
+   bisected, at most 2 pairings per aggregate, and no more subgroup
+   checks than votes plus aggregate verifies. */
+
+static void
+test_deferred_dos( void ) {
+  fd_votor_pool_t * pool = setup_pool();
+  ulong pair0 = g_pairing_cnt, bisect0 = g_bisect_cnt;
+  ulong m0_verify   = fd_votor_pool_metrics( pool ).bls_verify_cnt;
+  ulong m0_validate = fd_votor_pool_metrics( pool ).sig_validate_cnt;
+  ulong vote_cnt = 0UL, agg_cnt = 0UL;
+  for( ulong slot=1UL; slot<=40UL; slot++ ) {
+    uint kind = vs_kinds[ slot%5UL ];
+    fd_block_hash_t hash; random_hash( &hash );
+    fd_vote_t evil = vp_vote( kind, 10UL, slot, &hash );
+    FD_TEST( vs_poison( vs_sig( &evil ), (int)(slot%5UL) ) || vs_poison( vs_sig( &evil ), 0 ) );
+    FD_TEST( fd_votor_pool_add_vote( pool, &evil, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+    drain_events( pool );
+    vote_cnt++;
+    fd_bls_set_t seen[ fd_bls_set_word_cnt ]; fd_bls_set_null( seen );
+    uchar reached = 0;
+    for( ulong v=0UL; v<7UL; v++ ) {
+      fd_vote_t vote = vp_vote( kind, v, slot, &hash );
+      FD_TEST( fd_votor_pool_add_vote( pool, &vote, 0, bad, &quorum_reached )==FD_VOTOR_POOL_SUCCESS );
+      fd_bls_set_union( seen, seen, bad );
+      reached |= quorum_reached;
+      drain_events( pool );
+      vote_cnt++;
+    }
+    agg_cnt++;
+    FD_TEST( fd_bls_set_cnt( seen )==1UL && fd_bls_set_test( seen, 10UL ) );
+    FD_TEST( fd_uchar_extract_bit( reached, (int)vs_cert_kind( kind ) ) );
+  }
+  ulong verifies = fd_votor_pool_metrics( pool ).bls_verify_cnt-m0_verify;
+  FD_TEST( g_bisect_cnt==bisect0 );
+  FD_TEST( g_pairing_cnt-pair0<=2UL*agg_cnt );
+  FD_TEST( fd_votor_pool_metrics( pool ).sig_validate_cnt-m0_validate<=vote_cnt+verifies );
+  FD_LOG_NOTICE(( "dos: %lu aggregates %lu votes %lu verifies %lu pairings %lu subgroup checks", agg_cnt, vote_cnt, verifies, g_pairing_cnt-pair0, fd_votor_pool_metrics( pool ).sig_validate_cnt-m0_validate ));
+  teardown_pool( pool );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -3885,6 +4619,11 @@ main( int     argc,
     test_add_block_below_watermark();
     test_update_own_rank();
     test_bls_verify_cnt();
+    test_deferred_rewards();
+    test_deferred_rewards_top_change();
+    test_deferred_rewards_all_bad();
+    test_deferred_standstill();
+    test_deferred_dos();
   }
 
   FD_LOG_NOTICE(( "pass" ));
