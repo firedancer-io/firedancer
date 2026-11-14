@@ -821,9 +821,9 @@ fd_accdb_for_each_modified( fd_accdb_t *           accdb,
 
   uint txn_idx = accdb->fork_pool[ fork_id.val ].shmem->txn_head;
   while( txn_idx!=UINT_MAX ) {
-    fd_accdb_txn_t const * txn = txn_pool_ele( accdb->txn_pool, (ulong)txn_idx );
-    fn( ctx, accdb->acc_pool[ txn->acc_pool_idx ].key.pubkey );
-    txn_idx = txn->fork.next;
+    fd_accdb_accmeta_t const * acc = &accdb->acc_pool[ rec_acc( accdb, txn_idx ) ];
+    fn( ctx, acc->key.pubkey );
+    txn_idx = rec_next( accdb, txn_idx );
   }
 }
 
