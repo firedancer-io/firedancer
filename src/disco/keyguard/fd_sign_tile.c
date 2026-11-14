@@ -300,17 +300,15 @@ after_frag_sensitive( void *              _ctx,
 
      If the frag is coming from the send tile, then the upper 32 bits
      contain the index of the authorized voter that needs to sign the
-     vote transaction.  The least significant bit of the upper 32 is
-     used to indicate if a second signature is needed.  The next 4 least
-     significant bits are used to encode the index of the authorized
-     voter that a signature is needed from.
+     vote transaction.  The next 4 least significant bits are used to
+     encode the index of the authorized voter that a signature is needed
+     from.
 
      BLS requests from the votor tile encode the upper 32 bits the same
      way, except that a set least significant bit selects the authorized
      voter's key in place of the identity's instead of adding a second
      signature. */
-  int sign_type         = (int)(uint)(sig);
-  int needs_second_sign = ctx->in[ in_idx ].role==FD_KEYGUARD_ROLE_TXSEND && ((sig>>32) & 1UL);
+  int sign_type = (int)(uint)(sig);
 
   FD_TEST( in_idx<MAX_IN );
 
@@ -334,14 +332,6 @@ after_frag_sensitive( void *              _ctx,
   case FD_KEYGUARD_SIGN_TYPE_ED25519: {
     if( FD_UNLIKELY( role==FD_KEYGUARD_ROLE_FAILOV ) ) { failover_sign( ctx, dst, sz ); break; }
     fd_ed25519_sign( dst, ctx->_data, sz, ctx->public_key, ctx->private_key, ctx->sha512 );
-    if( needs_second_sign ) {
-      ulong authority_idx = (sig >> 33) & 0xFUL;
-      if( FD_UNLIKELY( authority_idx>=ctx->authorized_voters_cnt ) ) {
-        FD_LOG_CRIT(( "invalid sign request from in_idx=%lu: authority_idx=%lu out of range (authorized_voters_cnt=%lu)", in_idx, authority_idx, ctx->authorized_voters_cnt ));
-      }
-      fd_ed25519_sign( dst+64UL, ctx->_data, sz, ctx->authorized_voter_pubkeys[ authority_idx ], ctx->authorized_voter_private_keys[ authority_idx ], ctx->sha512 );
-      out_sz = 128UL;
-    }
     break;
   }
   case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519: {

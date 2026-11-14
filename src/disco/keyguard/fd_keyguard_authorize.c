@@ -18,80 +18,6 @@ struct fd_keyguard_sign_req {
 typedef struct fd_keyguard_sign_req fd_keyguard_sign_req_t;
 
 static int
-fd_keyguard_authorize_vote_txn( fd_keyguard_authority_t const * authority,
-                                uchar const *                   data,
-                                ulong                           sz,
-                                int                             sign_type ) {
-  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
-  if( sz > FD_TXN_MTU_V0 ) return 0;
-  /* Each vote transaction may have 1 or 2 signers.  The first byte in
-     the transaction message is the number of signers. */
-  ulong off = 0UL;
-  uchar signer_cnt = data[off];
-  if( signer_cnt!=1 && signer_cnt!=2 ) return 0;
-  if( signer_cnt==1 && sz<=140 ) return 0;
-  if( signer_cnt==2 && sz<=172 ) return 0;
-  /* The authority's public key will be the first listed account in the
-     transaction message. */
-
-  /* r/o signers = 1 when there are 2 signers and 1 otherwise. */
-  off++;
-  if( data[off]!=signer_cnt-1 ) return 0;
-
-  /* There will always be 1 r/o unsigned account. */
-  off++;
-  if( data[off]!=1 ) return 0;
-
-  /* The only accounts should be the 1 or 2 signers, the vote account,
-     and the vote program.  The number of accounts is represented as a
-     compact u16. */
-  off++;
-  ulong bytes = fd_cu16_dec_sz( data+off, 3UL );
-  if( bytes!=1UL ) return 0;
-  ulong acc_cnt = 2UL + signer_cnt;
-  if( data[off]!=acc_cnt ) return 0;
-
-  /* The first account should always be the authority's public key. */
-  off++;
-  ulong acct_off = off;
-  if( memcmp( authority->identity_pubkey, data + acct_off, 32 ) ) return 0;
-
-  /* Each transaction account key is listed out and is followed by a 32
-     byte blockhash.  The instruction count is after this. */
-  off += (acc_cnt+1) * 32;
-  bytes = fd_cu16_dec_sz( data+off, 3UL );
-  uchar instr_cnt = data[ off ];
-  if( bytes!=1UL ) return 0;
-  if( instr_cnt!=1 ) return 0;
-
-  /* The program id will be the first byte of the instruction payload
-     and should be the vote program. */
-  off++;
-  uchar program_id = data[ off ];
-  if( program_id != acc_cnt-1 ) return 0;
-  ulong program_acct_off = 4UL + (program_id * 32UL);
-  if( memcmp( &fd_solana_vote_program_id, data+program_acct_off, 32 ) ) return 0;
-
-  off++;
-  bytes = fd_cu16_dec_sz( data+off, 3UL );
-  if( bytes!=1UL ) return 0;
-
-  /* Vote account count will always be 2.  One byte is used to list the
-     account count for the transaction and 1 byte for each account. */
-  if( data[ off ]!=2 ) return 0;
-  off += 3UL;
-
-  /* Move the cursor forward by the instruction data size.  The first
-     byte of the instruction data will be the discriminant.  Only allow
-     tower sync vote instructions (14). */
-  bytes = fd_cu16_dec_sz( data+off, 3UL );
-  off += bytes;
-  if( data[off]!=14 ) return 0;
-
-  return 1;
-}
-
-static int
 fd_keyguard_authorize_gossip( fd_keyguard_authority_t const * authority,
                               uchar const *                   data,
                               ulong                           sz,
@@ -107,15 +33,6 @@ fd_keyguard_authorize_gossip( fd_keyguard_authority_t const * authority,
   uint tag = FD_LOAD( uint, data );
   ulong origin_off = ULONG_MAX;
   switch( tag ) {
-    case FD_GOSSIP_VALUE_VOTE:
-      origin_off = 1UL;
-      if( sz<4UL+1UL+32UL+FD_TXN_MIN_SERIALIZED_SZ+8UL ) return 0;
-      ulong sig_cnt = data[ 4UL+1UL+32UL ];
-      if( (sig_cnt==0UL) | (sig_cnt>2UL) ) return 0;
-      ulong vote_off = 4UL+1UL+32UL+1UL+64UL*sig_cnt;
-      if( !fd_keyguard_authorize_vote_txn( authority, data+vote_off, sz-(vote_off+8UL), FD_KEYGUARD_SIGN_TYPE_ED25519 ) )
-        return 0;
-      break;
     case FD_GOSSIP_VALUE_CONTACT_INFO:
       origin_off = 0UL;
       /* Contact info is pretty tough to parse.  The best we can do is
@@ -172,6 +89,7 @@ fd_keyguard_authorize_gossip( fd_keyguard_authority_t const * authority,
 
     /* We refuse to serialize these */
     case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:
+    case FD_GOSSIP_VALUE_VOTE:
     case FD_GOSSIP_VALUE_LOWEST_SLOT:
     case FD_GOSSIP_VALUE_LEGACY_SNAPSHOT_HASHES:
     case FD_GOSSIP_VALUE_ACCOUNT_HASHES:
@@ -386,18 +304,6 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   /* Authorize each role */
 
   switch( role ) {
-
-  case FD_KEYGUARD_ROLE_TXSEND: {
-    int txn_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TXN )) &&
-                 fd_keyguard_authorize_vote_txn( authority, data, sz, sign_type );
-    int tls_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_TLS_CV )) &&
-                 fd_keyguard_authorize_tls_cv( authority, data, sz, sign_type );
-    if( FD_UNLIKELY( !txn_ok && !tls_ok ) ) {
-      FD_LOG_WARNING(( "unauthorized payload type for send (mask=%#lx)", payload_mask ));
-      return 0;
-    }
-    return 1;
-  }
 
   case FD_KEYGUARD_ROLE_GOSSIP: {
     int ping_ok   = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&

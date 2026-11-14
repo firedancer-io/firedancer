@@ -26,7 +26,6 @@ FD_STATIC_ASSERT( FD_KEYGUARD_AUTH_VOTERS_MAX<=16UL, auth_voters_max_fits_sign_r
 
 /* Role definitions ***************************************************/
 
-#define FD_KEYGUARD_ROLE_TXSEND       (0)  /* vote transaction sender */
 #define FD_KEYGUARD_ROLE_GOSSIP       (1)  /* gossip participant */
 #define FD_KEYGUARD_ROLE_LEADER       (2)  /* block producer (shreds) */
 #define FD_KEYGUARD_ROLE_REPAIR       (4)  /* Repair tile */

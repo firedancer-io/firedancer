@@ -279,8 +279,6 @@ test_bls_pubkey_request_rejected( void ) {
   FD_TEST( bls_request_exit_status( FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY, sizeof(ulong)-1UL )==1 );
   FD_TEST( bls_request_exit_status( FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY, sizeof(ulong)+1UL )==1 );
   FD_TEST( bls_request_exit_status( FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY|(1UL<<32), sizeof(ulong) )==1 );
-  ctx.in[0].role = FD_KEYGUARD_ROLE_TXSEND;
-  FD_TEST( bls_request_exit_status( FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY, sizeof(ulong) )==1 );
   ctx.in[0].role = FD_KEYGUARD_ROLE_VOTOR;
   FD_STORE( ulong, ctx._data, 0UL );
   FD_TEST( bls_request_exit_status( FD_KEYGUARD_SIGN_TYPE_BLS_PUBKEY, sizeof(ulong) )==1 );
