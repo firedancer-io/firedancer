@@ -1877,9 +1877,15 @@ run( config_t const * config,
   write_summary( config, node_info, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
   flush_frame();
 
+  /* In-process backtest: return once the backt tile stops */
+  ulong backt_idx = fd_topo_find_tile( &config->topo, "backt", 0UL );
+  volatile ulong const * backt_metrics = backt_idx==ULONG_MAX || drain_output_fd<0 ? NULL : fd_metrics_tile( config->topo.tiles[ backt_idx ].metrics );
+
   long next = fd_log_wallclock()+(long)1e7;
   for(;;) {
-    long timeout_ns = next-fd_log_wallclock();
+    /* Drain the last logs and draw a final frame before returning */
+    int done = backt_metrics && backt_metrics[ FD_METRICS_GAUGE_TILE_STATE_OFF ]==2UL;
+    long timeout_ns = done ? 0L : next-fd_log_wallclock();
     if( FD_LIKELY( timeout_ns>0L ) ) {
       fd_set rfds;
       FD_ZERO( &rfds );
@@ -1897,7 +1903,7 @@ run( config_t const * config,
     }
 
     long now = fd_log_wallclock();
-    if( FD_UNLIKELY( now>=next ) ) {
+    if( FD_UNLIKELY( now>=next || done ) ) {
       last_snap = 1UL-last_snap;
       snap_tiles( &config->topo, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ );
       snap_links( &config->topo, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
@@ -2012,6 +2018,7 @@ run( config_t const * config,
       flush_frame();
       next += (long)1e7;
     }
+    if( FD_UNLIKELY( done ) ) return;
   }
 }
 

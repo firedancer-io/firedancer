@@ -17,6 +17,7 @@
 #include "../../shared/commands/watch/watch.h"
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared/fd_config_json.h"
+#include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/topo/fd_cpu_topo.h"
 #include "../../../util/pod/fd_pod_format.h"
@@ -104,6 +105,7 @@ backtest_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "backt" );
   fd_topo_tile_t * backt_tile = fd_topob_tile( topo, "backt", "backt", "metric_in", NEXT_CPU, 0, 0, 0 );
+  backt_tile->allow_shutdown = 1;
 
   fd_topob_wksp( topo, "replay" );
   fd_topo_tile_t * replay_tile = fd_topob_tile( topo, "replay", "replay", "metric_in", NEXT_CPU, 1, 0, 0 );
@@ -588,10 +590,12 @@ backtest_cmd_fn( args_t *   args,
 
   fd_topo_run_single_process( &config->topo, config->uid, config->gid, fdctl_tile_run );
   if( args->backtest.no_watch ) {
-    for(;;) pause();
+    volatile ulong const * backt_metrics = fd_metrics_tile( config->topo.tiles[ fd_topo_find_tile( &config->topo, "backt", 0UL ) ].metrics );
+    while( backt_metrics[ FD_METRICS_GAUGE_TILE_STATE_OFF ]!=2UL ) fd_log_sleep( (long)10e6 );
   } else {
     watch_cmd_fn( &watch_args, config );
   }
+  exit( 0 );
 }
 
 action_t fd_action_backtest = {
