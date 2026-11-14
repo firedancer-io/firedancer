@@ -196,6 +196,7 @@ struct fd_topo_tile {
       long   tx_flush_timeout_ns;
       char   xdp_mode[8];
       int    zero_copy;
+      int    experimental_prebind_fill;
 
       char poll_mode[ 16 ]; /* "softirq" or "prefbusy" */
 

@@ -45,6 +45,48 @@ static char const cfg_str_iavf[] =
 extern uchar const firedancer_default_config[];
 extern ulong const firedancer_default_config_sz;
 
+/* Validate each prerequisite independently, before auto configuration. */
+static int
+prebind_fill_is_valid( config_t * config,
+                      uint       invalid_case,
+                      int        enabled ) {
+  int pid = fork();
+  FD_TEST( pid>=0 );
+  if( FD_UNLIKELY( !pid ) ) {
+    config->net.xdp.experimental_prebind_fill = enabled;
+    strcpy( config->net.provider, "xdp" );
+    strcpy( config->net.xdp.xdp_mode, "drv" );
+    config->net.xdp.xdp_zero_copy = FD_BOOLAU_TRUE;
+    config->net.xdp.native_bond   = FD_BOOLAU_FALSE;
+    strcpy( config->net.xdp.rss_queue_mode, "dedicated" );
+    config->layout.net_tile_count     = 1U;
+    config->net.xdp.xdp_rx_queue_size = 1024U;
+    switch( invalid_case ) {
+    case  0U: break;
+    case  1U: strcpy( config->net.provider, "auto" ); break;
+    case  2U: strcpy( config->net.provider, "socket" ); break;
+    case  3U: strcpy( config->net.provider, "mlx5" ); break;
+    case  4U: strcpy( config->net.xdp.xdp_mode, "auto" ); break;
+    case  5U: strcpy( config->net.xdp.xdp_mode, "skb" ); break;
+    case  6U: strcpy( config->net.xdp.xdp_mode, "default" ); break;
+    case  7U: config->net.xdp.xdp_zero_copy = FD_BOOLAU_AUTO; break;
+    case  8U: config->net.xdp.xdp_zero_copy = FD_BOOLAU_FALSE; break;
+    case  9U: config->net.xdp.native_bond = FD_BOOLAU_AUTO; break;
+    case 10U: config->net.xdp.native_bond = FD_BOOLAU_TRUE; break;
+    case 11U: strcpy( config->net.xdp.rss_queue_mode, "auto" ); break;
+    case 12U: strcpy( config->net.xdp.rss_queue_mode, "simple" ); break;
+    case 13U: config->layout.net_tile_count = 2U; break;
+    case 14U: config->net.xdp.xdp_rx_queue_size = 2048U; break;
+    default: FD_TEST( 0 );
+    }
+    fd_config_validate( config );
+    _exit( 0 );
+  }
+  int status = 0;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  return WIFEXITED( status ) && !WEXITSTATUS( status );
+}
+
 static int
 genesis_max_file_size_is_valid( config_t * config,
                                 ulong      max_file_size_mib ) {
@@ -214,6 +256,13 @@ main( int     argc,
   FD_TEST( fd_toml_parse( firedancer_default_config, firedancer_default_config_sz, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( fd_config_extract_pod( pod, config ) == config );
   fd_config_validate( config );  /* exits process with code 1 on failure */
+  FD_TEST( !config->net.xdp.experimental_prebind_fill );
+  FD_TEST( prebind_fill_is_valid( config, 0U, 1 ) );
+  for( uint i=1U; i<=14U; i++ ) {
+    FD_TEST( !prebind_fill_is_valid( config, i, 1 ) );
+    FD_TEST(  prebind_fill_is_valid( config, i, 0 ) );
+  }
+
 
   strcpy( config->net.provider, "auto" );
   fd_config_validate( config );
@@ -291,6 +340,24 @@ main( int     argc,
   pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
   FD_TEST( fd_toml_parse( cfg_str_4, sizeof(cfg_str_4)-1, pod, scratch, sizeof(scratch), NULL ) == FD_TOML_SUCCESS );
   FD_TEST( !fd_config_extract_pod( pod, config ) );
+
+  /* The experimental switch is strictly boolean, never auto or numeric. */
+
+  char const * prebind_values[] = { "true", "false", "\"auto\"", "1", "\"true\"" };
+  for( ulong i=0UL; i<5UL; i++ ) {
+    char toml[ 128 ];
+    FD_TEST( fd_cstr_printf_check( toml, sizeof(toml), NULL,
+                                  "[net.xdp]\nexperimental_prebind_fill = %s\n", prebind_values[i] ) );
+    memset( config, 0, sizeof(config_t) );
+    pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
+    FD_TEST( fd_toml_parse( toml, strlen(toml), pod, scratch, sizeof(scratch), NULL )==FD_TOML_SUCCESS );
+    if( i<2UL ) {
+      FD_TEST( fd_config_extract_pod( pod, config )==config );
+      FD_TEST( config->net.xdp.experimental_prebind_fill==(i==0UL) );
+    } else {
+      FD_TEST( !fd_config_extract_pod( pod, config ) );
+    }
+  }
 
   /* Parse runtime genesis limits */
 

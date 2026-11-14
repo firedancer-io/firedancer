@@ -230,6 +230,7 @@ setup_xdp_tile( fd_topo_t *             topo,
   tile->xdp.xdp_rx_queue_size   = net_cfg->xdp.xdp_rx_queue_size;
   tile->xdp.xdp_tx_queue_size   = net_cfg->xdp.xdp_tx_queue_size;
   tile->xdp.zero_copy           = net_cfg->xdp.xdp_zero_copy;
+  tile->xdp.experimental_prebind_fill = net_cfg->xdp.experimental_prebind_fill;
   fd_cstr_ncpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, sizeof(tile->xdp.xdp_mode) );
 
   fd_cstr_ncpy( tile->xdp.poll_mode, net_cfg->xdp.poll_mode, sizeof(tile->xdp.poll_mode) );
@@ -267,6 +268,21 @@ fd_topos_net_tiles( fd_topo_t *             topo,
                     ulong                   netlnk_max_peer_routes,
                     ulong                   netlnk_max_neighbors,
                     ulong const             tile_to_cpu[ FD_TILE_MAX ] ) {
+  /* Recheck the resolved interface before constructing an XDP topology.
+     native_bond=false alone does not exclude a bond, bridge or slave. */
+  if( net_cfg->xdp.experimental_prebind_fill ) {
+    char path[ PATH_MAX ];
+    if( FD_UNLIKELY( !net_cfg->interface[0] || strchr( net_cfg->interface, '/' ) ) )
+      FD_LOG_ERR(( "experimental pre-bind FILL requires a physical standalone interface" ));
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/device", net_cfg->interface ) );
+    if( FD_UNLIKELY( access( path, F_OK ) ) )
+      FD_LOG_ERR(( "experimental pre-bind FILL requires a physical device: %s", net_cfg->interface ));
+    FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "/sys/class/net/%s/master", net_cfg->interface ) );
+    int master_rc = access( path, F_OK );
+    if( FD_UNLIKELY( !master_rc || errno!=ENOENT || fd_bonding_is_master( net_cfg->interface ) ) )
+      FD_LOG_ERR(( "experimental pre-bind FILL rejects bonded/enslaved interfaces: %s", net_cfg->interface ));
+  }
+
   /* net_umem: Packet buffers */
   fd_topob_wksp( topo, "net_umem" );
 

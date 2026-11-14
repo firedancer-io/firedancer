@@ -520,12 +520,44 @@ send_fallback_pkt( fd_net_ctx_t * ctx,
 }
 
 
+static void
+test_prebind_bootstrap( void ) {
+  static fd_net_ctx_t ctx;
+  static ulong physical[2048];
+  static ulong loopback[2048];
+  uint prod0=1024U, cons0=512U, prod1=0U, cons1=0U;
+  fd_memset( &ctx, 0, sizeof(ctx) );
+  FD_TEST( !fd_xsk_prebind_layout( &ctx.prebind, 16UL*1024UL*1024UL,
+                                  2048UL, 1024UL, 512UL, 1024UL, 1024UL ) );
+  for( ulong j=0UL; j<2048UL; j++ ) physical[j]=ULONG_MAX;
+  ctx.xsk[0].ring_fr=(fd_xdp_ring_t){ .frame_ring=physical, .depth=2048UL,
+    .prod=&prod0, .cons=&cons0, .cached_prod=1024U, .cached_cons=512U };
+  ctx.xsk[1].ring_fr=(fd_xdp_ring_t){ .frame_ring=loopback, .depth=2048UL,
+    .prod=&prod1, .cons=&cons1 };
+
+  ulong off=net_xsk_bootstrap_after_bind( &ctx, 0U, ctx.prebind.phys_off, 1 );
+  FD_TEST( off==ctx.prebind.loop_off );
+  FD_TEST( prod0==1024U && cons0==512U );
+  FD_TEST( ctx.xsk[0].ring_fr.cached_prod==1024U && ctx.xsk[0].ring_fr.cached_cons==512U );
+  for( ulong j=0UL; j<2048UL; j++ ) FD_TEST( physical[j]==ULONG_MAX );
+  off=net_xsk_bootstrap_after_bind( &ctx, 1U, off, 1 );
+  FD_TEST( off==ctx.prebind.end_off && prod1==1024U && cons1==0U );
+  for( ulong j=0UL; j<1024UL; j++ ) FD_TEST( loopback[j]==ctx.prebind.loop_off+j*2048UL );
+
+  /* Disabled option retains the ordinary physical bootstrap. */
+  prod0=0U; cons0=0U; ctx.xsk[0].ring_fr.cached_prod=0U; ctx.xsk[0].ring_fr.cached_cons=0U;
+  off=net_xsk_bootstrap_after_bind( &ctx, 0U, ctx.prebind.phys_off, 0 );
+  FD_TEST( off==ctx.prebind.loop_off && prod0==1024U && cons0==0U );
+  for( ulong j=0UL; j<1024UL; j++ ) FD_TEST( physical[j]==ctx.prebind.phys_off+j*2048UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
   test_net_tx_ready();
+  test_prebind_bootstrap();
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
