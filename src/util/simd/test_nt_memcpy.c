@@ -15,13 +15,13 @@ main( int     argc,
     for( ulong fn=0UL; fn<4UL; fn++ ) {
       uchar __attribute__((aligned(64))) _src[1024+64];
       uchar __attribute__((aligned(64))) _dst[1024+64];
+      for( ulong i=0UL; i<1024UL+64UL; i++ ) _src[i] = (uchar)( i%0xccUL ); /* never the 0xcc canary */
 
       for( ulong misalign=0UL; misalign<64UL; misalign++ ) {
         for( ulong sz=0UL; sz<=1024UL; sz++ ) {
           fd_memset( _dst, '\xcc', 1024UL+64UL );
           uchar * dst = _dst+misalign;
           uchar * src = _src+(64UL-misalign);
-          src[sz-1] = (uchar)sz;
           switch( fn ) {
             case 0UL: FD_TEST( dst==fd_memcpy_nn( dst, src, sz ) ); break;
             case 1UL: FD_TEST( dst==fd_memcpy_nt( dst, src, sz ) ); break;
