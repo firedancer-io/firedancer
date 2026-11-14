@@ -1741,6 +1741,114 @@ FD_UNIT_TEST( test_startup_whole_cores ) {
   }
 }
 
+/* Synthetic masks exercise both layout modes without depending on the
+   test host's CPU numbering or launch affinity. */
+FD_UNIT_TEST( test_auto_affinity_masks ) {
+  for( int efficient=0; efficient<2; efficient++ ) {
+    for( ulong variant=0UL; variant<5UL; variant++ ) {
+      static fd_topo_cpus_t cpus[1];
+      make_cpus( cpus, 16UL, 4UL );
+      for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) cpus->cpu[ i ].numa_node = (i%16UL)/8UL;
+      cpus->numa_node_cnt = 2UL;
+      FD_CPUSET_DECL( allowed );
+      for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+        int keep = variant==0UL ||
+                   ( variant==1UL && i>=16UL && (i&1UL) ) ||
+                   ( variant==2UL && (i%16UL)>=8UL ) ||
+                   ( variant==3UL && ( i==2UL || i==18UL || ( i>=21UL && (i&1UL) ) ) ) ||
+                   ( variant==4UL && (i%16UL)>=2UL && (i%16UL)<=4UL );
+        if( keep ) fd_cpuset_insert( allowed, i );
+      }
+      static fd_topo_cpus_t before[1];
+      *before = *cpus;
+      fd_topo_cpus_restrict( cpus, allowed );
+      if( variant==0UL ) FD_TEST( !memcmp( before, cpus, sizeof(*cpus) ) );
+      for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+        FD_TEST( cpus->cpu[ i ].online==fd_cpuset_test( allowed, i ) );
+        ulong sibling = cpus->cpu[ i ].sibling;
+        if( sibling!=ULONG_MAX ) {
+          FD_TEST( cpus->cpu[ sibling ].online );
+          FD_TEST( cpus->cpu[ sibling ].sibling==i );
+        }
+      }
+      /* An allowed CPU that was already offline must stay unavailable. */
+      cpus->cpu[ 31 ].online = 0;
+      fd_topo_cpus_restrict( cpus, allowed );
+      FD_TEST( !cpus->cpu[ 31 ].online );
+      FD_TEST( cpus->cpu[ 31 ].sibling==ULONG_MAX );
+      FD_TEST( cpus->cpu[ 15 ].sibling==ULONG_MAX );
+      fd_memset( topo, 0, sizeof(*topo) );
+      make_tiles( topo, (tile_spec_t const[]){
+        { "verify", 2UL }, { "pack", 1UL }, { "snapld", 1UL },
+        { "execrp", 1UL }, { "metric", 1UL }, { NULL, 0UL } } );
+      set_blocklist( topo, (ulong const[]){ 0UL, 17UL, ULONG_MAX } );
+      topo->sleep_obj_id = efficient ? 0UL : ULONG_MAX;
+      fd_topob_auto_layout_cpus( topo, cpus );
+      for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+        ulong c = topo->tiles[ i ].cpu_idx;
+        if( strcmp( topo->tiles[ i ].name, "metric" ) ) FD_TEST( c!=ULONG_MAX );
+        if( c==ULONG_MAX ) continue;
+        FD_TEST( c<cpus->cpu_cnt && fd_cpuset_test( allowed, c ) );
+        FD_TEST( cpus->cpu[ c ].online && c!=0UL && c!=17UL );
+      }
+    }
+  }
+}
+
+FD_UNIT_TEST( test_auto_affinity_insufficient ) {
+  for( ulong count=0UL; count<2UL; count++ ) {
+    pid_t pid = fork();
+    FD_TEST( pid>=0 );
+    if( !pid ) {
+      fd_log_level_logfile_set( 6 );
+      fd_log_level_core_set( 5 );
+      static fd_topo_cpus_t cpus[1]; make_cpus( cpus, 4UL, 0UL );
+      FD_CPUSET_DECL( allowed );
+      if( count ) fd_cpuset_insert( allowed, 7UL );
+      fd_topo_cpus_restrict( cpus, allowed );
+      fd_memset( topo, 0, sizeof(*topo) );
+      make_tiles( topo, (tile_spec_t const[]){ { "verify", 2UL }, { NULL, 0UL } } );
+      topo->sleep_obj_id = ULONG_MAX;
+      fd_topob_auto_layout_cpus( topo, cpus );
+      _exit( 0 );
+    }
+    int status;
+    FD_TEST( waitpid( pid, &status, 0 )==pid );
+    FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+  }
+}
+
+/* Restrict only the child, like a systemd CPUAffinity= launch.  The
+   auto-layout wrapper must not select an otherwise online CPU outside
+   that mask.  No validator or tile processes are launched. */
+FD_UNIT_TEST( test_auto_inherited_affinity ) {
+  FD_CPUSET_DECL( launch );
+  FD_TEST( !fd_cpuset_getaffinity( 0UL, launch ) );
+  static fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+  ulong selected = ULONG_MAX;
+  for( ulong i=cpus->cpu_cnt; i; i-- ) {
+    if( cpus->cpu[ i-1UL ].online && fd_cpuset_test( launch, i-1UL ) ) { selected = i-1UL; break; }
+  }
+  FD_TEST( selected!=ULONG_MAX );
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) {
+    FD_CPUSET_DECL( mask );
+    fd_cpuset_insert( mask, selected );
+    FD_TEST( !fd_cpuset_setaffinity( 0UL, mask ) );
+    fd_memset( topo, 0, sizeof(*topo) );
+    make_tiles( topo, (tile_spec_t const[]){ { "verify", 1UL }, { NULL, 0UL } } );
+    topo->sleep_obj_id = ULONG_MAX;
+    fd_topob_auto_layout( topo );
+    FD_TEST( topo->tiles[ 0 ].cpu_idx==selected );
+    _exit( 0 );
+  }
+  int status;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && !WEXITSTATUS( status ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
