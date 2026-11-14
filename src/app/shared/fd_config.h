@@ -169,6 +169,8 @@ struct fd_config_net {
   } mlx5;
 
   struct {
+    uint vf_index;
+    int  bind_existing_vfs;
     uint rx_queue_size;
     uint tx_queue_size;
   } iavf;

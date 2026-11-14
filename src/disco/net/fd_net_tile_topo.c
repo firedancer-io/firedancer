@@ -186,6 +186,7 @@ setup_iavf_tile( fd_topo_t *             topo,
   }
 
   tile->iavf.net.bind_address = net_cfg->bind_address_parsed;
+  tile->iavf.vf_index         = net_cfg->iavf.vf_index;
   tile->iavf.rx_queue_size    = net_cfg->iavf.rx_queue_size;
   tile->iavf.tx_queue_size    = net_cfg->iavf.tx_queue_size;
 

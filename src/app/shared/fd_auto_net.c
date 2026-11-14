@@ -480,10 +480,11 @@ scrape_networking( fd_auto_info_t * info,
 }
 
 static int
-scrape_iavf_pfs( char const * if_name ) {
+scrape_iavf_pfs( fd_config_t const * config ) {
   char members[ FD_IAVF_MEMBER_MAX ][ IF_NAMESIZE ];
   ulong member_cnt;
-  if( FD_UNLIKELY( -1==fd_iavf_member_interfaces( if_name, members, &member_cnt ) ) ) return 0;
+  if( FD_UNLIKELY( -1==fd_iavf_member_interfaces( config->net.interface, members, &member_cnt ) ) ) return 0;
+  uint vf_index = config->net.iavf.vf_index;
 
   /* Each PF needs ARI, an IOMMU, PCIe resources for VFs and ntuple filtering */
   for( ulong i=0UL; i<member_cnt; i++ ) {
@@ -491,13 +492,13 @@ scrape_iavf_pfs( char const * if_name ) {
     if( FD_UNLIKELY( -1==fd_iavf_iommu_check( members[i], NULL ) ) ) return 0;
     if( FD_UNLIKELY( -1==fd_iavf_ari_check( members[i] ) ) ) return 0;
     if( FD_UNLIKELY( -1==fd_iavf_numvfs_get( members[i], &numvfs ) ) ) return 0;
+    if( vf_index>=numvfs && (numvfs || vf_index) ) return 0;
     if( FD_UNLIKELY( 0==numvfs && -1==fd_iavf_sriov_resources_check( members[i] ) ) ) return 0;
     if( 0!=numvfs ) {
       char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
       fd_iavf_pci_info_t pci;
-      if( FD_UNLIKELY( -1==fd_iavf_get_last_vf( members[i], NULL, vf_pci, 1 ) ) ) return 0;
+      if( FD_UNLIKELY( -1==fd_iavf_get_vf( members[i], vf_index, vf_pci, !config->net.iavf.bind_existing_vfs ) ) ) return 0;
       if( FD_UNLIKELY( -1==fd_iavf_pci_probe( &pci, vf_pci ) ) ) return 0;
-      if( 0!=strcmp( pci.driver, "vfio-pci" ) ) return 0;
     }
 
     fd_ethtool_ioctl_t ioc;
@@ -528,7 +529,7 @@ fd_auto_scrape_info( fd_config_t const * config ) {
   }
 
   if( 0==strcmp( config->net.provider, "auto" ) ) {
-    info.iavf_pf_checks_passed = scrape_iavf_pfs( config->net.interface );
+    info.iavf_pf_checks_passed = scrape_iavf_pfs( config );
     if( info.iavf_pf_checks_passed ) {
       if( fd_iavf_vfio_avail() ) {
         info.has_vfio = 0==fd_iavf_vfio_api_check( NULL );

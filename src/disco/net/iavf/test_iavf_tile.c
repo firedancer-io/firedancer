@@ -52,37 +52,41 @@ test_vf_readlink( char const * path,
 static void
 test_vf_lookup( void ) {
   struct {
-    uint numvfs;
+    uint         numvfs;
     char const * drivers[4];
-    int vfio_only;
-    int expected_idx;
-    int driver_err;
+    int          vfio_only;
+    int          expected_idx;
+    int          driver_err;
+    uint         vf_index;
   } const cases[] = {
-    { 0U, { NULL },                                    0, -ENOENT, 0   },
-    { 0U, { NULL },                                    1, -ENOENT, 0   },
-    { 1U, { NULL },                                    0,  0,      0   },
-    { 1U, { NULL },                                    1, -ENOENT, 0   },
-    { 1U, { "vfio-pci" },                              1,  0,      0   },
-    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     0,  3,      0   },
-    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     1,  1,      0   },
-    { 4U, { "vfio-pci", NULL, NULL, "vfio-pci" },        1,  3,      0   },
-    { 4U, { "vfio-pci", NULL, NULL, "vfio-pci-extra" },  1,  0,      0   },
-    { 4U, { NULL, NULL, NULL, "iavf" },                 1, -ENOENT, 0   },
-    { 4U, { "vfio-pci", NULL, NULL, "iavf" },           1, -EIO,    EIO }
+    { 0U, { NULL },                                     0, -ENOENT, 0,   0U       },
+    { 0U, { NULL },                                     1, -ENOENT, 0,   0U       },
+    { 1U, { NULL },                                     0,  0,      0,   0U       },
+    { 1U, { NULL },                                     1, -ENOENT, 0,   0U       },
+    { 1U, { "vfio-pci" },                               1,  0,      0,   0U       },
+    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     0,  0,      0,   0U       },
+    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     1,  1,      0,   1U       },
+    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     0,  2,      0,   2U       },
+    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     1, -ENOENT, 0,   2U       },
+    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     0,  3,      EIO, 3U       },
+    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     1, -ENOENT, 0,   3U       },
+    { 4U, { "vfio-pci", NULL, NULL, "vfio-pci-extra" }, 1, -ENOENT, 0,   3U       },
+    { 4U, { "vfio-pci", NULL, NULL, "iavf" },           1, -EIO,    EIO, 0U       },
+    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     0, -ENOENT, 0,   4U       },
+    { 4U, { "vfio-pci", "vfio-pci", NULL, "iavf" },     0, -ENOENT, 0,   UINT_MAX }
   };
   for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
     test_vf_cnt = cases[i].numvfs;
     fd_memcpy( test_vf_drivers, cases[i].drivers, sizeof(test_vf_drivers) );
     test_vf_driver_err = cases[i].driver_err;
-    uint vf_idx = UINT_MAX;
     char pci[ FD_IAVF_PCI_ADDR_SZ ];
-    int result = fd_iavf_get_last_vf( "testpf", &vf_idx, pci, cases[i].vfio_only );
+    int result = fd_iavf_get_vf( "testpf", cases[i].vf_index, pci, cases[i].vfio_only );
     if( cases[i].expected_idx<0 ) {
       FD_TEST( result==-1 && errno==-cases[i].expected_idx );
     } else {
       char expected[ FD_IAVF_PCI_ADDR_SZ ];
       FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), NULL, "0000:01:01.%u", (uint)cases[i].expected_idx ) );
-      FD_TEST( !result && vf_idx==(uint)cases[i].expected_idx && 0==strcmp( pci, expected ) );
+      FD_TEST( !result && 0==strcmp( pci, expected ) );
     }
   }
 }
