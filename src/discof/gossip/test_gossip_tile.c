@@ -4,13 +4,40 @@
 
 static fd_gossip_tile_ctx_t ctx;
 static ulong                sign_cnt;
+static uchar                sign_data[ FD_GOSSIP_VALUE_MAX_SZ ];
+static ulong                sign_sz;
 
 static void
 test_sign_fn( void *        sign_ctx  FD_PARAM_UNUSED,
-              uchar const * data      FD_PARAM_UNUSED,
-              ulong         sz        FD_PARAM_UNUSED,
+              uchar const * data,
+              ulong         sz,
               int           sign_type FD_PARAM_UNUSED ) {
+  FD_TEST( sz<=sizeof(sign_data) );
+  fd_memcpy( sign_data, data, sz );
+  sign_sz = sz;
   sign_cnt++;
+}
+
+/* Joins a gossip object whose signing requests land in test_sign_fn.
+   The caller frees the returned memory. */
+
+static void *
+join_gossip( void ) {
+  ulong  max_values = 256UL;
+  void * mem        = aligned_alloc( fd_gossip_align(), fd_gossip_footprint( max_values, 1UL ) );
+  FD_TEST( mem );
+
+  uchar         ping_seed[ 32 ] = {0};
+  fd_ip4_port_t entrypoint[1]   = {0};
+  ctx.gossip = fd_gossip_join( fd_gossip_new( mem, fd_rng_join( fd_rng_new( ctx.rng, 0U, 0UL ) ), ping_seed, max_values, 1UL, entrypoint,
+                                              ctx.identity_key->uc, ctx.my_contact_info, fd_clock_tile_now( ctx.clock ),
+                                              gossip_send_fn,                &ctx,
+                                              test_sign_fn,                  NULL,
+                                              gossip_ping_tracker_change_fn, &ctx,
+                                              gossip_activity_update_fn,     &ctx,
+                                              ctx.update_out, ctx.net_out ) );
+  FD_TEST( ctx.gossip );
+  return mem;
 }
 
 static uchar * manifest_mem;
@@ -142,20 +169,7 @@ test_wfs_stake_list( void ) {
   manifest_mem = aligned_alloc( FD_CHUNK_ALIGN, fd_ulong_align_up( sizeof(fd_snapshot_manifest_t), FD_CHUNK_ALIGN ) );
   FD_TEST( manifest_mem );
 
-  ulong  max_values = 256UL;
-  void * mem        = aligned_alloc( fd_gossip_align(), fd_gossip_footprint( max_values, 1UL ) );
-  FD_TEST( mem );
-
-  uchar         ping_seed[ 32 ] = {0};
-  fd_ip4_port_t entrypoint[1]   = {0};
-  ctx.gossip = fd_gossip_join( fd_gossip_new( mem, fd_rng_join( fd_rng_new( ctx.rng, 0U, 0UL ) ), ping_seed, max_values, 1UL, entrypoint,
-                                              ctx.identity_key->uc, ctx.my_contact_info, fd_clock_tile_now( ctx.clock ),
-                                              gossip_send_fn,                &ctx,
-                                              test_sign_fn,                  NULL,
-                                              gossip_ping_tracker_change_fn, &ctx,
-                                              gossip_activity_update_fn,     &ctx,
-                                              ctx.update_out, ctx.net_out ) );
-  FD_TEST( ctx.gossip );
+  void * mem = join_gossip();
 
   ctx.in[ 2 ] = (fd_gossip_in_ctx_t){ .kind = IN_KIND_EPOCH, .mem = (fd_wksp_t *)epoch_mem, .mtu = FD_EPOCH_OUT_MTU };
   ctx.my_contact_info->shred_version = 1234;
@@ -234,6 +248,112 @@ test_wfs_stake_list( void ) {
   free( manifest_mem );
 }
 
+/* Drives snapmk_out as snapmk reports snapshots on disk.  The hash
+   in each name decodes to 31 zero bytes and one last byte. */
+
+static uchar snapmk_mem[ sizeof(fd_snapmk_msg_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+
+static void
+snapmk_msg( ulong        kind,
+            ulong        slot,
+            ulong        base_slot,
+            char const * name ) {
+  fd_snapmk_msg_created_t * msg = (fd_snapmk_msg_created_t *)snapmk_mem;
+  memset( msg, 0, sizeof(fd_snapmk_msg_t) );
+  msg->slot      = slot;
+  msg->base_slot = base_slot;
+  fd_cstr_ncpy( msg->name, name, sizeof(msg->name) );
+  FD_TEST( !returnable_frag( &ctx, 3UL, 0UL, kind, 0UL, sizeof(fd_snapmk_msg_t), 0UL, 0UL, 0UL, NULL ) );
+  if( ctx.snap_publish ) publish_snap( &ctx, fd_clock_tile_now( ctx.clock ) );
+  FD_TEST( !ctx.snap_publish );
+}
+
+/* Checks the last signing request is a snapshot hashes value for the
+   given slots.  incr_slot 0 means no incremental.  The signed bytes
+   are tag, origin, full slot, full hash, incremental count, one slot
+   and hash per incremental, wallclock.  Hashes are checked by their
+   last byte.  Peers keep the value with the newest wallclock, so each
+   push must be newer than the one before even within a millisecond. */
+
+static ulong last_wallclock;
+
+static void
+check_pushed( ulong full_slot,
+              uchar full_last,
+              ulong incr_slot,
+              uchar incr_last ) {
+  ulong wallclock = FD_LOAD( ulong, sign_data+sign_sz-8UL );
+  FD_TEST( wallclock>last_wallclock );
+  last_wallclock = wallclock;
+
+  FD_TEST( FD_LOAD( uint,  sign_data    )==FD_GOSSIP_VALUE_SNAPSHOT_HASHES );
+  FD_TEST( FD_LOAD( ulong, sign_data+36 )==full_slot );
+  FD_TEST( sign_data[ 44+31 ]==full_last );
+  if( !incr_slot ) {
+    FD_TEST( FD_LOAD( ulong, sign_data+76 )==0UL );
+    FD_TEST( sign_sz==92UL );
+  } else {
+    FD_TEST( FD_LOAD( ulong, sign_data+76 )==1UL );
+    FD_TEST( FD_LOAD( ulong, sign_data+84 )==incr_slot );
+    FD_TEST( sign_data[ 92+31 ]==incr_last );
+    FD_TEST( sign_sz==132UL );
+  }
+}
+
+/* Agave advertises its newest full snapshot and, when one exists on
+   that full, its newest incremental.  snapmk reports snapshots in any
+   order at startup, so the newest pair must come out the same way
+   whichever arrives first. */
+
+static void
+test_snapshot_hashes( void ) {
+  static ulong metrics[ FD_METRICS_TOTAL_SZ/sizeof(ulong) ];
+  fd_metrics_tl = metrics;
+
+  void * mem = join_gossip();
+  ctx.in[ 3 ] = (fd_gossip_in_ctx_t){ .kind = IN_KIND_SNAPMK, .mem = (fd_wksp_t *)snapmk_mem, .mtu = sizeof(fd_snapmk_msg_t) };
+  sign_cnt = 0UL;
+
+  /* An incremental whose full snapshot is not known yet is held. */
+  snapmk_msg( FD_SNAPMK_MSG_FOUND, 110UL, 100UL, "incremental-snapshot-100-110-11111111111111111111111111111112.tar.zst" );
+  FD_TEST( sign_cnt==0UL );
+
+  /* The full snapshot arrives and both are advertised. */
+  snapmk_msg( FD_SNAPMK_MSG_FOUND, 100UL, ULONG_MAX, "snapshot-100-11111111111111111111111111111113.tar.zst" );
+  FD_TEST( sign_cnt==1UL );
+  check_pushed( 100UL, 2, 110UL, 1 );
+
+  /* An older full or incremental snapshot changes nothing. */
+  snapmk_msg( FD_SNAPMK_MSG_FOUND, 90UL, ULONG_MAX, "snapshot-90-11111111111111111111111111111114.tar.zst" );
+  snapmk_msg( FD_SNAPMK_MSG_FOUND, 105UL, 100UL, "incremental-snapshot-100-105-11111111111111111111111111111115.tar.zst" );
+  FD_TEST( sign_cnt==1UL );
+
+  /* A newer incremental replaces the old one. */
+  snapmk_msg( FD_SNAPMK_MSG_CREATED, 120UL, 100UL, "incremental-snapshot-100-120-11111111111111111111111111111116.tar.zst" );
+  FD_TEST( sign_cnt==2UL );
+  check_pushed( 100UL, 2, 120UL, 5 );
+
+  /* An incremental on a full that was never reported neither gets
+     advertised nor pushes aside the one on our full. */
+  snapmk_msg( FD_SNAPMK_MSG_FOUND, 310UL, 300UL, "incremental-snapshot-300-310-11111111111111111111111111111118.tar.zst" );
+  FD_TEST( sign_cnt==2UL );
+  snapmk_msg( FD_SNAPMK_MSG_CREATED, 130UL, 100UL, "incremental-snapshot-100-130-11111111111111111111111111111119.tar.zst" );
+  FD_TEST( sign_cnt==3UL );
+  check_pushed( 100UL, 2, 130UL, 8 );
+
+  /* A new full snapshot is advertised alone. */
+  snapmk_msg( FD_SNAPMK_MSG_CREATED, 200UL, ULONG_MAX, "snapshot-200-11111111111111111111111111111117.tar.zst" );
+  FD_TEST( sign_cnt==4UL );
+  check_pushed( 200UL, 6, 0UL, 0 );
+
+  /* Deletes and bad names change nothing. */
+  snapmk_msg( FD_SNAPMK_MSG_DELETED, 200UL, ULONG_MAX, "snapshot-200-11111111111111111111111111111117.tar.zst" );
+  snapmk_msg( FD_SNAPMK_MSG_CREATED, 300UL, ULONG_MAX, "garbage" );
+  FD_TEST( sign_cnt==4UL );
+
+  free( mem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -244,6 +364,7 @@ main( int     argc,
 
   test_wfs_state_transitions();
   test_wfs_stake_list();
+  test_snapshot_hashes();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

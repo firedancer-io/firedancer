@@ -185,8 +185,8 @@ test_oring( void ) {
   };
 
   /* zstd cctx estimate assumes the single-threaded vendored build */
-  uchar scratch[ 1633280 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==1633280 );
+  uchar scratch[ 1633408 ] __attribute__((aligned(128UL)));
+  FD_TEST( fd_http_server_footprint( params )==1633408 );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
 
   http->stage_off = 6UL;
@@ -271,7 +271,7 @@ test_content_length_overflow_close( void ) {
   };
 
   FD_LOG_NOTICE(( "footprint %lu", fd_http_server_footprint( params ) ));
-  uchar scratch[ 1306624 ] __attribute__((aligned(128UL)));
+  uchar scratch[ 1306752 ] __attribute__((aligned(128UL)));
   FD_TEST( fd_http_server_footprint( params )==sizeof( scratch ) );
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
@@ -476,6 +476,61 @@ test_location_raw_path( void ) {
     if( strstr( response, expected ) ) break;
   }
   FD_TEST( strstr( response, expected ) );
+
+  FD_TEST( !close( client_fd ) );
+  FD_TEST( !close( fd_http_server_fd( http ) ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+/* A HEAD request is answered like a GET, without a body. */
+
+static void
+test_head_request( void ) {
+  fd_http_server_params_t params = default_test_params();
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_redirect,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, new_epoll(), 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = server_addr.sin_port,
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  char const req[] = "HEAD /snapshot-123-hash.tar.zst HTTP/1.1\r\nHost: localhost\r\n\r\n";
+  send_all( client_fd, req, sizeof(req)-1UL );
+
+  char response[ 1024 ];
+  ulong response_sz = 0UL;
+  char const expected[] = "Location: http://127.0.0.1:8902/snapshot-123-hash.tar.zst\r\n";
+  for( ulong i=0UL; i<200UL; i++ ) {
+    poll_1ms( http );
+    long received = recv( client_fd, response+response_sz, sizeof(response)-1UL-response_sz, MSG_DONTWAIT );
+    if( FD_UNLIKELY( received<0L && errno!=EAGAIN && errno!=EWOULDBLOCK ) )
+      FD_LOG_ERR(( "recv failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( received>0L ) response_sz += (ulong)received;
+    response[ response_sz ] = '\0';
+    if( strstr( response, expected ) ) break;
+  }
+  FD_TEST( strstr( response, expected ) );
+  /* Headers only, nothing after the blank line. */
+  FD_TEST( !strcmp( strstr( response, "\r\n\r\n" ), "\r\n\r\n" ) );
 
   FD_TEST( !close( client_fd ) );
   FD_TEST( !close( fd_http_server_fd( http ) ) );
@@ -1696,6 +1751,7 @@ main( int     argc,
   test_poll_interest();
   test_ws_send_after_staging_eviction();
   test_location_raw_path();
+  test_head_request();
   test_keep_alive();
   test_zero_length_status_body();
   test_close_in_pipelined_callback();

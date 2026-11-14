@@ -55,6 +55,16 @@ fd_ip6_addr_is_unspecified( uchar const ip6_addr[16] ) {
   return !(hi|lo);
 }
 
+/* fd_ip6_addr_is_loopback returns 1 if the given address is ::1 or an
+   IPv4-mapped 127.0.0.0/8 address, otherwise 0. */
+
+static inline int
+fd_ip6_addr_is_loopback( uchar const ip6_addr[16] ) {
+  static uchar const ip6_loopback[ 16 ] = { [15] = 0x01 };
+  if( fd_ip6_addr_is_ip4_mapped( ip6_addr ) ) return ip6_addr[ 12 ]==127;
+  return !memcmp( ip6_addr, ip6_loopback, 16UL );
+}
+
 /* fd_ip6_addr_is_scoped returns 1 if the given address has a scope
    narrower than global, i.e. a zone ID is required to identify which
    interface the address belongs to.  These are the link-local unicast

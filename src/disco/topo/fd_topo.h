@@ -320,6 +320,7 @@ struct fd_topo_tile {
         ushort repair;
         ushort rserve;
         ushort votor;
+        ushort rpc;
       } ports;
     } gossip;
 
@@ -488,6 +489,7 @@ struct fd_topo_tile {
       int    snapshot_server_enabled;
       char   snapshot_server_host[ FD_FQDN_BUF_MAX ];
       ushort snapshot_server_port;
+      uint   net_ip_addr;
     } rpc;
 
     struct {

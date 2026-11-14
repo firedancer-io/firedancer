@@ -99,6 +99,7 @@ fd_http_server_method_str( uchar method ) {
     case FD_HTTP_SERVER_METHOD_GET:  return "GET";
     case FD_HTTP_SERVER_METHOD_POST: return "POST";
     case FD_HTTP_SERVER_METHOD_PUT:  return "PUT";
+    case FD_HTTP_SERVER_METHOD_HEAD: return "HEAD";
     default: break;
   }
 
@@ -657,6 +658,7 @@ parse_conn_http( fd_http_server_t * http,
   else if( FD_LIKELY( method_len==4UL && !strncmp( method, "POST", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_POST;
   else if( FD_LIKELY( method_len==7UL && !strncmp( method, "OPTIONS", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_OPTIONS;
   else if( FD_LIKELY( method_len==3UL && !strncmp( method, "PUT", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_PUT;
+  else if( FD_LIKELY( method_len==4UL && !strncmp( method, "HEAD", method_len ) ) ) method_enum = FD_HTTP_SERVER_METHOD_HEAD;
 
   if( FD_UNLIKELY( method_enum==UCHAR_MAX ) ) {
     close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD );
@@ -845,6 +847,7 @@ parse_conn_http( fd_http_server_t * http,
   }
 
   conn->keep_alive           = minor_version==1 && !connection_close && !conn->upgrade_websocket;
+  conn->is_head_request      = method_enum==FD_HTTP_SERVER_METHOD_HEAD;
   conn->request_consumed     = conn->request_bytes_off+(ulong)result+content_len;
   conn->request_expected_len = 0UL;
 
@@ -1258,7 +1261,10 @@ write_conn_http( fd_http_server_t * http,
       response = (uchar const *)header_buf;
       break;
     case FD_HTTP_SERVER_CONNECTION_STATE_WRITING_BODY:
-      if( FD_UNLIKELY( conn->response.static_body ) ) {
+      if( FD_UNLIKELY( conn->is_head_request ) ) {
+        response     = http->oring;
+        response_len = 0UL;
+      } else if( FD_UNLIKELY( conn->response.static_body ) ) {
         response     = conn->response.static_body;
         response_len = conn->response.static_body_len;
       } else {

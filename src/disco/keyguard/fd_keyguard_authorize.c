@@ -166,9 +166,18 @@ fd_keyguard_authorize_gossip( fd_keyguard_authority_t const * authority,
       if( sz!=4UL+65UL+chunk_len ) return 0;
       break;
 
+    case FD_GOSSIP_VALUE_SNAPSHOT_HASHES:
+      origin_off = 0UL;
+      /* tag, origin, full slot and hash, incremental count, one slot
+         and hash per incremental, wallclock */
+      if( sz<4UL+32UL+8UL+32UL+8UL+8UL ) return 0;
+      ulong incremental_cnt = FD_LOAD( ulong, data+4UL+32UL+8UL+32UL );
+      if( incremental_cnt>25UL ) return 0; /* Agave MAX_INCREMENTAL_SNAPSHOT_HASHES */
+      if( sz!=4UL+32UL+8UL+32UL+8UL+8UL+40UL*incremental_cnt ) return 0;
+      break;
+
     /* We don't sign these yet. */
     case FD_GOSSIP_VALUE_NODE_INSTANCE:   /* origin_off = 0UL; break; */ return 0;
-    case FD_GOSSIP_VALUE_SNAPSHOT_HASHES: /* origin_off = 0UL; break; */ return 0;
 
     /* We refuse to serialize these */
     case FD_GOSSIP_VALUE_LEGACY_CONTACT_INFO:

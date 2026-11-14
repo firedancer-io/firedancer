@@ -6,6 +6,7 @@
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/json/fd_jtok.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/topo/fd_dns_resolve.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/fd_clock_tile.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -2720,7 +2721,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
 static fd_http_server_response_t
 rpc_http_request1( fd_rpc_tile_t *                  ctx,
                    fd_http_server_request_t const * request ) {
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET &&
+  if( FD_UNLIKELY( ( request->method==FD_HTTP_SERVER_METHOD_GET || request->method==FD_HTTP_SERVER_METHOD_HEAD ) &&
                    request->headers.upgrade_websocket &&
                    (!strcmp( request->path, "/" ) || !strcmp( request->path, "/websocket" )) ) ) {
     if( FD_UNLIKELY( !ctx->http->max_ws_conns ) ) return (fd_http_server_response_t){ .status = 404 };
@@ -2730,7 +2731,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     };
   }
 
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/health" ) ) ) {
+  if( FD_UNLIKELY( ( request->method==FD_HTTP_SERVER_METHOD_GET || request->method==FD_HTTP_SERVER_METHOD_HEAD ) && !strcmp( request->path, "/health" ) ) ) {
     FD_MCNT_INC( RPC, REQUEST_HANDLED_HEALTH, 1UL );
     int health_status = _getHealth( ctx );
 
@@ -2742,7 +2743,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     }
   }
 
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
+  if( FD_UNLIKELY( ( request->method==FD_HTTP_SERVER_METHOD_GET || request->method==FD_HTTP_SERVER_METHOD_HEAD ) && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
     FD_MCNT_INC( RPC, REQUEST_HANDLED_GENESIS, 1UL );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
 
@@ -2753,7 +2754,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
     };
   }
 
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET &&
+  if( FD_UNLIKELY( ( request->method==FD_HTTP_SERVER_METHOD_GET || request->method==FD_HTTP_SERVER_METHOD_HEAD ) &&
                    ( !strncmp( request->path, "/snapshot",             9UL ) ||
                      !strncmp( request->path, "/incremental-snapshot", 21UL ) ) ) ) {
     if( FD_UNLIKELY( !ctx->snapshot_server_enabled ) ) {
@@ -2767,7 +2768,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
   }
 
 
-  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET ) ) {
+  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET || request->method==FD_HTTP_SERVER_METHOD_HEAD ) ) {
     return (fd_http_server_response_t){ .status = 404 };
   }
 
@@ -3045,9 +3046,14 @@ privileged_init( fd_topo_t const *      topo,
   ctx->http = fd_http_server_join( fd_http_server_new( _http, http_params, callbacks, ctx ) );
   ctx->snapshot_server_enabled = tile->rpc.snapshot_server_enabled;
   if( FD_LIKELY( ctx->snapshot_server_enabled ) ) {
+    uint ip_addr = tile->rpc.net_ip_addr;
+    if( FD_LIKELY( tile->rpc.snapshot_server_host[ 0 ] ) ) {
+      if( FD_UNLIKELY( !fd_dns_resolve_address( tile->rpc.snapshot_server_host, &ip_addr ) ) )
+        FD_LOG_ERR(( "failed to resolve [gossip.host] `%s`", tile->rpc.snapshot_server_host ));
+    }
     FD_TEST( fd_cstr_printf_check(
         ctx->snapshot_server_url, sizeof(ctx->snapshot_server_url), NULL,
-        "http://%s:%u", tile->rpc.snapshot_server_host,
+        "http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( ip_addr ),
         tile->rpc.snapshot_server_port ) );
   }
   ctx->waker_client_idx = tile->waker_client_idx;
