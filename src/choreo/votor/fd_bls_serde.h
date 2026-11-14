@@ -58,6 +58,16 @@ fd_bls_agg_pair_de( fd_bls_agg_t * agg,
                     uchar const *  buf,
                     ulong          buf_sz );
 
+/* fd_bls_agg_de_check returns what fd_bls_agg_de (pair 0) or
+   fd_bls_agg_pair_de (pair 1) returns for buf and sets *bit_cnt the
+   same way, without decoding the bitmap. */
+
+int
+fd_bls_agg_de_check( int           pair,
+                     ulong *       bit_cnt,
+                     uchar const * buf,
+                     ulong         buf_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_choreo_votor_fd_bls_serde_h */

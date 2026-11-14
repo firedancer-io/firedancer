@@ -502,6 +502,71 @@ wire_sha( char          out[ 65 ],
   out[ 64 ] = '\0';
 }
 
+/* check_peek_de checks fd_cert_de_peek against fd_cert_de on buf: if
+   peek fails so does fd_cert_de, if peek passes fd_cert_de fails at most
+   on the signature, and if both pass they agree on the header.  The
+   tile drops a duplicate on peek alone, so it must never pass a cert
+   fd_cert_de would reject for any other reason. */
+
+static void
+check_peek_de( uchar const * buf,
+               ulong         sz ) {
+  fd_cert_serde_t hdr;
+  fd_cert_t       de;
+  ulong           peek_bit_cnt = 0UL, de_bit_cnt = 0UL;
+  int             peek_err = fd_cert_de_peek( &hdr, &peek_bit_cnt, buf, sz );
+  int             de_err   = fd_cert_de( &de, &de_bit_cnt, buf, sz );
+  if( peek_err ) { FD_TEST( de_err ); return; }
+  FD_TEST( !de_err || ( de_err==FD_CERT_DE_ERR_INVAL && fd_bls_sig_de_unchecked( &(fd_bls_sig_t){0}, hdr.signature ) ) );
+  if( de_err ) return;
+  FD_TEST( hdr.version==1 && de.kind==(uint)hdr.tag-FD_CERT_SERDE_TAG_FINAL );
+  FD_TEST( hdr.slot==fd_cert_slot( &de ) );
+  FD_TEST( hdr.shred_version==fd_cert_shred_version( &de ) );
+  FD_TEST( peek_bit_cnt==de_bit_cnt );
+  fd_block_hash_t const * block_hash = fd_cert_block_hash( &de );
+  if( block_hash ) FD_TEST( hdr.block_id && !memcmp( hdr.block_id, block_hash, sizeof(fd_block_hash_t) ) );
+  else             FD_TEST( !hdr.block_id );
+}
+
+/* check_cert_peek runs check_peek_de on buf, a serialized cert, on its
+   every truncation and on random corruptions of it. */
+
+static void
+check_cert_peek( uchar const * buf,
+                 ulong         sz ) {
+  fd_cert_serde_t hdr;
+  ulong           bit_cnt;
+  FD_TEST( !fd_cert_de_peek( &hdr, &bit_cnt, buf, sz ) );
+  check_peek_de( buf, sz );
+
+  /* truncations, each in its own buffer so reads past sz would be
+     caught by ASan */
+  for( ulong n=0UL; n<sz; n++ ) {
+    uchar * t = malloc( fd_ulong_max( n, 1UL ) ); FD_TEST( t );
+    memcpy( t, buf, n );
+    FD_TEST( fd_cert_de_peek( &hdr, &bit_cnt, t, n )==FD_CERT_DE_ERR_SZ );
+    check_peek_de( t, n );
+    free( t );
+  }
+
+  static fd_rng_t _rng[1]; static int init;
+  if( !init ) { FD_TEST( fd_rng_join( fd_rng_new( _rng, 1234U, 0UL ) ) ); init = 1; }
+  fd_rng_t * rng = _rng;
+  uchar m[ FD_CERT_SER_MAX+16UL ];
+  for( ulong i=0UL; i<2000UL; i++ ) {
+    ulong msz = sz;
+    memcpy( m, buf, sz );
+    ulong flips = 1UL+fd_rng_ulong_roll( rng, 3UL );
+    for( ulong j=0UL; j<flips; j++ ) {
+      ulong at = fd_rng_ulong_roll( rng, 4UL ) ? fd_rng_ulong_roll( rng, fd_ulong_min( sz, 16UL ) ) : fd_rng_ulong_roll( rng, sz ); /* bias toward the tags */
+      if( fd_rng_uint_roll( rng, 4U ) ) m[ at ] = fd_rng_uchar( rng );
+      else                              m[ at ] = (uchar)( 7U+fd_rng_uint_roll( rng, 6U ) ); /* a cert tag or one past */
+    }
+    if( !fd_rng_uint_roll( rng, 4U ) ) msz = fd_rng_ulong_roll( rng, sz+16UL );
+    check_peek_de( m, msz );
+  }
+}
+
 static void
 check_cert_wire( char const *            name,
                  fd_cert_t const *       c,
@@ -563,6 +628,8 @@ check_cert_wire( char const *            name,
 
   FD_TEST( fd_cert_de( &rt, &de_bit_cnt, buf, sz-1UL )==FD_CERT_DE_ERR_SZ ); /* too few  */
   FD_TEST( fd_cert_de( &rt, &de_bit_cnt, buf, sz+1UL )==FD_CERT_DE_SUCCESS ); /* trailing */
+
+  check_cert_peek( buf, sz );
 }
 
 static void
@@ -752,6 +819,9 @@ test_wire_compressed( void ) {
   fd_memset( sig+FD_BLS_SIG_COMPRESSED_SZ, 0xEE, FD_BLS_SIG_SZ-FD_BLS_SIG_COMPRESSED_SZ );
   FD_TEST( sig[0]&0x80U );
   FD_TEST( fd_cert_de( &rt, &bit_cnt, buf, sz )==FD_CERT_DE_ERR_INVAL ); /* compressed in the uncompressed slot */
+  fd_cert_serde_t hdr;
+  FD_TEST( fd_cert_de_peek( &hdr, &bit_cnt, buf, sz )==FD_CERT_DE_SUCCESS ); /* the signature is not decoded */
+  check_peek_de( buf, sz );
 
   free( em );
 }

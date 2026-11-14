@@ -66,44 +66,87 @@ fd_cert_ser( fd_cert_t const * self,
   return off;
 }
 
+/* cert_de_hdr parses the fixed size header (version through bitmap_sz)
+   and cert_de_tail bounds checks the bitmap and reads shred_version.
+   fd_cert_de decodes the signature between the two. */
+
+static int
+cert_de_hdr( fd_cert_serde_t * hdr,
+             uchar const *     buf,
+             ulong             buf_sz ) {
+  FAIL( buf_sz<2 /* version + tag */, SZ );
+
+  ulong off = 0UL;
+  hdr->version   = buf[ off ];                off += sizeof(uchar);
+  hdr->tag       = buf[ off ];                off += sizeof(uchar);
+  FAIL( hdr->version!=1, INVAL );
+
+  int   has_block_id = hdr->tag==FD_CERT_SERDE_TAG_FAST_FINAL || hdr->tag==FD_CERT_SERDE_TAG_NOTAR || hdr->tag==FD_CERT_SERDE_TAG_NOTAR_FALLBACK;
+  ulong hdr_sz       = FD_CERT_SER_HDR_SZ( has_block_id );
+  FAIL( buf_sz<hdr_sz, SZ );
+
+  hdr->slot      = FD_LOAD( ulong, buf+off ); off += sizeof(ulong);
+  hdr->block_id  = NULL;
+  if( FD_LIKELY( has_block_id ) ) {
+    hdr->block_id = buf+off;                  off += sizeof(fd_block_hash_t);
+  }
+  hdr->signature = buf+off;                   off += FD_BLS_SIG_SZ;
+  hdr->bitmap_sz = FD_LOAD( ulong, buf+off ); off += sizeof(ulong);
+  hdr->bitmap    = buf+off;
+  FD_TEST( off==hdr_sz );
+
+  return FD_CERT_DE_SUCCESS;
+}
+
+static int
+cert_de_tail( fd_cert_serde_t * hdr,
+              uchar const *     buf,
+              ulong             buf_sz ) {
+  ulong rem = buf_sz - (ulong)( hdr->bitmap - buf );
+  FAIL( hdr->bitmap_sz>rem || rem-hdr->bitmap_sz<sizeof(ushort), SZ ); /* too few, trailing bytes are ignored */
+
+  hdr->shred_version = FD_LOAD( ushort, hdr->bitmap+hdr->bitmap_sz );
+  return FD_CERT_DE_SUCCESS;
+}
+
+int
+fd_cert_de_peek( fd_cert_serde_t * hdr,
+                 ulong *           bit_cnt,
+              uchar const *     buf,
+              ulong             buf_sz ) {
+  int err = cert_de_hdr( hdr, buf, buf_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = cert_de_tail( hdr, buf, buf_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  switch( hdr->tag ) { /* the bitmap encodings fd_cert_de accepts */
+  case FD_CERT_SERDE_TAG_FINAL:
+  case FD_CERT_SERDE_TAG_FAST_FINAL:
+  case FD_CERT_SERDE_TAG_NOTAR:          return fd_bls_agg_de_check( 0, bit_cnt, hdr->bitmap, hdr->bitmap_sz );
+  case FD_CERT_SERDE_TAG_NOTAR_FALLBACK:
+  case FD_CERT_SERDE_TAG_SKIP:           return fd_bls_agg_de_check( 1, bit_cnt, hdr->bitmap, hdr->bitmap_sz );
+  default:                               return FD_CERT_DE_ERR_INVAL;
+  }
+}
+
 int
 fd_cert_de( fd_cert_t *   self,
             ulong *       bit_cnt,
             uchar const * buf,
             ulong         buf_sz ) {
-  FAIL( buf_sz<2 /* version + tag */, SZ );
-
-  fd_cert_serde_t cert; ulong off = 0UL;
-  cert.version       = buf[ off ];                off += sizeof(uchar);
-  cert.tag           = buf[ off ];                off += sizeof(uchar);
-  FAIL( cert.version!=1, INVAL );
+  fd_cert_serde_t cert;
+  int err = cert_de_hdr( &cert, buf, buf_sz );
+  if( FD_UNLIKELY( err ) ) return err;
 
   fd_memset( self, 0, sizeof(fd_cert_t) );
   self->kind = (uint)cert.tag - FD_CERT_SERDE_TAG_FINAL;
 
-  int   has_block_id = self->kind==FD_CERT_KIND_FAST_FINAL || self->kind==FD_CERT_KIND_NOTAR || self->kind==FD_CERT_KIND_NOTAR_FALLBACK;
-  ulong hdr_sz       = FD_CERT_SER_HDR_SZ( has_block_id );
-  FAIL( buf_sz<hdr_sz, SZ );
-
-  cert.slot          = FD_LOAD( ulong, buf+off ); off += sizeof(ulong);
-  cert.block_id      = NULL;
-  if( FD_LIKELY( has_block_id ) ) {
-    cert.block_id    = buf+off;                   off += sizeof(fd_block_hash_t);
-  }
-  cert.signature     = buf+off;                   off += FD_BLS_SIG_SZ;
-
   fd_bls_sig_t sig[1];
   FAIL( fd_bls_sig_de_unchecked( sig, cert.signature ), INVAL ); /* deserialize now, defer the g2 subgroup check to verify */
-  cert.bitmap_sz     = FD_LOAD( ulong, buf+off ); off += sizeof(ulong);
-  cert.bitmap        = buf+off;
-  FD_TEST( off==hdr_sz );
 
-  ulong rem = buf_sz - hdr_sz;
-  FAIL( cert.bitmap_sz>rem || rem-cert.bitmap_sz<sizeof(ushort), SZ ); /* too few, trailing bytes are ignored */
+  err = cert_de_tail( &cert, buf, buf_sz );
+  if( FD_UNLIKELY( err ) ) return err;
 
-  cert.shred_version = FD_LOAD( ushort, cert.bitmap+cert.bitmap_sz );
-
-  int err;
   switch( self->kind ) {
   case FD_CERT_KIND_FINAL:
     self->final.slot = cert.slot;

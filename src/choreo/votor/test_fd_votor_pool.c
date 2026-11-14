@@ -3150,6 +3150,76 @@ test_duplicate_certs( void ) {
   teardown_pool( pool );
 }
 
+/* fd_votor_pool_cert_is_dup answers whether add_cert would return
+   DUPLICATE, without changing the pool. */
+
+static int
+check_cert_is_dup( fd_votor_pool_t * pool,
+                   fd_cert_t const * c ) {
+  ulong slot    = fd_cert_slot( c );
+  int   had     = slot_state_query( pool, slot )!=NULL;
+  int   dup     = fd_votor_pool_cert_is_dup( pool, c->kind, slot, fd_cert_block_hash( c ) );
+  FD_TEST( had || slot_state_query( pool, slot )==NULL ); /* the query does not create a slot state */
+  int   err     = fd_votor_pool_add_cert( pool, c, 1, bad );
+  FD_TEST( dup==( err==FD_VOTOR_POOL_ERR_DUPLICATE ) );
+  drain_events( pool );
+  return err;
+}
+
+static void
+test_cert_is_dup( void ) {
+  fd_votor_pool_t * pool = setup_pool();
+
+  fd_block_hash_t h1; random_hash( &h1 );
+  fd_block_hash_t h2; random_hash( &h2 );
+  fd_cert_t skip  = { .kind = FD_CERT_KIND_SKIP,           .skip           = { .slot = 3UL, .shred_version = TEST_SHRED_VERSION } };
+  fd_cert_t notar = { .kind = FD_CERT_KIND_NOTAR,          .notar          = { .slot = 4UL, .block_hash = h1, .shred_version = TEST_SHRED_VERSION } };
+  fd_cert_t nf1   = { .kind = FD_CERT_KIND_NOTAR_FALLBACK, .notar_fallback = { .slot = 4UL, .block_hash = h1, .shred_version = TEST_SHRED_VERSION } };
+  fd_cert_t nf2   = { .kind = FD_CERT_KIND_NOTAR_FALLBACK, .notar_fallback = { .slot = 4UL, .block_hash = h2, .shred_version = TEST_SHRED_VERSION } };
+  fd_cert_t fin   = { .kind = FD_CERT_KIND_FINAL,          .final          = { .slot = 5UL, .shred_version = TEST_SHRED_VERSION } };
+  fd_cert_t ff    = { .kind = FD_CERT_KIND_FAST_FINAL,     .fast_final     = { .slot = 6UL, .block_hash = h1, .shred_version = TEST_SHRED_VERSION } };
+
+  /* a slot without state, then each kind before and after its add */
+  FD_TEST( !fd_votor_pool_cert_is_dup( pool, FD_CERT_KIND_NOTAR, 7UL, &h1 ) && !slot_state_query( pool, 7UL ) );
+  fd_cert_t * all[] = { &skip, &notar, &nf1, &nf2, &fin, &ff };
+  for( ulong i=0UL; i<6UL; i++ ) {
+    FD_TEST( check_cert_is_dup( pool, all[i] )==FD_VOTOR_POOL_SUCCESS );
+    FD_TEST( check_cert_is_dup( pool, all[i] )==FD_VOTOR_POOL_ERR_DUPLICATE );
+  }
+
+  /* notar fallback is per hash, the others per slot */
+  fd_block_hash_t h3; random_hash( &h3 );
+  fd_cert_t nf3 = nf1; nf3.notar_fallback.slot = 8UL; nf3.notar_fallback.block_hash = h3;
+  fd_cert_t n3  = notar; n3.notar.slot = 8UL;
+  FD_TEST( check_cert_is_dup( pool, &n3  )==FD_VOTOR_POOL_SUCCESS );
+  FD_TEST( check_cert_is_dup( pool, &nf3 )==FD_VOTOR_POOL_SUCCESS );
+  n3.notar.block_hash = h3;
+  FD_TEST( check_cert_is_dup( pool, &n3  )==FD_VOTOR_POOL_ERR_DUPLICATE ); /* any notar cert at the slot */
+
+  teardown_pool( pool );
+
+  /* out of range: a slot below the first unpruned one is too old even
+     if it held the cert, and a far future one too new */
+  pool = setup_pool();
+  fd_block_hash_t gh; genesis_hash( &gh );
+  ulong top = 3UL*SLOTS_PER_WINDOW - 1UL;
+  for( ulong s=1UL; s<=top; s++ ) {
+    fd_cert_t c = { .kind = FD_CERT_KIND_FAST_FINAL, .fast_final = { .slot = s, .block_hash = gh, .shred_version = TEST_SHRED_VERSION } };
+    FD_TEST( check_cert_is_dup( pool, &c )==FD_VOTOR_POOL_SUCCESS );
+  }
+  FD_TEST( pool_first_unpruned_slot( pool )==top );
+  for( ulong s=1UL; s<top; s++ ) {
+    fd_cert_t c = { .kind = FD_CERT_KIND_FAST_FINAL, .fast_final = { .slot = s, .block_hash = gh, .shred_version = TEST_SHRED_VERSION } };
+    FD_TEST( check_cert_is_dup( pool, &c )==FD_VOTOR_POOL_ERR_SLOT_TOO_OLD );
+  }
+  fd_cert_t c = { .kind = FD_CERT_KIND_FAST_FINAL, .fast_final = { .slot = top, .block_hash = gh, .shred_version = TEST_SHRED_VERSION } };
+  FD_TEST( check_cert_is_dup( pool, &c )==FD_VOTOR_POOL_ERR_DUPLICATE );
+  fd_cert_t far = skip; far.skip.slot = top+TEST_SLOT_MAX;
+  FD_TEST( check_cert_is_dup( pool, &far )==FD_VOTOR_POOL_ERR_SLOT_TOO_NEW );
+
+  teardown_pool( pool );
+}
+
 /* A verified cert skips only the signature check: a cert that fails it
    is accepted, and duplicates are still rejected. */
 
@@ -4588,6 +4658,7 @@ main( int     argc,
     test_vote_subgroup_after_duplicate();
     test_duplicate_certs();
     test_add_verified_cert();
+    test_cert_is_dup();
     test_out_of_bounds_votes();
     test_out_of_bounds_certs();
     test_slow_finalize_closing_gap_no_double_parent_ready();
