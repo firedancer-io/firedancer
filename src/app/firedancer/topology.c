@@ -789,6 +789,7 @@ fd_topo_initialize( config_t * config ) {
     for( ulong t=0UL; t<snapin_tile_cnt; t++ ) {
       FOR(snapdc_tile_cnt) fd_topob_tile_in( topo, "snapin", t, "metric_in", "snapdc_in", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
+    /**/              fd_topob_tile_in (    topo, "snapin",  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     if( FD_LIKELY( config->tiles.gui.enabled ) ) {
       FOR(snapin_tile_cnt) fd_topob_tile_out(    topo, "snapin", i,                          "snapin_gui",    i                                                  );
     }

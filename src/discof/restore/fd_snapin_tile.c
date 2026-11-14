@@ -27,6 +27,7 @@
 #include "../../disco/stem/fd_stem.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../disco/events/generated/fd_event_gen.h"
+#include "../genesis/fd_genesi_tile.h"
 
 #include <linux/futex.h>
 #include "generated/fd_snapin_tile_seccomp.h"
@@ -216,6 +217,8 @@ struct fd_snapin_lead {
   fd_epoch_schedule_t epoch_schedule;
 
   ulong full_genesis_creation_time_seconds;
+  int   has_genesis;
+  ulong genesis_creation_time_seconds; /* from the local genesis */
   uchar advertised_hash[ FD_HASH_FOOTPRINT ];
 
   ulong manifest_capitalization; /* capitalization according to the current snapshot manifest */
@@ -295,6 +298,7 @@ struct fd_snapin_tile {
 
   ulong tile_idx;           /* tile kind ID */
   ulong lane_cnt;
+  ulong genesis_in_idx;     /* ULONG_MAX if none, else lane_cnt */
   ulong expected_frame;
   ulong pending_control;    /* control message expected from snapdc tiles */
   uchar control_seen[ FD_TOPO_MAX_TILE_IN_LINKS ];
@@ -1195,6 +1199,18 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   return 0;
 }
 
+/* verify_genesis rejects a snapshot from another cluster so snapct
+   retries with a different peer, rather than replay aborting. */
+
+static int
+verify_genesis( fd_snapin_tile_t const * ctx,
+                ulong                    creation_time_seconds ) {
+  if( FD_LIKELY( !ctx->lead.has_genesis || creation_time_seconds==ctx->lead.genesis_creation_time_seconds ) ) return 0;
+  FD_LOG_WARNING(( "snapshot is for a different cluster: snapshot genesis time %lu does not match local genesis time %lu",
+                   creation_time_seconds, ctx->lead.genesis_creation_time_seconds ));
+  return -1;
+}
+
 static void
 process_manifest( fd_snapin_tile_t *  ctx,
                   fd_stem_context_t * stem ) {
@@ -1205,6 +1221,11 @@ process_manifest( fd_snapin_tile_t *  ctx,
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L472 */
     FD_LOG_WARNING(( "snapshot manifest bank slot %lu does not match advertised slot %lu from snapshot peer",
                      manifest->slot, ctx->lead.advertised_slot ));
+    transition_malformed( ctx, stem );
+    return;
+  }
+
+  if( FD_UNLIKELY( verify_genesis( ctx, manifest->creation_time_seconds ) ) ) {
     transition_malformed( ctx, stem );
     return;
   }
@@ -2064,6 +2085,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       if( FD_LIKELY( !is_lead( ctx ) ) ) break;
 
+      /* Repeat in case genesis arrived after the manifest */
+      if( FD_UNLIKELY( verify_genesis( ctx, ctx->lead.full_genesis_creation_time_seconds ) ) ) {
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
+
       if( FD_UNLIKELY( verify_sysvars( ctx ) ) ) {
         if( ctx->full ) FD_LOG_WARNING(( "sysvar verification failed for full snapshot" ));
         else            FD_LOG_WARNING(( "sysvar verification failed for incremental snapshot" ));
@@ -2172,11 +2200,16 @@ before_frag( fd_snapin_tile_t * ctx,
              ulong              in_idx,
              ulong              seq    FD_PARAM_UNUSED,
              ulong              sig ) {
+  if( FD_UNLIKELY( in_idx==ctx->genesis_in_idx ) ) return 0;
+
   /* If we're currently in ERROR state we should only process FAIL
      control frags */
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
     return sig!=FD_SNAPSHOT_MSG_CTRL_FAIL;
   }
+
+  /* Hold DONE until genesis is known */
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_DONE && ctx->genesis_in_idx!=ULONG_MAX && !ctx->lead.has_genesis ) ) return -1;
 
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_CTRL_ERROR ) ) {
     return 0;
@@ -2273,6 +2306,15 @@ returnable_frag( fd_snapin_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
+  if( FD_UNLIKELY( in_idx==ctx->genesis_in_idx ) ) {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_genesis_meta_t) || sz>ctx->in[ in_idx ].mtu ) )
+      FD_LOG_CRIT(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    fd_genesis_meta_t const * meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
+    ctx->lead.has_genesis                   = 1;
+    ctx->lead.genesis_creation_time_seconds = meta->creation_time_seconds;
+    return 0;
+  }
+
   if( FD_LIKELY( fd_snapdc_sig_type( sig )==FD_SNAPSHOT_MSG_DATA ) ) return handle_lane_data_frag( ctx, stem, in_idx, chunk, sz, ctl );
   else                                                               handle_control_barrier( ctx, stem, in_idx, sig, chunk, sz );
 
@@ -2355,7 +2397,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->full     = 1;
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
-  ctx->lane_cnt = tile->in_cnt;
+  ctx->genesis_in_idx = fd_topo_find_tile_in_link( topo, tile, "genesi_out", 0UL );
+  ctx->lane_cnt = tile->in_cnt - (ctx->genesis_in_idx!=ULONG_MAX);
+  if( FD_UNLIKELY( ctx->genesis_in_idx!=ULONG_MAX && ( !is_lead( ctx ) || ctx->genesis_in_idx!=ctx->lane_cnt ) ) )
+    FD_LOG_ERR(( "genesi_out must be the last input of " NAME ":0" ));
   clear_control_barrier( ctx );
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
@@ -2380,10 +2425,12 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->gui_out = out1( topo, tile, "snapin_gui", ctx->tile_idx );
 
-  for( ulong i=0UL; i<ctx->lane_cnt; i++ ) {
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
-    FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
-    FD_TEST( in_link->kind_id==i );
+    if( i<ctx->lane_cnt ) {
+      FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
+      FD_TEST( in_link->kind_id==i );
+    }
     fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
     ctx->in[ i ].wksp   = in_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].wksp, in_link->dcache );
