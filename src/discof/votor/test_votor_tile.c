@@ -2818,6 +2818,116 @@ test_vote_rx_bans_non_g2( void ) {
   FD_LOG_NOTICE(( "pass: test_vote_rx_bans_non_g2" ));
 }
 
+/* A duplicate cert is dropped before its signature is decoded, counted
+   as a duplicate as before.  Certs that fail a check ahead of the
+   duplicate check count as before even when they duplicate. */
+
+static ulong
+cert_rx_sum( fd_votor_tile_t const * ctx ) {
+  ulong sum = 0UL;
+  for( ulong i=0UL; i<FD_METRICS_ENUM_CERT_RX_RESULT_CNT; i++ ) sum += ctx->metrics.cert_rx[ i ];
+  return sum;
+}
+
+static void
+cert_rx_expect( fd_votor_tile_t * ctx,
+                fd_quic_conn_t *  conn,
+                uchar const *     buf,
+                ulong             sz,
+                ulong             idx ) {
+  ulong before = ctx->metrics.cert_rx[ idx ];
+  ulong sum    = cert_rx_sum( ctx );
+  quic_server_datagram_rx( conn, buf, sz, ctx );
+  FD_TEST( ctx->metrics.cert_rx[ idx ]==before+1UL );
+  FD_TEST( cert_rx_sum( ctx )==sum+1UL );
+}
+
+static void
+test_cert_rx_dup( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_quic_conn_t  conn;
+
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 4UL, 10UL );
+  fd_epoch_info_t * epoch_info = test_epoch( stakes, 4UL, 1 );
+  memset( &ctx, 0, sizeof(fd_votor_tile_t) );
+  ctx.init            = 1;
+  ctx.curr_epoch_info = epoch_info;
+  ctx.curr_epoch_slot = 0UL;
+  ctx.next_epoch_slot = ULONG_MAX;
+  ctx.shred_version   = 1;
+  ctx.pool            = test_pool( epoch_info, 0UL );
+  ctx.peers           = peers_join( peers_new( peers_mem, PEERS_LG_SLOT_CNT, 42UL ) );
+  FD_TEST( ctx.peers );
+  fd_clock_tile_init( ctx.clock );
+  for( ulong i=0UL; i<FD_VOTOR_SLOTS_PER_WINDOW; i++ ) ctx.reward_certs[ i ].slot = ULONG_MAX;
+
+  fd_pubkey_t id; memcpy( id.uc, epoch_info->validators[ 0 ].id_key, sizeof(fd_pubkey_t) );
+  peer_t * peer = test_peer( &ctx, id.uc[ 0 ], 0 );
+  peer->ban_ts = LONG_MIN;
+  memset( &conn, 0, sizeof(fd_quic_conn_t) );
+  conn.state = FD_QUIC_CONN_STATE_ACTIVE;
+  fd_quic_conn_set_context( &conn, &peer->id_key );
+
+  ulong           slot = 2UL;
+  fd_block_hash_t hash; memset( &hash, 9, sizeof(fd_block_hash_t) );
+  fd_cert_t notar = { .kind = FD_CERT_KIND_NOTAR, .notar = { .slot = slot, .block_hash = hash, .shred_version = 1 } };
+  fd_cert_t skip  = { .kind = FD_CERT_KIND_SKIP,  .skip  = { .slot = slot+1UL,                  .shred_version = 1 } };
+  for( ulong r=0UL; r<4UL; r++ ) {
+    fd_bls_sig_t sig = reward_vote_sig( epoch_info, r, FD_VOTE_KIND_NOTAR, slot, &hash );
+    fd_bls_sig_add( &notar.notar.agg.sig, &notar.notar.agg.sig, &sig );
+    fd_bls_set_insert( notar.notar.agg.set, r );
+    sig = reward_vote_sig( epoch_info, r, FD_VOTE_KIND_SKIP, slot+1UL, NULL );
+    fd_bls_sig_add( &skip.skip.agg_skip.sig, &skip.skip.agg_skip.sig, &sig );
+    fd_bls_set_insert( skip.skip.agg_skip.set, r );
+  }
+  uchar nbuf[ FD_CERT_SER_MAX ]; ulong nsz = fd_cert_ser( &notar, nbuf );
+  uchar sbuf[ FD_CERT_SER_MAX ]; ulong ssz = fd_cert_ser( &skip,  sbuf );
+  ulong sig_off = 1UL+1UL+8UL+sizeof(fd_block_hash_t);
+
+  cert_rx_expect( &ctx, &conn, nbuf, nsz, FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX   );
+  cert_rx_expect( &ctx, &conn, sbuf, ssz, FD_METRICS_ENUM_CERT_RX_RESULT_V_SUCCESS_IDX   );
+  cert_rx_expect( &ctx, &conn, nbuf, nsz, FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX );
+  cert_rx_expect( &ctx, &conn, sbuf, ssz, FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX );
+
+  /* a duplicate never reaches the verify, so a bad signature on one is
+     not banned, whether it decodes (as before) or not (was bad_encoding) */
+  uchar m[ FD_CERT_SER_MAX ];
+  memcpy( m, nbuf, nsz ); m[ sig_off+FD_BLS_SIG_SZ-1UL ] ^= 1;
+  cert_rx_expect( &ctx, &conn, m, nsz, FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX );
+  memset( m+sig_off, 0xff, FD_BLS_SIG_SZ );
+  { fd_bls_sig_t t; FD_TEST( fd_bls_sig_de_unchecked( &t, m+sig_off ) ); }
+  cert_rx_expect( &ctx, &conn, m, nsz, FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX );
+  FD_TEST( peer->ban_ts==LONG_MIN );
+
+  /* the same signature on a new cert is decoded, and fails */
+  m[ 2 ] = (uchar)( slot+2UL );
+  cert_rx_expect( &ctx, &conn, m, nsz, FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX );
+
+  /* checks ahead of add_cert's duplicate check still win */
+  cert_rx_expect( &ctx, &conn, nbuf, nsz-1UL, FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_SIZE_IDX );
+  memcpy( m, nbuf, nsz ); FD_STORE( ushort, m+nsz-2UL, 2 );
+  cert_rx_expect( &ctx, &conn, m, nsz, FD_METRICS_ENUM_CERT_RX_RESULT_V_SHRED_VERSION_MISMATCHED_IDX );
+  memcpy( m, nbuf, nsz ); FD_STORE( ushort, m+sig_off+FD_BLS_SIG_SZ+8UL+1UL, 5 ); /* bit_cnt past validator_cnt, same bitmap size */
+  cert_rx_expect( &ctx, &conn, m, nsz, FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX );
+  memcpy( m, nbuf, nsz ); m[ sig_off+FD_BLS_SIG_SZ+8UL ] = 1; /* base3 bitmap on a notar cert */
+  cert_rx_expect( &ctx, &conn, m, nsz, FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX );
+  peer->curr_rank = USHORT_MAX;
+  cert_rx_expect( &ctx, &conn, nbuf, nsz, FD_METRICS_ENUM_CERT_RX_RESULT_V_UNRANKED_IDX );
+  peer->curr_rank = 0;
+  FD_TEST( peer->ban_ts==LONG_MIN );
+
+  fd_cert_notar_t got;
+  FD_TEST( fd_votor_pool_notar_cert( ctx.pool, slot, &got ) );
+  fd_cert_t got_cert = { .kind = FD_CERT_KIND_NOTAR, .notar = got };
+  uchar     gbuf[ FD_CERT_SER_MAX ];
+  FD_TEST( fd_cert_ser( &got_cert, gbuf )==nsz && !memcmp( gbuf, nbuf, nsz ) ); /* the first copy, not a later one */
+
+  peers_delete( peers_leave( ctx.peers ) );
+  fd_votor_pool_delete( fd_votor_pool_leave( ctx.pool ) );
+  FD_LOG_NOTICE(( "pass: test_cert_rx_dup" ));
+}
+
 static void
 test_history_raises_the_leader_floor( void ) {
   static fd_votor_tile_t ctx;
@@ -3307,6 +3417,7 @@ main( int     argc,
   test_boot_vote_history_floor();
   test_reward_certs();
   test_vote_rx_bans_non_g2();
+  test_cert_rx_dup();
   test_history_raises_the_leader_floor();
   test_failover_off();
   test_switch_runs_the_failover_rule();

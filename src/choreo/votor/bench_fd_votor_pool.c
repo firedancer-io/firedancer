@@ -1,8 +1,10 @@
 /* bench_fd_votor_pool: fd_votor_pool_add_vote cost per vote below
-   quorum (no aggregate verify) and at quorum (verify, cert). */
+   quorum (no aggregate verify) and at quorum (verify, cert), and the
+   receive cost of a duplicate cert. */
 #define _GNU_SOURCE
 #include "fd_votor_pool.c"
 #include "test_fd_cert_builder.h"
+#include "fd_cert_serde.h"
 #include <stdlib.h>
 #include <sys/mman.h>
 
@@ -58,6 +60,54 @@ main( int argc, char ** argv ) {
   long a0 = fd_log_wallclock(); for( ulong i=0UL; i<iter; i++ ) { acc += fd_bls_sig_validate( &sig ); FD_COMPILER_FORGET( acc ); } long a1 = fd_log_wallclock();
   FD_TEST( acc==(int)iter );
   FD_LOG_NOTICE(( "fd_bls_sig_validate %.2f us", (double)(a1-a0)/1e3/(double)iter ));
+  uchar sig_buf[ FD_BLS_SIG_SZ ]; fd_bls_sig_ser( &sig, sig_buf ); fd_bls_sig_t sig_de;
+  a0 = fd_log_wallclock(); for( ulong i=0UL; i<iter; i++ ) { acc += !fd_bls_sig_de_unchecked( &sig_de, sig_buf ); FD_COMPILER_FORGET( acc ); } a1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_bls_sig_de_unchecked %.2f us", (double)(a1-a0)/1e3/(double)iter ));
+
+  /* duplicate cert receive: full decode then add_cert, vs the header
+     parse and dup query (mainnet sized bitmap of 1300 ranks). */
+  uchar dup_buf[ 2 ][ FD_CERT_SER_MAX ]; ulong dup_sz[ 2 ];
+  for( ulong k=0UL; k<2UL; k++ ) {
+    fd_cert_t c = cert_build_notar( &votes[0][0].notar, 1UL, epoch_info ); /* sig over slot 1 */
+    fd_bls_agg_t * agg = &c.notar.agg;
+    if( k ) { /* skip cert, base3 bitmap */
+      fd_cert_t sc = { .kind = FD_CERT_KIND_SKIP, .skip = { .slot = 1UL, .agg_skip = *agg, .shred_version = SV } };
+      fd_bls_set_null( sc.skip.agg_skip_fallback.set );
+      c = sc; agg = &c.skip.agg_skip;
+    }
+    for( ulong i=0UL; i<1300UL; i++ ) if( i%3UL ) fd_bls_set_insert( agg->set, i );
+    if( k ) for( ulong i=0UL; i<1300UL; i+=3UL ) fd_bls_set_insert( c.skip.agg_skip_fallback.set, i );
+    fd_bls_set_t verified_bad[ fd_bls_set_word_cnt ];
+    FD_TEST( fd_votor_pool_add_cert( pool, &c, 1, verified_bad )==( k ? FD_VOTOR_POOL_SUCCESS : FD_VOTOR_POOL_ERR_DUPLICATE ) ); /* slot 1 has a notar cert from the votes */
+    dup_sz[ k ] = fd_cert_ser( &c, dup_buf[ k ] );
+  }
+  static fd_cert_t dc;
+  for( ulong k=0UL; k<2UL; k++ ) {
+    ulong const dup_iter = 200000UL;
+    ulong bc;
+    long d0 = fd_log_wallclock();
+    for( ulong i=0UL; i<dup_iter; i++ ) {
+      FD_TEST( !fd_cert_de( &dc, &bc, dup_buf[ k ], dup_sz[ k ] ) );
+      FD_TEST( fd_votor_pool_add_cert( pool, &dc, 0, bad )==FD_VOTOR_POOL_ERR_DUPLICATE );
+    }
+    long d1 = fd_log_wallclock();
+    for( ulong i=0UL; i<dup_iter; i++ ) {
+      fd_cert_serde_t hdr;
+      FD_TEST( !fd_cert_de_peek( &hdr, &bc, dup_buf[ k ], dup_sz[ k ] ) );
+      FD_TEST( fd_votor_pool_cert_is_dup( pool, (uint)hdr.tag-FD_CERT_SERDE_TAG_FINAL, hdr.slot, (fd_block_hash_t const *)hdr.block_id ) );
+    }
+    long d2 = fd_log_wallclock();
+    for( ulong i=0UL; i<dup_iter; i++ ) { /* plus the bitmap decode the tile does for a notar duplicate event */
+      fd_cert_serde_t hdr;
+      FD_TEST( !fd_cert_de_peek( &hdr, &bc, dup_buf[ k ], dup_sz[ k ] ) );
+      FD_TEST( fd_votor_pool_cert_is_dup( pool, (uint)hdr.tag-FD_CERT_SERDE_TAG_FINAL, hdr.slot, (fd_block_hash_t const *)hdr.block_id ) );
+      FD_TEST( !fd_bls_agg_pair_de( &dc.skip.agg_skip, &dc.skip.agg_skip_fallback, &bc, hdr.bitmap, hdr.bitmap_sz ) );
+    }
+    long d3 = fd_log_wallclock();
+    FD_LOG_NOTICE(( "duplicate %s cert: fd_cert_de+add_cert %.3f us, fd_cert_de_peek+cert_is_dup %.3f us, +bitmap decode %.3f us",
+                    k ? "skip" : "notar", (double)(d1-d0)/1e3/(double)dup_iter, (double)(d2-d1)/1e3/(double)dup_iter, (double)(d3-d2)/1e3/(double)dup_iter ));
+  }
+
   fd_halt();
   return 0;
 }

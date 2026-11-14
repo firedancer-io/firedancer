@@ -59,6 +59,19 @@ fd_cert_de( fd_cert_t *   self,
             uchar const * buf,
             ulong         buf_sz );
 
+/* fd_cert_de_peek runs every check fd_cert_de does except decoding the
+   signature, and checks the bitmap without decoding it.  On success
+   fills hdr and *bit_cnt as fd_cert_de would and returns
+   FD_CERT_DE_SUCCESS; fd_cert_de then fails only if the signature does
+   not decode.  On failure fd_cert_de fails too, not necessarily with
+   the same error. */
+
+int
+fd_cert_de_peek( fd_cert_serde_t * hdr,
+                 ulong *           bit_cnt,
+                 uchar const *     buf,
+                 ulong             buf_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_choreo_votor_fd_cert_serde_h */

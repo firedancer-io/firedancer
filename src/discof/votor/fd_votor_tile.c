@@ -860,6 +860,24 @@ quic_server_conn_final( fd_quic_conn_t * conn,
   for( ulong i=0UL; i<QUIC_SERVER_CONN_PER_PEER_MAX; i++ ) if( FD_UNLIKELY( peer->rx_conn[ i ]==conn ) ) peer->rx_conn[ i ] = NULL;
 }
 
+/* cert_rx_check runs the receive checks on a decoded cert from peer,
+   ahead of add_cert.  Returns the cert_rx metric idx of the first that
+   fails, ULONG_MAX if all pass. */
+
+static ulong
+cert_rx_check( fd_votor_tile_t const * ctx,
+               peer_t const *          peer,
+               ulong                   slot,
+               ushort                  shred_version,
+               ulong                   bit_cnt ) {
+  if( FD_UNLIKELY( shred_version!=ctx->shred_version ) ) return FD_METRICS_ENUM_CERT_RX_RESULT_V_SHRED_VERSION_MISMATCHED_IDX;
+  ushort rank = fd_ushort_if( slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
+  if( FD_UNLIKELY( rank==USHORT_MAX ) ) return FD_METRICS_ENUM_CERT_RX_RESULT_V_UNRANKED_IDX; /* peer is not ranked in this cert slot's epoch */
+  fd_epoch_info_t const * epoch_info = fd_ptr_if( slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
+  if( FD_UNLIKELY( epoch_info && bit_cnt>epoch_info->validator_cnt ) ) return FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX;
+  return ULONG_MAX;
+}
+
 /* QUIC callback */
 
 static void
@@ -949,21 +967,41 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
     if( FD_UNLIKELY( !peer ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_NOT_PEER_IDX ]++; report_alpenglow_cert( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNKNOWN_PEER, 0L, 0L ); return; }
     if( FD_UNLIKELY( fd_clock_tile_now( ctx->clock )<peer->ban_ts+QUIC_BAN_TIMEOUT_NS ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BANNED_IDX ]++; report_alpenglow_cert( ctx, conn, NULL, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_BANNED_PEER, 0L, 0L ); fd_quic_conn_close( conn, QUIC_CLOSE_CODE_BANNED ); return; }
 
-    ulong bit_cnt;
-    int   err = fd_cert_de( &ctx->scratch.cert, &bit_cnt, data, data_sz );
+    /* Most certs are duplicates.  Drop one before the signature decode
+       when every check ahead of add_cert's duplicate check passes on
+       the undecoded cert; anything else takes the full path below. */
+    fd_cert_serde_t hdr;
+    ulong           bit_cnt;
+    if( FD_LIKELY( !fd_cert_de_peek( &hdr, &bit_cnt, data, data_sz ) &&
+                   cert_rx_check( ctx, peer, hdr.slot, hdr.shred_version, bit_cnt )==ULONG_MAX &&
+                   fd_votor_pool_cert_is_dup( ctx->pool, (uint)kind-FD_CERT_SERDE_TAG_FINAL, hdr.slot, (fd_block_hash_t const *)hdr.block_id ) ) ) {
+      ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_DUPLICATE_IDX ]++;
+      if( FD_LIKELY( kind==FD_CERT_SERDE_TAG_NOTAR ) ) { /* the event wants the signers, not the signature */
+        fd_cert_t * cert = &ctx->scratch.cert;
+        *cert = (fd_cert_t){ .kind = FD_CERT_KIND_NOTAR, .notar = { .slot = hdr.slot, .shred_version = hdr.shred_version } };
+        memcpy( &cert->notar.block_hash, hdr.block_id, sizeof(fd_block_hash_t) );
+        FD_TEST( !fd_bls_agg_de( &cert->notar.agg, &bit_cnt, hdr.bitmap, hdr.bitmap_sz ) );
+        report_alpenglow_cert( ctx, conn, cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_DUPLICATE, 0L, 0L );
+      }
+      return;
+    }
+
+    int err = fd_cert_de( &ctx->scratch.cert, &bit_cnt, data, data_sz );
     if( FD_UNLIKELY( err ) ) {
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_SIZE_IDX     ] += (ulong)(err==FD_CERT_DE_ERR_SZ   );
       ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX ] += (ulong)(err==FD_CERT_DE_ERR_INVAL);
       return;
     }
-    fd_cert_t * cert = &ctx->scratch.cert;
-    if( FD_UNLIKELY( fd_cert_shred_version( cert )!=ctx->shred_version ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SHRED_VERSION_MISMATCHED_IDX ]++; report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SHRED_VERSION_MISMATCH, 0L, 0L ); return; }
-
-    ulong  cert_slot = fd_cert_slot( cert );
-    ushort rank      = fd_ushort_if( cert_slot>=ctx->next_epoch_slot, peer->next_rank, fd_ushort_if( cert_slot>=ctx->curr_epoch_slot, peer->curr_rank, peer->prev_rank ) );
-    if( FD_UNLIKELY( rank==USHORT_MAX ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_UNRANKED_IDX ]++; report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNRANKED_PEER, 0L, 0L ); return; } /* peer is not ranked in this cert slot's epoch */
+    fd_cert_t * cert      = &ctx->scratch.cert;
+    ulong       cert_slot = fd_cert_slot( cert );
+    ulong       rx        = cert_rx_check( ctx, peer, cert_slot, fd_cert_shred_version( cert ), bit_cnt );
+    if( FD_UNLIKELY( rx!=ULONG_MAX ) ) {
+      ctx->metrics.cert_rx[ rx ]++;
+      if( rx==FD_METRICS_ENUM_CERT_RX_RESULT_V_SHRED_VERSION_MISMATCHED_IDX ) report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_SHRED_VERSION_MISMATCH, 0L, 0L );
+      if( rx==FD_METRICS_ENUM_CERT_RX_RESULT_V_UNRANKED_IDX                 ) report_alpenglow_cert( ctx, conn, &ctx->scratch.cert, kind, FD_EVENT_ALPENGLOW_CERT_PROCESSING_RESULT_UNRANKED_PEER,          0L, 0L );
+      return;
+    }
     fd_epoch_info_t const * epoch_info = fd_ptr_if( cert_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( cert_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
-    if( FD_UNLIKELY( epoch_info && bit_cnt>epoch_info->validator_cnt ) ) { ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_BAD_ENCODING_IDX ]++; return; }
 
     int  final             = cert->kind==FD_CERT_KIND_FINAL || cert->kind==FD_CERT_KIND_FAST_FINAL;
     long verify_start_time = fd_clock_tile_now( ctx->clock );
