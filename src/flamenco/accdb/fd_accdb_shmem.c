@@ -512,6 +512,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->ring_hint->cap     = FD_ACCDB_RING_HINT_CAP;
   accdb->ring_hint->ele_off = (ulong)_ring + FD_ACCDB_RING_RES_CAP*sizeof(fd_accdb_promote_req_t) - (ulong)shmem;
   memset( accdb->res_ack, 0, sizeof(accdb->res_ack) );
+  memset( accdb->res_park, 0, sizeof(accdb->res_park) );
   accdb->idx_ovl_npage      = ovl_npage;
   accdb->idx_ovl_seq_off    = (ulong)_ovl_seq   - (ulong)shmem;
   accdb->idx_olog_byte0     = ( bkt_npage+ovl_npage )*FD_ACCDB_IDX_PAGE_SZ;

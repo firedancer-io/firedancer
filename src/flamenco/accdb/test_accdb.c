@@ -3362,6 +3362,147 @@ test_idx_prefetch_and_residual( void ) {
   test_teardown( t2, fd );
 }
 
+/* Residual waits park in efficient mode: the waiter, T2 and a minimal
+   mwaitx stand-in (doorbell -> FUTEX_WAKE) share one CPU, so T2 runs
+   only while the waiter sleeps.  Without the stand-in the bounded
+   futex timeout still ends every park. */
+
+#include "../../disco/sleep/fd_sleep.h"
+#include <sched.h>
+#include <linux/futex.h>
+#include <sys/syscall.h>
+
+typedef struct {
+  fd_sleep_t * sleep;
+  int          stop;
+  ulong        wakes;
+} test_waker_ctx_t;
+
+static void
+test_pin_cpu( int cpu ) {
+  cpu_set_t set; CPU_ZERO( &set ); CPU_SET( (ulong)cpu, &set );
+  FD_TEST( !sched_setaffinity( 0, sizeof(set), &set ) );
+}
+
+static int test_park_cpu;
+
+/* like the accdb tile: give up the CPU when idle (it parks) */
+static void *
+run_background_pinned( void * _ctx ) {
+  test_background_ctx_t * ctx = _ctx;
+  test_pin_cpu( test_park_cpu );
+  while( !FD_VOLATILE_CONST( ctx->stop ) ) {
+    int charge_busy = 0;
+    fd_accdb_background( ctx->accdb, &charge_busy );
+    if( FD_LIKELY( !charge_busy ) ) sched_yield();
+  }
+  return NULL;
+}
+
+static void *
+run_waker( void * _ctx ) {
+  test_waker_ctx_t * ctx = _ctx;
+  test_pin_cpu( test_park_cpu );
+  while( !FD_VOLATILE_CONST( ctx->stop ) ) {
+    ulong rung = __atomic_exchange_n( &ctx->sleep->doorbell[ 0 ], 0UL, __ATOMIC_ACQUIRE );
+    while( rung ) {
+      ulong tid = (ulong)fd_ulong_find_lsb( rung );
+      rung &= rung-1UL;
+      if( FD_VOLATILE_CONST( ctx->sleep->tile[ tid ].word ) ) continue;
+      void * word = &ctx->sleep->tile[ tid ].word;
+      FD_VOLATILE( ctx->sleep->tile[ tid ].word ) = FD_SLEEP_WORD( FD_SLEEP_UNPARK_RING );
+      FD_TEST( syscall( SYS_futex, word, FUTEX_WAKE, 1, NULL, NULL, 0 )>=0L );
+      ctx->wakes++;
+    }
+    sched_yield();
+  }
+  return NULL;
+}
+
+static void
+test_idx_residual_park( int with_waker ) {
+  int fd;
+  fd_accdb_t * t2 = test_setup_idx( &fd, 8192UL, 1024UL, 256UL, 64UL );
+  void * fg_mem = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 256UL, 0 ) );
+  fd_accdb_t * fg = fd_accdb_join( fd_accdb_new( fg_mem, test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, -1, NULL ) );
+  FD_TEST( fg );
+
+  fd_sleep_t * sleep = aligned_alloc( FD_SLEEP_ALIGN, sizeof(fd_sleep_t) );
+  FD_TEST( sleep );
+  memset( sleep, 0, sizeof(fd_sleep_t) );
+  long w0 = fd_log_wallclock(); long k0 = fd_tickcount();
+  while( fd_log_wallclock()-w0<10000000L ) FD_SPIN_PAUSE();
+  sleep->tick_per_ns = (double)( fd_tickcount()-k0 )/(double)( fd_log_wallclock()-w0 );
+  for( ulong i=0UL; i<FD_SLEEP_TILE_MAX; i++ ) sleep->tile[ i ].word = 1UL;
+  ulong const tile_id = 5UL;
+  fd_accdb_park_init( t2, sleep, ULONG_MAX );
+  fd_accdb_park_init( fg, sleep, tile_id );
+
+  uchar d[ 40 ];
+  fd_accdb_fork_id_t tip = fd_accdb_attach_child( t2, SENTINEL );
+  ulong n = 600UL;
+  uchar key[ 32 ];
+  for( ulong i=0UL; i<n; i+=8UL ) {
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( t2, tip );
+    for( ulong j=i; j<i+8UL && j<n; j++ ) {
+      memset( key, 0, 32 ); FD_STORE( ulong, key, j+1UL ); key[ 31 ] = 0x6B;
+      memset( d, (int)j, sizeof(d) );
+      accdb_write( t2, c, key, 10UL+j, d, sizeof(d), owner2 );
+    }
+    fd_accdb_advance_root( t2, c );
+    drain_background( t2 );
+    tip = c;
+  }
+  tip = test_root_n( t2, tip, FD_ACCDB_DEMOTE_AGE+2UL );
+  for( ulong i=0UL; i<256UL; i++ ) drain_background( t2 );
+
+  uchar cold[ 600 ][ 32 ]; ulong cold_cnt = 0UL;
+  for( ulong j=0UL; j<n; j++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, j+1UL ); key[ 31 ] = 0x6B;
+    if( !test_is_hot( key ) ) memcpy( cold[ cold_cnt++ ], key, 32 );
+  }
+  FD_TEST( cold_cnt>=32UL );
+
+  cpu_set_t prev; FD_TEST( !sched_getaffinity( 0, sizeof(prev), &prev ) );
+  test_park_cpu = sched_getcpu();
+  test_pin_cpu( test_park_cpu );
+  test_background_ctx_t bg = { .accdb = t2, .stop = 0 };
+  test_waker_ctx_t      wk = { .sleep = sleep, .stop = 0, .wakes = 0UL };
+  pthread_t bg_thr, wk_thr;
+  FD_TEST( !pthread_create( &bg_thr, NULL, run_background_pinned, &bg ) );
+  if( with_waker ) FD_TEST( !pthread_create( &wk_thr, NULL, run_waker, &wk ) );
+
+  long t0 = fd_log_wallclock();
+  for( ulong i=0UL; i<32UL; i++ ) {
+    ulong j = FD_LOAD( ulong, cold[ i ] )-1UL;
+    if( i&1UL ) {
+      FD_TEST( fd_accdb_lamports( fg, tip, cold[ i ] )==10UL+j );
+    } else {
+      ulong lamports, data_len; uchar owner[ 32 ];
+      FD_TEST( accdb_read( fg, tip, cold[ i ], &lamports, d, &data_len, owner ) );
+      FD_TEST( lamports==10UL+j && data_len==sizeof(d) && d[ 3 ]==(uchar)j );
+    }
+  }
+  long dt = fd_log_wallclock()-t0;
+
+  FD_VOLATILE( bg.stop ) = 1;
+  FD_TEST( !pthread_join( bg_thr, NULL ) );
+  if( with_waker ) { FD_VOLATILE( wk.stop ) = 1; FD_TEST( !pthread_join( wk_thr, NULL ) ); }
+  FD_TEST( !sched_setaffinity( 0, sizeof(prev), &prev ) );
+
+  fd_accdb_metrics_t const * m = fd_accdb_metrics( fg );
+  FD_LOG_NOTICE(( "waker %d: %lu waits, %lu parks, %lu wakes, %ld us", with_waker, m->residual_waits, m->residual_parks, wk.wakes, dt/1000L ));
+  FD_TEST( m->residual_waits==32UL );
+  FD_TEST( m->residual_parks>0UL ); /* T2 cannot run on our CPU while we spin */
+  for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) FD_TEST( !test_shmem_mem->res_park[ j ] );
+  FD_TEST( sleep->tile[ tile_id ].word==1UL );
+
+  free( sleep );
+  free( fg_mem );
+  close( test_idx_fd );
+  test_teardown( t2, fd );
+}
+
 /* Overflow tier at its worst case with a tiny pool: a star of frozen
    sibling leaves, each at the per-slot write cap, overflows RAM into
    ovl (none has a child).  Readers on every leaf see their own version
@@ -3708,6 +3849,10 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_idx_prefetch_and_residual ..." ));
   test_idx_prefetch_and_residual();
+
+  FD_LOG_NOTICE(( "test_idx_residual_park ..." ));
+  test_idx_residual_park( 1 );
+  test_idx_residual_park( 0 );
 
   FD_LOG_NOTICE(( "test_idx_overflow_worst_case ..." ));
   test_idx_overflow_worst_case();

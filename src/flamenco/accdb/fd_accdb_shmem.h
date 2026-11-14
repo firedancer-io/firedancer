@@ -53,6 +53,7 @@ struct fd_accdb_metrics {
   ulong acquire_pool_waits;
   ulong residual_waits;
   ulong residual_wait_ticks;
+  ulong residual_parks;
   ulong prefetch_pushed;
   ulong prefetch_dropped;
   ulong promoted;
