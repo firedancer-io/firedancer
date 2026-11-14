@@ -354,9 +354,20 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         fd_bank_t const *             bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( bank );
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        out_msg->bank_idx         = msg->bank_idx;
-        out_msg->cert_verify->err    = !!fd_alpenglow_cert_verify( bank, msg->cert, msg->tag, msg->quorum, msg->shred_version, NULL, msg->has_hm ? &msg->hm : NULL, &out_msg->cert_verify->hm );
+        out_msg->bank_idx = msg->bank_idx;
+        fd_alpenglow_cert_stats_t stats = {0};
+        long tick_start = fd_tickcount();
+        out_msg->cert_verify->err    = !!fd_alpenglow_cert_verify( bank, msg->cert, msg->tag, msg->quorum, msg->shred_version, NULL, msg->has_hm ? &msg->hm : NULL, &out_msg->cert_verify->hm, &stats );
         out_msg->cert_verify->has_hm = !msg->has_hm && !out_msg->cert_verify->err; /* hashed here */
+        out_msg->cert_verify->kind          = fd_alpenglow_footer_cert_kind( msg->tag, msg->quorum );
+        out_msg->cert_verify->quorum        = msg->quorum;
+        out_msg->cert_verify->signer_cnt    = stats.signer_cnt;
+        out_msg->cert_verify->validator_cnt = stats.validator_cnt;
+        out_msg->cert_verify->signer_stake  = stats.signer_stake;
+        out_msg->cert_verify->total_stake   = stats.total_stake;
+        out_msg->cert_verify->slot          = bank->f.slot;
+        out_msg->cert_verify->tick_start    = tick_start;
+        out_msg->cert_verify->tick_end      = fd_tickcount();
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_CERT_VERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
@@ -370,7 +381,14 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         out_msg->bank_idx                = msg->bank_idx;
         out_msg->rewards->leader_credits = 0UL;
         fd_lthash_zero( &ctx->result->lthash );
-        out_msg->rewards->err = !!fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, NULL, ctx->footer_cache, &msg->plan, msg->slice_idx, msg->slice_cnt, &ctx->result->lthash, &out_msg->rewards->leader_credits );
+        out_msg->rewards->acct_cnt = 0UL;
+        long tick_start = fd_tickcount();
+        out_msg->rewards->err = !!fd_alpenglow_rewards_apply_slice( bank, ctx->accdb, NULL, ctx->footer_cache, &msg->plan, msg->slice_idx, msg->slice_cnt, &ctx->result->lthash, &out_msg->rewards->leader_credits, &out_msg->rewards->acct_cnt );
+        out_msg->rewards->slice_idx  = msg->slice_idx;
+        out_msg->rewards->slice_cnt  = msg->slice_cnt;
+        out_msg->rewards->slot       = bank->f.slot;
+        out_msg->rewards->tick_start = tick_start;
+        out_msg->rewards->tick_end   = fd_tickcount();
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_REWARDS<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;
@@ -391,6 +409,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         out_msg->lthash->cnt = msg->cnt;
         fd_lthash_value_t * sum = &ctx->result->lthash;
         fd_lthash_zero( sum );
+        ulong data_sz       = 0UL;
+        long  acquire_ticks = 0L;
         for( ulong i=0UL; i<msg->cnt; i+=FD_BLAKE3_XN_MAX ) {
           ulong               acc_cnt = fd_ulong_min( msg->cnt-i, FD_BLAKE3_XN_MAX );
           fd_acc_t            acc       [ FD_BLAKE3_XN_MAX ];
@@ -404,7 +424,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
           fd_lthash_value_t   hash      [ FD_BLAKE3_XN_MAX ];
           fd_lthash_value_t * hash_out  [ FD_BLAKE3_XN_MAX ];
           for( ulong j=0UL; j<acc_cnt; j++ ) pubkey[ j ] = msg->acct[ i+j ].b;
+          long tick_acquire = fd_tickcount();
           fd_accdb_acquire( ctx->accdb, fork_id, acc_cnt, pubkey, writable, acc );
+          acquire_ticks += fd_tickcount()-tick_acquire;
           for( ulong j=0UL; j<acc_cnt; j++ ) {
             owner     [ j ] = acc[ j ].owner;
             lamports  [ j ] = acc[ j ].lamports;
@@ -412,14 +434,19 @@ returnable_frag( fd_execrp_tile_t *  ctx,
             data      [ j ] = acc[ j ].data;
             data_len  [ j ] = acc[ j ].data_len;
             hash_out  [ j ] = hash+j;
+            data_sz += acc[ j ].data_len;
           }
           fd_hashes_account_lthash_xn( acc_cnt, pubkey, owner, lamports, executable, data, data_len, hash_out );
           fd_accdb_release( ctx->accdb, acc_cnt, acc );
           for( ulong j=0UL; j<acc_cnt; j++ ) fd_lthash_add( sum, hash+j );
         }
-        out_msg->lthash->slot       = bank->f.slot;
-        out_msg->lthash->tick_start = tick_start;
-        out_msg->lthash->tick_end   = fd_tickcount();
+        out_msg->lthash->slot          = bank->f.slot;
+        out_msg->lthash->speculative   = msg->speculative;
+        out_msg->lthash->data_sz       = data_sz;
+        out_msg->lthash->tick_dispatch = msg->tick_dispatch;
+        out_msg->lthash->tick_start    = tick_start;
+        out_msg->lthash->tick_end      = fd_tickcount();
+        out_msg->lthash->acquire_ticks = acquire_ticks;
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (kind<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
         break;

@@ -264,6 +264,9 @@ struct fd_sched_lthash_task {
   ulong                  exec_idx;
   ulong                  cnt;   /* In [1,FD_SCHED_LTHASH_BATCH_MAX] */
   fd_acct_addr_t const * accts; /* Points into sched memory that stays as it is until the task completes. */
+  /* 1 if the task is a speculative addition, guessed while the block was
+     still receiving FEC sets.  0 otherwise. */
+  int                    speculative;
 };
 typedef struct fd_sched_lthash_task fd_sched_lthash_task_t;
 

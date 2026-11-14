@@ -165,11 +165,34 @@ test_v5_in_place( fd_svm_mini_t * mini,
   fd_accdb_unread_one( accdb, &acc );
 }
 
+static void
+test_footer_cert_kind( void ) {
+  fd_block_footer_t footer[1];
+  memset( footer, 0, sizeof(fd_block_footer_t) );
+  footer->has_fast_final_cert   = 1;
+  footer->has_final_cert        = 1;
+  footer->has_skip_reward_cert  = 1;
+  footer->has_notar_reward_cert = 1;
+  fd_block_footer_cert_t const * cert  [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+  uint                           tag   [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+  ulong                          quorum[ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+  FD_TEST( fd_alpenglow_footer_certs( footer, cert, tag, quorum )==FD_ALPENGLOW_FOOTER_CERT_CNT );
+
+  /* The pushes come in kind order. */
+  for( int kind=0; kind<FD_ALPENGLOW_FOOTER_CERT_CNT; kind++ ) {
+    FD_TEST( fd_alpenglow_footer_cert_kind( tag[ kind ], quorum[ kind ] )==kind );
+  }
+  FD_TEST( fd_alpenglow_footer_cert_kind( tag[ FD_ALPENGLOW_FOOTER_CERT_NOTAR ], 2UL )==FD_ALPENGLOW_FOOTER_CERT_CNT );
+  FD_TEST( fd_alpenglow_footer_cert_kind( tag[ FD_ALPENGLOW_FOOTER_CERT_FINAL ], 0UL )==FD_ALPENGLOW_FOOTER_CERT_CNT );
+  FD_TEST( fd_alpenglow_footer_cert_kind( 0U, 0UL )==FD_ALPENGLOW_FOOTER_CERT_CNT );
+}
+
 /* test_rewards_slices applies one plan to the same accounts in one
    slice on one fork and in several slices on another, and expects the
    same lthash change, leader credits and account images.  The leader
    is a signer of both certs, so its own share and its signer updates
-   go through the leader path. */
+   go through the leader path.  It also checks the stats that cert
+   verification reports for a fast final and a notar reward cert. */
 
 #define SLICE_TEST_VAL_CNT (9UL)
 
@@ -241,12 +264,84 @@ test_rewards_slices( fd_svm_mini_t * mini,
   plan->leader_vote_pubkey = vote[ 3 ];
   plan->slice_seed         = fd_rng_ulong( rng );
 
-  /* one slice on the first fork */
+  /* The notar reward cert has no quorum check and the fast final cert
+     does.  Both report their stats whether or not they verify. */
+  {
+    fd_bls_sec_t sk[ SLICE_TEST_VAL_CNT ];
+    for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
+      uchar ikm[ 32 ] = { 0 };
+      FD_STORE( ulong, ikm, 0x700UL+i );
+      fd_bls_sec_derive( sk+i, ikm, sizeof(ikm) );
+    }
+    fd_block_footer_t footer[1];
+    memset( footer, 0, sizeof(fd_block_footer_t) );
+    footer->has_fast_final_cert   = 1;
+    footer->has_notar_reward_cert = 1;
+    fd_block_footer_cert_t const * cert  [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+    uint                           tag   [ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+    ulong                          quorum[ FD_ALPENGLOW_FOOTER_CERT_MAX ];
+    FD_TEST( fd_alpenglow_footer_certs( footer, cert, tag, quorum )==2UL );
+
+    ulong  cert_slot = bank_a->f.slot;
+    ushort sv        = 4242;
+    fd_hash_t block_id = { .ul = { 77UL } };
+    for( ulong c=0UL; c<2UL; c++ ) {
+      /* Cert 0 (fast final) is signed by validators 0 to 2, which is
+         below its quorum.  Cert 1 (notar reward) is signed by every
+         validator but 2 and 7. */
+      fd_block_footer_cert_t * fc = c ? &footer->notar_reward_cert : &footer->fast_final_cert;
+      uchar msg[ FD_ALPENGLOW_CERT_PAYLOAD_MAX ];
+      fc->slot = cert_slot;
+      memcpy( fc->block_id.uc, block_id.uc, 32UL );
+      ulong msg_sz = fd_alpenglow_cert_payload( fc, tag[ c ], sv, msg );
+      fd_bls_agg_t agg[1]; fd_bls_agg_null( agg );
+      ulong stake = 0UL;
+      for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
+        if( c ? ( i==2UL || i==7UL ) : i>2UL ) continue;
+        fd_vote_stakes_ele_t ele[1];
+        FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, fork_id, vote+i, ele ) );
+        fd_bls_sig_t sig[1]; fd_bls_sec_sign( sk+i, msg, msg_sz, sig );
+        fd_bls_sig_add( &agg->sig, &agg->sig, sig );
+        fd_bls_set_insert( agg->set, ele->rank );
+        stake += ele->stake;
+      }
+      FD_TEST( fd_block_footer_cert_from_agg( fc, cert_slot, block_id.uc, &agg[0] ) );
+
+      fd_alpenglow_cert_stats_t stats[1];
+      memset( stats, 0, sizeof(stats) );
+      int err = fd_alpenglow_cert_verify( bank_a, fc, tag[ c ], quorum[ c ], sv, NULL, NULL, NULL, stats );
+      FD_TEST( err==( c ? 0 : -1 ) );
+      FD_TEST( stats->signer_cnt==fd_bls_set_cnt( fc->signer_set ) );
+      FD_TEST( stats->validator_cnt==SLICE_TEST_VAL_CNT );
+      FD_TEST( stats->signer_stake==stake );
+      FD_TEST( stats->total_stake==total_stake );
+
+      /* A corrupted signature still reports, and NULL stats is fine. */
+      fd_block_footer_cert_t bad[1] = { *fc };
+      bad->sig[ 5 ] ^= 1;
+      memset( stats, 0, sizeof(stats) );
+      FD_TEST( fd_alpenglow_cert_verify( bank_a, bad, tag[ c ], quorum[ c ], sv, NULL, NULL, NULL, stats )==-1 );
+      FD_TEST( stats->signer_cnt==fd_bls_set_cnt( fc->signer_set ) && stats->signer_stake==stake );
+      FD_TEST( stats->validator_cnt==SLICE_TEST_VAL_CNT && stats->total_stake==total_stake );
+      FD_TEST( fd_alpenglow_cert_verify( bank_a, fc, tag[ c ], quorum[ c ], sv, NULL, NULL, NULL, NULL )==( c ? 0 : -1 ) );
+    }
+
+    /* A cert that fails before its epoch set is known leaves stats alone. */
+    fd_alpenglow_cert_stats_t untouched[1] = {{ 11UL, 12UL, 13UL, 14UL }};
+    FD_TEST( fd_alpenglow_cert_verify( bank_a, cert[ 1 ], tag[ 1 ], quorum[ 1 ], 0, NULL, NULL, NULL, untouched )==-1 );
+    FD_TEST( untouched->signer_cnt==11UL && untouched->validator_cnt==12UL && untouched->signer_stake==13UL && untouched->total_stake==14UL );
+  }
+
+  /* One slice on the first fork. */
   fd_lthash_value_t delta_a[1];
   fd_lthash_zero( delta_a );
   ulong credits_a = 0UL;
-  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_a, accdb, NULL, NULL, plan, 0UL, 1UL, delta_a, &credits_a ) );
+  ulong acct_cnt_a = 0UL;
+  FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_a, accdb, NULL, NULL, plan, 0UL, 1UL, delta_a, &credits_a, &acct_cnt_a ) );
   FD_TEST( credits_a );
+  /* Every signer but the leader (3) is stored once, so validators 0 to
+     8 less 7 and 3. */
+  FD_TEST( acct_cnt_a==SLICE_TEST_VAL_CNT-2UL );
   fd_alpenglow_rewards_apply_leader( bank_a, accdb, NULL, NULL, plan, credits_a, delta_a );
   for( ulong i=0UL; i<SLICE_TEST_VAL_CNT; i++ ) {
     fd_acc_t acc = fd_accdb_read_one( accdb, bank_a->accdb_fork_id, vote[ i ].uc );
@@ -266,7 +361,13 @@ test_rewards_slices( fd_svm_mini_t * mini,
     fd_lthash_value_t delta_b[1];
     fd_lthash_zero( delta_b );
     ulong credits_b = 0UL;
-    for( ulong i=0UL; i<slice_cnt; i++ ) FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_b, accdb, NULL, run_cache, plan, i, slice_cnt, delta_b, &credits_b ) );
+    ulong acct_cnt_b = 0UL;
+    for( ulong i=0UL; i<slice_cnt; i++ ) {
+      ulong slice_accts = 0UL;
+      FD_TEST( !fd_alpenglow_rewards_apply_slice( bank_b, accdb, NULL, run_cache, plan, i, slice_cnt, delta_b, &credits_b, &slice_accts ) );
+      acct_cnt_b += slice_accts;
+    }
+    FD_TEST( acct_cnt_b==acct_cnt_a );
     FD_TEST( credits_b==credits_a );
     fd_alpenglow_rewards_apply_leader( bank_b, accdb, NULL, run_cache, plan, credits_b, delta_b );
     ulong memo_cnt = 0UL;
@@ -300,6 +401,7 @@ main( int     argc,
 
   test_v5_update_matches_v4( rng );
   for( ulong iter=0UL; iter<16UL; iter++ ) test_v5_in_place( mini, rng );
+  test_footer_cert_kind();
   for( ulong iter=0UL; iter<4UL;  iter++ ) test_rewards_slices( mini, rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );

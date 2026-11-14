@@ -78,6 +78,13 @@ typedef struct fd_execrp_cert_verify_msg fd_execrp_cert_verify_msg_t;
 struct fd_execrp_lthash_msg {
   ulong          bank_idx;
   ulong          cnt; /* In [1, FD_EXECRP_LTHASH_BATCH_MAX] */
+
+  /* Both are for monitoring only, and the done message echoes them.
+     speculative is 1 for a speculative addition and 0 otherwise.
+     tick_dispatch is the tickcount when replay dispatched the task. */
+  ulong          speculative;
+  long           tick_dispatch;
+
   fd_acct_addr_t acct[ FD_EXECRP_LTHASH_BATCH_MAX ];
 };
 typedef struct fd_execrp_lthash_msg fd_execrp_lthash_msg_t;
@@ -180,23 +187,57 @@ struct fd_execrp_cert_verify_done_msg {
   int            err;
   int            has_hm; /* hm is the H(m) the tile hashed, for replay's memo */
   fd_bls_hash_t hm;
+
+  /* For monitoring only.  kind is one of FD_ALPENGLOW_FOOTER_CERT_*.
+     quorum is the numerator over FD_VOTOR_QUORUM_THRESHOLD_DENOM, and
+     0 for a reward cert.  The four counts are the cert's signers and
+     stake as the verifier saw them.  slot is the task's slot, and the
+     ticks are the tickcounts when the exec tile started and finished
+     it. */
+  int   kind;
+  ulong quorum;
+  ulong signer_cnt;
+  ulong validator_cnt;
+  ulong signer_stake;
+  ulong total_stake;
+  ulong slot;
+  long  tick_start;
+  long  tick_end;
 };
 typedef struct fd_execrp_cert_verify_done_msg fd_execrp_cert_verify_done_msg_t;
 
 struct fd_execrp_lthash_done_msg {
   ulong cnt;
 
-  /* For monitoring only: the task's slot, and the tickcounts when the
-     exec tile started and finished it. */
+  /* For monitoring only.  speculative and tick_dispatch echo the task.
+     slot is the task's slot.  data_sz is the bytes of account data
+     hashed.  tick_start and tick_end are the tickcounts when the exec
+     tile started and finished the task, and acquire_ticks is the total
+     ticks the exec tile spent fetching the accounts from accdb. */
   ulong slot;
+  ulong speculative;
+  ulong data_sz;
+  long  tick_dispatch;
   long  tick_start;
   long  tick_end;
+  long  acquire_ticks;
 };
 typedef struct fd_execrp_lthash_done_msg fd_execrp_lthash_done_msg_t;
 
 struct fd_execrp_rewards_done_msg {
   int   err;
   ulong leader_credits; /* The slice's share of the leader's credits.  Its lthash delta is in the tile's result entry. */
+
+  /* For monitoring only.  slice_idx and slice_cnt echo the task.
+     acct_cnt is the number of vote accounts the slice stored.  slot is
+     the task's slot, and the ticks are the tickcounts when the exec
+     tile started and finished it. */
+  ulong slice_idx;
+  ulong slice_cnt;
+  ulong acct_cnt;
+  ulong slot;
+  long  tick_start;
+  long  tick_end;
 };
 typedef struct fd_execrp_rewards_done_msg fd_execrp_rewards_done_msg_t;
 

@@ -131,7 +131,8 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
                           ushort                         shred_version,
                           fd_footer_cache_t *            cache,
                           fd_bls_hash_t const *         hm,
-                          fd_bls_hash_t *               hm_out ) {
+                          fd_bls_hash_t *               hm_out,
+                          fd_alpenglow_cert_stats_t *   stats_out ) {
   ulong bank_slot = bank->f.slot;
   ulong cert_slot = cert->slot;
 
@@ -153,10 +154,17 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
     return -1;
   }
 
-  ulong stake = 0UL;
+  ulong stake      = 0UL;
+  ulong signer_cnt = 0UL;
   for( ulong rank=fd_bls_set_const_iter_init( cert->signer_set ); !fd_bls_set_const_iter_done( rank ); rank=fd_bls_set_const_iter_next( cert->signer_set, rank ) ) {
     stake += set->stakes[ rank ];
+    signer_cnt++;
   }
+  if( stats_out ) *stats_out = (fd_alpenglow_cert_stats_t){
+    .signer_cnt    = signer_cnt,
+    .validator_cnt = set->validator_cnt,
+    .signer_stake  = stake,
+    .total_stake   = set->total_stake };
   fd_bls_pub_t pub[1];
   fd_bls_pub_sum_cached( pub, set->bls_keys, set->validator_cnt, cert->signer_set,
                          set->epoch!=ULONG_MAX ? &set->key_sum : NULL );
@@ -208,6 +216,27 @@ fd_alpenglow_footer_certs( fd_block_footer_t const *      footer,
 }
 
 int
+fd_alpenglow_footer_cert_kind( uint  vote_tag,
+                               ulong quorum_numer ) {
+  switch( vote_tag ) {
+  case VOTE_TAG_NOTAR:
+    if( quorum_numer==FD_VOTOR_STRONG_QUORUM_THRESHOLD_NUMER ) return FD_ALPENGLOW_FOOTER_CERT_FAST_FINAL;
+    if( quorum_numer==FD_VOTOR_QUORUM_THRESHOLD_NUMER        ) return FD_ALPENGLOW_FOOTER_CERT_NOTAR;
+    if( !quorum_numer                                        ) return FD_ALPENGLOW_FOOTER_CERT_NOTAR_REWARD;
+    break;
+  case VOTE_TAG_FINAL:
+    if( quorum_numer==FD_VOTOR_QUORUM_THRESHOLD_NUMER ) return FD_ALPENGLOW_FOOTER_CERT_FINAL;
+    break;
+  case VOTE_TAG_SKIP:
+    if( !quorum_numer ) return FD_ALPENGLOW_FOOTER_CERT_SKIP_REWARD;
+    break;
+  default:
+    break;
+  }
+  return FD_ALPENGLOW_FOOTER_CERT_CNT;
+}
+
+int
 fd_alpenglow_footer_verify( fd_bank_t const *         bank,
                             fd_block_footer_t const * footer,
                             ushort                    shred_version,
@@ -220,7 +249,7 @@ fd_alpenglow_footer_verify( fd_bank_t const *         bank,
   ulong                          quorum[ FD_ALPENGLOW_FOOTER_CERT_MAX ];
   ulong                          cnt = fd_alpenglow_footer_certs( footer, cert, tag, quorum );
   for( ulong i=0UL; i<cnt; i++ ) {
-    if( FD_UNLIKELY( fd_alpenglow_cert_verify( bank, cert[ i ], tag[ i ], quorum[ i ], shred_version, cache, NULL, NULL ) ) ) return -1;
+    if( FD_UNLIKELY( fd_alpenglow_cert_verify( bank, cert[ i ], tag[ i ], quorum[ i ], shred_version, cache, NULL, NULL, NULL ) ) ) return -1;
   }
   return 0;
 }
@@ -729,9 +758,11 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
                                   ulong                               slice_idx,
                                   ulong                               slice_cnt,
                                   fd_lthash_value_t *                 delta,
-                                  ulong *                             leader_credits ) {
+                                  ulong *                             leader_credits,
+                                  ulong *                             acct_cnt ) {
 
   ulong bank_slot = bank->f.slot;
+  ulong stored    = 0UL;
   if( FD_UNLIKELY( !plan->use_memo ) ) cache = NULL;
 
   uchar __attribute__((aligned(FD_VOTE_QUEUE_ALIGN))) q_mem[ FD_VOTE_QUEUE_FOOTPRINT ];
@@ -800,6 +831,7 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
       }
       ulong m = iter_kind==plan->memo_kind ? r : memo_rank( bank, plan->memo_kind, &ele->pubkey );
       vote_account_store( bank, accdb, capture_ctx, &acc, vs, cache && m!=ULONG_MAX ? cache->memo+m : NULL, q );
+      stored++;
     }
     if( FD_UNLIKELY( !have_ranked_vote ) ) {
       if( rwd ) FD_LOG_WARNING(( "slot %lu: no ranked validators for reward slot %lu",    bank_slot, plan->reward_slot ));
@@ -810,6 +842,7 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
   }
 
   fd_lthash_add( delta, fd_vote_queue_fini( q ) );
+  if( acct_cnt ) *acct_cnt = stored;
   return 0;
 }
 
@@ -880,7 +913,7 @@ fd_alpenglow_rewards_apply( fd_bank_t *               bank,
   fd_lthash_value_t delta[1];
   fd_lthash_zero( delta );
   ulong leader_credits = 0UL;
-  if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, accdb, capture_ctx, cache, plan, 0UL, 1UL, delta, &leader_credits ) ) ) return -1;
+  if( FD_UNLIKELY( fd_alpenglow_rewards_apply_slice( bank, accdb, capture_ctx, cache, plan, 0UL, 1UL, delta, &leader_credits, NULL ) ) ) return -1;
   fd_alpenglow_rewards_apply_leader( bank, accdb, capture_ctx, cache, plan, leader_credits, delta );
 
   fd_lthash_add( fd_bank_lthash_locking_modify( bank ), delta );

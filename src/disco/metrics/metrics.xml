@@ -2129,6 +2129,8 @@ deliberate exception with lint-allow="<rule id>")
     <int value="21" name="ReplayLthash" label="replay_lthash" />
     <int value="22" name="ReplayLthashBatch" label="replay_lthash_batch" />
     <int value="23" name="VoteBatch" label="vote_batch" />
+    <int value="24" name="ReplayCert" label="replay_cert" />
+    <int value="25" name="ReplayRewards" label="replay_rewards" />
 </enum>
 
 <enum name="EventConnState">

@@ -219,12 +219,14 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
 #define FD_GUI_TIMELINE_QUERY_SLOT_MAX         (65536UL)
 #define FD_GUI_TIMELINE_QUERY_EVENT_MAX        (65536UL)
 #define FD_GUI_TIMELINE_QUERY_VOTE_MAX         (262144UL)
-/* query_tile_states: slot state and lthash rows, and intervals (up to
-   four stages and a sigverify per txn, one per slot state or lthash
-   task). */
+/* query_tile_states: slot state, lthash, cert verify and rewards rows,
+   and intervals (up to four stages and a sigverify per txn, one per
+   slot state, lthash, cert verify or rewards task). */
 #define FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX   (65536UL)
 #define FD_GUI_TIMELINE_QUERY_LTHASH_MAX       (65536UL)
-#define FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX  (5UL*FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX+FD_GUI_TIMELINE_QUERY_LTHASH_MAX)
+#define FD_GUI_TIMELINE_QUERY_CERT_MAX         (4096UL)
+#define FD_GUI_TIMELINE_QUERY_REWARDS_MAX      (8192UL)
+#define FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX  (5UL*FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX+FD_GUI_TIMELINE_QUERY_LTHASH_MAX+FD_GUI_TIMELINE_QUERY_CERT_MAX+FD_GUI_TIMELINE_QUERY_REWARDS_MAX)
 
 /* Event kinds returned by timeline.query_events. */
 #define FD_GUI_TIMELINE_EVENT_LEADER_SKIP       (0U)
@@ -256,7 +258,7 @@ typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
    their own scan. */
 #define FD_GUI_CHUNK_RUN_MAX                   (30UL)
 #define FD_GUI_CHUNK_RUN_ROW_MAX               (131072UL)
-#define FD_GUI_CHUNK_RUN_SETS                  (3UL)
+#define FD_GUI_CHUNK_RUN_SETS                  (5UL)
 
 /* fd_gui_timeline_granularities lists the bucket durations accepted by
    the timeline aggregate queries, in ascending order. */
@@ -491,10 +493,11 @@ fd_gui_timeline_vote_lat_add( fd_gui_timeline_day_t * day,
 }
 
 /* Tile states reported by query_tile_states and query_agg_tile_states.
-   Execrp tiles run transaction stages and account LtHash tasks, the
-   replay tile runs scheduler slot states.  Idle is whatever remains, it is never stored.  The
+   Execrp tiles run transaction stages, account LtHash tasks, footer
+   cert verifies and vote reward slices, the replay tile runs scheduler
+   slot states.  Idle is whatever remains, it is never stored.  The
    batch states only appear in txn_batch responses: each is the
-   transaction state 10 below it, rolled up over a batch, and a batch's
+   transaction state 12 below it, rolled up over a batch, and a batch's
    execution stages split its span in proportion to its members' time
    in each stage. */
 
@@ -509,18 +512,22 @@ fd_gui_timeline_vote_lat_add( fd_gui_timeline_day_t * day,
 #define FD_GUI_TILE_STATE_BLOCKED_ON_NETWORK   (8UL)
 #define FD_GUI_TILE_STATE_SLOT_FINISH          (9UL)
 #define FD_GUI_TILE_STATE_LTHASH               (10UL)
-#define FD_GUI_TILE_STATE_CNT                  (11UL)
-#define FD_GUI_TILE_STATE_SIGVERIFY_BATCH      (11UL)
-#define FD_GUI_TILE_STATE_LOAD_BATCH           (12UL)
-#define FD_GUI_TILE_STATE_VALID_BATCH          (13UL)
-#define FD_GUI_TILE_STATE_EXEC_BATCH           (14UL)
-#define FD_GUI_TILE_STATE_POST_EXEC_BATCH      (15UL)
-#define FD_GUI_TILE_STATE_LTHASH_BATCH         (16UL)
-#define FD_GUI_TILE_STATE_BATCH_OFF            (10UL) /* batch state - txn state */
+#define FD_GUI_TILE_STATE_CERT_VERIFY          (11UL)
+#define FD_GUI_TILE_STATE_REWARDS              (12UL)
+#define FD_GUI_TILE_STATE_CNT                  (13UL)
+#define FD_GUI_TILE_STATE_SIGVERIFY_BATCH      (13UL)
+#define FD_GUI_TILE_STATE_LOAD_BATCH           (14UL)
+#define FD_GUI_TILE_STATE_VALID_BATCH          (15UL)
+#define FD_GUI_TILE_STATE_EXEC_BATCH           (16UL)
+#define FD_GUI_TILE_STATE_POST_EXEC_BATCH      (17UL)
+#define FD_GUI_TILE_STATE_LTHASH_BATCH         (18UL)
+#define FD_GUI_TILE_STATE_BATCH_OFF            (12UL) /* batch state - txn state */
 
 FD_STATIC_ASSERT( FD_GUI_TILE_STATE_SIGVERIFY_BATCH==FD_GUI_TILE_STATE_SIGVERIFY   +FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
 FD_STATIC_ASSERT( FD_GUI_TILE_STATE_LOAD_BATCH     ==FD_GUI_TILE_STATE_LOADING     +FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
 FD_STATIC_ASSERT( FD_GUI_TILE_STATE_POST_EXEC_BATCH==FD_GUI_TILE_STATE_POST_EXECUTE+FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_VALID_BATCH    ==FD_GUI_TILE_STATE_VALIDATE    +FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
+FD_STATIC_ASSERT( FD_GUI_TILE_STATE_EXEC_BATCH     ==FD_GUI_TILE_STATE_EXECUTE     +FD_GUI_TILE_STATE_BATCH_OFF, batch_state_map );
 FD_STATIC_ASSERT( FD_GUI_TILE_STATE_LTHASH_BATCH<=UCHAR_MAX, batch_state_fits );
 
 /* Tile state positions: execrp tiles by kind id, then the replay tile. */
@@ -542,25 +549,79 @@ struct fd_gui_store_replay_slot_state {
 };
 typedef struct fd_gui_store_replay_slot_state fd_gui_store_replay_slot_state_t;
 
-/* An execrp account LtHash task interval [start_ns,end_ns) on exec
-   tile exec_idx.  kind is 0 for removing the accounts' previous
-   versions and 1 for adding their new versions, cnt is the number of
-   accounts hashed. */
+/* An execrp account LtHash task interval [start_ns,end_ns) on the exec
+   tile exec_idx selects.  kind is 0 for removing the accounts' previous
+   versions and 1 for adding their new versions.  cnt is the number of
+   accounts hashed.  data_sz is the bytes of account data hashed.
+   acquire_ns is the time spent fetching the accounts from accdb, and
+   wait_ns the time from replay's dispatch to the tile starting the
+   task.  These three saturate at UINT_MAX.  speculative is 1 for an
+   addition guessed before the block had all its FEC sets.  exec_idx is
+   a uchar, unlike in the other task records, to hold the record at 48
+   bytes. */
 
 #define FD_GUI_LTHASH_KIND_SUB (0)
 #define FD_GUI_LTHASH_KIND_ADD (1)
 
 struct fd_gui_store_replay_lthash {
+  long  insert_time_ns;
+  long  start_ns;
+  long  end_ns;
+  ulong slot;
+  uint  data_sz;
+  uint  acquire_ns;
+  uint  wait_ns;
+  uchar exec_idx;
+  uchar kind;
+  uchar cnt;
+  uchar speculative;
+};
+typedef struct fd_gui_store_replay_lthash fd_gui_store_replay_lthash_t;
+FD_STATIC_ASSERT( FD_SCHED_MAX_EXEC_TILE_CNT<=UCHAR_MAX, lthash_exec_idx_fits );
+
+/* An execrp footer cert verify interval [start_ns,end_ns) on exec tile
+   exec_idx, for the footer cert carried by the block of the given slot.
+   kind is one of FD_ALPENGLOW_FOOTER_CERT_* and quorum is the stake
+   numerator (0, 3 or 4) the cert was checked against.  The cert had
+   signer_cnt signers of validator_cnt, holding signer_stake of
+   total_stake.  ok is 1 if the verify passed. */
+
+struct fd_gui_store_replay_cert {
   long   insert_time_ns;
   long   start_ns;
   long   end_ns;
   ulong  slot;
+  ulong  signer_stake;
+  ulong  total_stake;
+  uint   signer_cnt;
+  uint   validator_cnt;
   ushort exec_idx;
   uchar  kind;
-  uchar  cnt;
-  uint   _pad;
+  uchar  quorum;
+  uchar  ok;
+  uchar  _pad[ 3 ];
 };
-typedef struct fd_gui_store_replay_lthash fd_gui_store_replay_lthash_t;
+typedef struct fd_gui_store_replay_cert fd_gui_store_replay_cert_t;
+
+/* An execrp vote reward slice interval [start_ns,end_ns) on exec tile
+   exec_idx, for the given slot.  The slice is slice_idx of slice_cnt
+   and covered acct_cnt rewarded accounts.  leader_credits is what the
+   slice credited the leader.  ok is 1 if the slice succeeded. */
+
+struct fd_gui_store_replay_rewards {
+  long   insert_time_ns;
+  long   start_ns;
+  long   end_ns;
+  ulong  slot;
+  ulong  leader_credits;
+  uint   acct_cnt;
+  ushort slice_idx;
+  ushort slice_cnt;
+  ushort exec_idx;
+  uchar  ok;
+  uchar  _pad[ 5 ];
+};
+typedef struct fd_gui_store_replay_rewards fd_gui_store_replay_rewards_t;
 
 /* LtHash tasks merged with the txn batching rule: a task joins its exec
    tile's open batch if it starts at most
@@ -1812,7 +1873,8 @@ typedef struct fd_gui_txn_batch_open fd_gui_txn_batch_open_t;
 
 /* A query_tile_states interval [lo,hi) of state on tile position pos.
    row indexes the query's txn (lane 0 exec, 1 sigverify), slot state
-   (lane 2) or lthash (lane 3) rows. */
+   (lane 2), lthash (lane 3), cert verify (lane 4) or rewards (lane 5)
+   rows. */
 
 struct fd_gui_timeline_state_entry {
   long   lo;
@@ -1838,7 +1900,7 @@ union fd_gui_timeline_scratch {
   fd_gui_store_vote_t                     votes      [ FD_GUI_TIMELINE_QUERY_VOTE_MAX ];
   struct { ulong ns[ FD_GUI_TILE_STATE_CNT ]; int have; } agg_tile_states[ FD_GUI_TIMELINE_QUERY_MAX_BUCKETS ];
   struct {
-    void const *                  rows[ FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX+FD_GUI_TIMELINE_QUERY_LTHASH_MAX ];
+    void const *                  rows[ FD_GUI_TIMELINE_QUERY_TXN_MAX+FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX+FD_GUI_TIMELINE_QUERY_LTHASH_MAX+FD_GUI_TIMELINE_QUERY_CERT_MAX+FD_GUI_TIMELINE_QUERY_REWARDS_MAX ];
     fd_gui_timeline_state_entry_t entries[ FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX ];
   } tile_states;
 };
@@ -2179,8 +2241,11 @@ fd_gui_handle_replay_slot_states( fd_gui_t *                      gui,
    kind FD_GUI_LTHASH_KIND_{SUB,ADD} over cnt accounts, run by exec tile
    exec_idx for slot from tickcount tick_start to tick_end, adds it to
    the tile's state records and to the tile's open lthash batch.
+   speculative, data_sz, tick_dispatch and acquire_ticks are passed
+   through from the exec tile's done message.  The wait recorded is the
+   time from tick_dispatch to tick_start, clamped at zero.
    fd_gui_lthash_record does the same for a task given as wallclock
-   [start_ns,end_ns). */
+   [start_ns,end_ns), with acquire_ns and wait_ns already converted. */
 
 void
 fd_gui_handle_lthash_done( fd_gui_t * gui,
@@ -2188,8 +2253,12 @@ fd_gui_handle_lthash_done( fd_gui_t * gui,
                            int        kind,
                            ulong      slot,
                            ulong      cnt,
+                           int        speculative,
+                           ulong      data_sz,
+                           long       tick_dispatch,
                            long       tick_start,
                            long       tick_end,
+                           long       acquire_ticks,
                            long       now );
 
 void
@@ -2198,9 +2267,50 @@ fd_gui_lthash_record( fd_gui_t * gui,
                       int        kind,
                       ulong      slot,
                       ulong      cnt,
+                      int        speculative,
+                      ulong      data_sz,
                       long       start_ns,
                       long       end_ns,
+                      long       acquire_ns,
+                      long       wait_ns,
                       long       now );
+
+/* fd_gui_handle_cert_verify_done records an execrp footer cert verify
+   task run by exec tile exec_idx for slot from tickcount tick_start to
+   tick_end, and adds it to the tile's state records.  ok is nonzero if
+   the cert verified.  The task is dropped if exec_idx is not an exec
+   tile or the ticks are reversed.  kind, quorum and the counts are
+   saturated to the widths of their record fields.
+   fd_gui_handle_rewards_done does the same for a reward slice task of
+   slice_idx out of slice_cnt slices that paid acct_cnt accounts. */
+
+void
+fd_gui_handle_cert_verify_done( fd_gui_t * gui,
+                                ulong      exec_idx,
+                                int        kind,
+                                ulong      slot,
+                                ulong      quorum,
+                                ulong      signer_cnt,
+                                ulong      validator_cnt,
+                                ulong      signer_stake,
+                                ulong      total_stake,
+                                int        ok,
+                                long       tick_start,
+                                long       tick_end,
+                                long       now );
+
+void
+fd_gui_handle_rewards_done( fd_gui_t * gui,
+                            ulong      exec_idx,
+                            ulong      slot,
+                            ulong      slice_idx,
+                            ulong      slice_cnt,
+                            ulong      acct_cnt,
+                            ulong      leader_credits,
+                            int        ok,
+                            long       tick_start,
+                            long       tick_end,
+                            long       now );
 
 /* fd_gui_lthash_batch_flush writes open lthash batches idle for at
    least FD_GUI_LTHASH_BATCH_IDLE_NS as of now. */

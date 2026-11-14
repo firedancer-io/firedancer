@@ -69,6 +69,8 @@ static ulong const gui_db_type_idx[ FD_GUI_HIST_CNT ] = {
   [ FD_GUI_HIST_REPLAY_LTHASH           ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_LTHASH_IDX,
   [ FD_GUI_HIST_REPLAY_LTHASH_BATCH     ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_LTHASH_BATCH_IDX,
   [ FD_GUI_HIST_VOTE_BATCH              ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_VOTE_BATCH_IDX,
+  [ FD_GUI_HIST_REPLAY_CERT             ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_CERT_IDX,
+  [ FD_GUI_HIST_REPLAY_REWARDS          ] = FD_METRICS_ENUM_GUI_DB_TYPE_V_REPLAY_REWARDS_IDX,
 };
 
 #define IN_KIND_PACK_EXECLE   ( 2UL)
@@ -99,7 +101,7 @@ FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 65536
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
 
-#define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (40UL<<20)
+#define FD_GUI_TIMELINE_RAW_RESPONSE_MAX (48UL<<20)
 /* Per-row bounds including commas: ulong 21, uint 11, nonnegative delta
    string 22, ulong string 23, signature string 91, bool 6 (nulls shorter).
    Timestamps (txn and txn_batch): 4*21 + 1*11 + 7*22 = 249 bytes.
@@ -110,11 +112,13 @@ FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_TXN_MAX*480UL+4096UL<=FD_GUI_TIMELINE_RA
 /* query_tile_states: each interval adds itself and at most one Idle gap,
    each state 3+21 bytes, plus one tile_start_ts_delta per tile.  At most 2
    txn segments per txn row (21+2+21+21+11 bytes), one slot segment per
-   slot state row (21+2+21 bytes) and one lthash segment per lthash row
-   (21+21+2+4 bytes) are reported. */
+   slot state row (21+2+21 bytes), one lthash segment per lthash row
+   (21+21+2+4+2+11+11+11 bytes), one cert verify segment per cert row
+   (100 bytes), and one rewards segment per rewards row (90 bytes). */
 FD_STATIC_ASSERT( (2UL*FD_GUI_TIMELINE_QUERY_STATE_ENTRY_MAX+FD_GUI_TILE_STATE_POS_CNT)*24UL +
                   2UL*FD_GUI_TIMELINE_QUERY_TXN_MAX*76UL + FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX*44UL +
-                  FD_GUI_TIMELINE_QUERY_LTHASH_MAX*48UL +
+                  FD_GUI_TIMELINE_QUERY_LTHASH_MAX*83UL +
+                  FD_GUI_TIMELINE_QUERY_CERT_MAX*100UL + FD_GUI_TIMELINE_QUERY_REWARDS_MAX*90UL +
                   4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, tile_states_response_bound );
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_SHRED_MAX*56UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, shred_response_bound );
 /* query_slots: slot_delta 21, two ts delta strings 22, shred_cnt 11,
@@ -130,7 +134,7 @@ FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_VOTE_MAX*92UL+4096UL<=FD_GUI_TIMELINE_RA
    latency lines of an ns average and a count, at most 21+5*(21+11)=181
    bytes for each bucket.  All are in the shared 512-byte
    budget.  Agg cpu and tile states are per tile: cpu at most 256 tiles
-   of 4 bytes per bucket, tile states 11 us values of at most 12 bytes
+   of 4 bytes per bucket, tile states 13 us values of at most 12 bytes
    (a 12h bucket is 11 digits) per cell, plus brackets. */
 FD_STATIC_ASSERT( FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*512UL+4096UL<=FD_GUI_TIMELINE_RAW_RESPONSE_MAX, agg_response_bound );
 FD_STATIC_ASSERT( FD_GUI_TILE_STATE_POS_CNT*FD_GUI_TIMELINE_QUERY_MAX_BUCKETS*(FD_GUI_TILE_STATE_CNT*12UL+3UL)+FD_GUI_TILE_STATE_POS_CNT*64UL+4096UL<=
@@ -392,7 +396,8 @@ before_frag( fd_gui_ctx_t * ctx,
   (void)seq;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EXECRP_REPLAY && sig>>32!=FD_EXECRP_TT_TXN_EXEC &&
-                 sig>>32!=FD_EXECRP_TT_LTHASH_SUB && sig>>32!=FD_EXECRP_TT_LTHASH_ADD ) ) return 1;
+                 sig>>32!=FD_EXECRP_TT_LTHASH_SUB && sig>>32!=FD_EXECRP_TT_LTHASH_ADD &&
+                 sig>>32!=FD_EXECRP_TT_CERT_VERIFY && sig>>32!=FD_EXECRP_TT_REWARDS ) ) return 1;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
@@ -500,11 +505,19 @@ after_frag( fd_gui_ctx_t *      ctx,
         long tsorig_ns = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tsorig );
         long tspub_ns  = fd_clock_tile_tickcomp_to_wallclock( ctx->clock, tspub  );
         fd_gui_handle_exec_txn_done( ctx->gui, msg->txn_exec->slot, msg->txn_exec->start_shred_idx, msg->txn_exec->end_shred_idx, tsorig_ns, tspub_ns, fd_clock_tile_now( ctx->clock ) );
+      } else if( sig>>32==FD_EXECRP_TT_CERT_VERIFY ) {
+        fd_execrp_task_done_msg_t const * msg = (fd_execrp_task_done_msg_t const *)src;
+        fd_execrp_cert_verify_done_msg_t const * cv = msg->cert_verify;
+        fd_gui_handle_cert_verify_done( ctx->gui, sig&0xFFFFFFFFUL, cv->kind, cv->slot, cv->quorum, cv->signer_cnt, cv->validator_cnt, cv->signer_stake, cv->total_stake, !cv->err, cv->tick_start, cv->tick_end, fd_clock_tile_now( ctx->clock ) );
+      } else if( sig>>32==FD_EXECRP_TT_REWARDS ) {
+        fd_execrp_task_done_msg_t const * msg = (fd_execrp_task_done_msg_t const *)src;
+        fd_execrp_rewards_done_msg_t const * rw = msg->rewards;
+        fd_gui_handle_rewards_done( ctx->gui, sig&0xFFFFFFFFUL, rw->slot, rw->slice_idx, rw->slice_cnt, rw->acct_cnt, rw->leader_credits, !rw->err, rw->tick_start, rw->tick_end, fd_clock_tile_now( ctx->clock ) );
       } else {
         fd_execrp_task_done_msg_t const * msg = (fd_execrp_task_done_msg_t const *)src;
         int kind = sig>>32==FD_EXECRP_TT_LTHASH_SUB ? FD_GUI_LTHASH_KIND_SUB : FD_GUI_LTHASH_KIND_ADD;
-        fd_gui_handle_lthash_done( ctx->gui, sig&0xFFFFFFFFUL, kind, msg->lthash->slot, msg->lthash->cnt,
-                                   msg->lthash->tick_start, msg->lthash->tick_end, fd_clock_tile_now( ctx->clock ) );
+        fd_execrp_lthash_done_msg_t const * lt = msg->lthash;
+        fd_gui_handle_lthash_done( ctx->gui, sig&0xFFFFFFFFUL, kind, lt->slot, lt->cnt, !!lt->speculative, lt->data_sz, lt->tick_dispatch, lt->tick_start, lt->tick_end, lt->acquire_ticks, fd_clock_tile_now( ctx->clock ) );
       }
 
       break;

@@ -3053,12 +3053,14 @@ state or after its last.
 | 8     | BlockedOnNetwork   | replay | Replay has dispatched everything received so far and the end of the slot has not arrived |
 | 9     | SlotFinish         | replay | The end of the slot has arrived and nothing is queued; draining in-flight work and end-of-block processing |
 | 10    | Lthash             | execrp | Account LtHash computation, off the transaction critical path |
-| 11    | SigverifyBatch     | execrp | `txn_batch` only: a batch of signature verifications |
-| 12    | LoadBatch          | execrp | `txn_batch` only: account loading, over a batch |
-| 13    | ValidBatch         | execrp | `txn_batch` only: validation checks, over a batch |
-| 14    | ExecBatch          | execrp | `txn_batch` only: execution, over a batch |
-| 15    | PostExecBatch      | execrp | `txn_batch` only: commit or cancel, over a batch |
-| 16    | LthashBatch        | execrp | `txn_batch` only: a batch of account LtHash tasks |
+| 11    | CertVerify         | execrp | Verification of a block footer's certificate |
+| 12    | Rewards            | execrp | One slice of vote rewards for a block |
+| 13    | SigverifyBatch     | execrp | `txn_batch` only: a batch of signature verifications |
+| 14    | LoadBatch          | execrp | `txn_batch` only: account loading, over a batch |
+| 15    | ValidBatch         | execrp | `txn_batch` only: validation checks, over a batch |
+| 16    | ExecBatch          | execrp | `txn_batch` only: execution, over a batch |
+| 17    | PostExecBatch      | execrp | `txn_batch` only: commit or cancel, over a batch |
+| 18    | LthashBatch        | execrp | `txn_batch` only: a batch of account LtHash tasks |
 
 Slot states (6-9) cover each replayed block from its first dispatch to
 the end of its end-of-block processing, and include a 10µs debouncing
@@ -3070,6 +3072,11 @@ ones. It can overlap the end of a transaction's state on the same tile;
 within one response the later state is then reported starting where the
 earlier one ends. Overlapping states returned by adjacent windows are
 not adjusted.
+
+A CertVerify state is one task that verifies one certificate of a
+block's footer. A Rewards state is one task that pays one slice of the
+block's vote rewards. Both can overlap other states on the same tile
+and are reported like an Lthash state.
 
 The response is chunked (see [Chunked responses](#chunked-responses));
 each chunk holds the fields below other than `granularity` and
@@ -3083,7 +3090,7 @@ each chunk holds the fields below other than `granularity` and
 | available_end_ns   | `string\|null`     | Exclusive approximate lookup end for the selected transaction history |
 | start_ts           | `string`           | Equals `start_ns`; reference for `tile_start_ts_delta` |
 | tile_start_ts_delta | `(string\|null)[]` | Per tile, the start of its first state, relative to `start_ts` (negative if before it), or `null` if the tile has no states |
-| reference_slot     | `number\|null`     | Smallest slot among the returned transactions, slot states and LtHash tasks (`txn_batch`: slot states and batches), or `null` if none |
+| reference_slot     | `number\|null`     | Smallest slot among the returned transactions, slot states, LtHash tasks, cert verify tasks and rewards tasks (`txn_batch`: slot states and batches), or `null` if none |
 | tile               | `(number\|null)[]` | Per tile, its index into `summary.tiles`: the execrp tiles in order, then the replay tile |
 | state_cnt          | `number[]`         | Per tile, the number of its states. Tile `i`'s states start at the sum of the earlier tiles' counts |
 | state              | `number[]`         | All states, tile by tile and in time order, as listed above |
@@ -3100,6 +3107,28 @@ each chunk holds the fields below other than `granularity` and
 | lthash_slot_delta  | `number[]`         | Per LtHash task, `slot - reference_slot` |
 | lthash_kind        | `number[]`         | Per LtHash task, 0 if it removed the accounts' previous versions, 1 if it added their new versions |
 | lthash_acct_cnt    | `number[]`         | Per LtHash task, the number of accounts hashed |
+| lthash_speculative | `number[]`         | Per LtHash task, 1 if it added an account's new version on speculation, before the block had received all its FEC sets, otherwise 0 |
+| lthash_data_sz     | `number[]`         | Per LtHash task, the bytes of account data hashed |
+| lthash_acquire_ns  | `number[]`         | Per LtHash task, the nanoseconds the exec tile spent fetching the accounts from the accounts database |
+| lthash_wait_ns     | `number[]`         | Per LtHash task, the nanoseconds between replay dispatching the task and the exec tile starting it |
+| cert_state_lo      | `number[]`         | Per cert verify task, the index into `state` of its CertVerify state |
+| cert_slot_delta    | `number[]`         | Per cert verify task, `slot - reference_slot`, where `slot` is the slot of the block whose footer carries the certificate |
+| cert_kind          | `number[]`         | Per cert verify task, the certificate: 0 fast finalize, 1 finalize, 2 notarize, 3 skip reward, 4 notar reward |
+| cert_signer_cnt    | `number[]`         | Per cert verify task, the number of validators that signed the certificate |
+| cert_validator_cnt | `number[]`         | Per cert verify task, the number of validators in the epoch |
+| cert_stake_bps     | `number[]`         | Per cert verify task, the signed share of the total stake, in basis points |
+| cert_quorum        | `number[]`         | Per cert verify task, the quorum the certificate was checked against, as a numerator over 5: 0 for none, 3 for 60%, 4 for 80% |
+| cert_ok            | `number[]`         | Per cert verify task, 1 if the certificate verified, otherwise 0 |
+| rewards_state_lo   | `number[]`         | Per rewards task, the index into `state` of its Rewards state |
+| rewards_slot_delta | `number[]`         | Per rewards task, `slot - reference_slot` |
+| rewards_slice_idx  | `number[]`         | Per rewards task, the index of its slice within the block's rewards |
+| rewards_slice_cnt  | `number[]`         | Per rewards task, the number of slices the block's rewards are split into |
+| rewards_acct_cnt   | `number[]`         | Per rewards task, the number of vote accounts the slice rewarded |
+| rewards_credits    | `string[]`         | Per rewards task, the lamports the slice credited to the leader, as a decimal string |
+| rewards_ok         | `number[]`         | Per rewards task, 1 if the slice succeeded, otherwise 0 |
+
+Each CertVerify and Rewards state is its own task, so these arrays have
+one entry per state, as the `lthash_*` arrays do.
 
 Execution stages that a transaction skipped are omitted. Each stage
 runs until the next present stage starts, and the last until commit or
@@ -3132,14 +3161,14 @@ does not join it or it has been idle for 40ms. Slot states are
 reported unchanged. `slot_state_lo`, `slot_state_cnt` and `slot_delta`
 map every non-idle state to a slot, on every tile: slot states (exact,
 as for `txn`), transaction batch states (`SigverifyBatch` to
-`PostExecBatch`) and `LthashBatch` states. A segment is a run of
+`PostExecBatch`), `LthashBatch`, `CertVerify` and `Rewards` states. A segment is a run of
 adjacent non-idle states of one tile in the same slot; `slot_state_lo`
 indexes the response-wide `state` array, segments of different tiles
 are interleaved in tile order, and Idle states are never covered. A
 batch's slot is the slot of its member that ended last, so batches near
 a slot boundary are approximate. `reference_slot` is the smallest of
-these slots (`null` if none). The `txn_*` and `lthash_*` arrays are
-empty.
+these slots (`null` if none). The `txn_*`, `lthash_*`, `cert_*` and
+`rewards_*` arrays are empty.
 `tile_start_ts_delta` is reported as for `txn`.
 
 ::: details Example
@@ -3184,7 +3213,26 @@ empty.
         "lthash_state_lo": [],
         "lthash_slot_delta": [],
         "lthash_kind": [],
-        "lthash_acct_cnt": []
+        "lthash_acct_cnt": [],
+        "lthash_speculative": [],
+        "lthash_data_sz": [],
+        "lthash_acquire_ns": [],
+        "lthash_wait_ns": [],
+        "cert_state_lo": [],
+        "cert_slot_delta": [],
+        "cert_kind": [],
+        "cert_signer_cnt": [],
+        "cert_validator_cnt": [],
+        "cert_stake_bps": [],
+        "cert_quorum": [],
+        "cert_ok": [],
+        "rewards_state_lo": [],
+        "rewards_slot_delta": [],
+        "rewards_slice_idx": [],
+        "rewards_slice_cnt": [],
+        "rewards_acct_cnt": [],
+        "rewards_credits": [],
+        "rewards_ok": []
     }
 }
 ```
@@ -4005,7 +4053,7 @@ unknown or repeated tile index closes the connection.
 | field       | type                           | description |
 |-------------|--------------------------------|-------------|
 | tiles       | `(number\|null)[]`             | The tiles that record states, as indices into `summary.tiles`: the execrp tiles followed by the replay tile. Same as `tile` in `timeline.query_tile_states` |
-| tile_states | `((number\|null)[]\|null)[][]` | One array per entry of `tiles`, in the same order, holding one entry per state `0` to `10` (see `timeline.query_tile_states`). Each entry is an array of the per-bucket time in that state, in microseconds, or `null` if the state is deprecated |
+| tile_states | `((number\|null)[]\|null)[][]` | One array per entry of `tiles`, in the same order, holding one entry per state `0` to `12` (see `timeline.query_tile_states`). Each entry is an array of the per-bucket time in that state, in microseconds, or `null` if the state is deprecated |
 
 ::: details Example
 

@@ -7326,6 +7326,16 @@ message MetricsGuiDbForcedEvictWriteCompleted {
   uint64 votes = 470569167;
   // vote_events
   uint64 vote_events = 456545346;
+  // replay_lthash
+  uint64 replay_lthash = 276547823;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 316700139;
+  // vote_batch
+  uint64 vote_batch = 281829997;
+  // replay_cert
+  uint64 replay_cert = 428975996;
+  // replay_rewards
+  uint64 replay_rewards = 368718584;
 }
 
 // Records dropped because the database was full (MAP_FULL) or the KV index budget was exhausted (RING_FULL), by database
@@ -7372,6 +7382,16 @@ message MetricsGuiDbRecordDropped {
   uint64 votes = 395245798;
   // vote_events
   uint64 vote_events = 452389892;
+  // replay_lthash
+  uint64 replay_lthash = 445724576;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 523937571;
+  // vote_batch
+  uint64 vote_batch = 313864174;
+  // replay_cert
+  uint64 replay_cert = 284730676;
+  // replay_rewards
+  uint64 replay_rewards = 291690210;
 }
 
 // Regions returned to the free list, by database
@@ -7418,6 +7438,16 @@ message MetricsGuiDbRegionReleased {
   uint64 votes = 509591564;
   // vote_events
   uint64 vote_events = 400569843;
+  // replay_lthash
+  uint64 replay_lthash = 310783957;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 369754800;
+  // vote_batch
+  uint64 vote_batch = 315817753;
+  // replay_cert
+  uint64 replay_cert = 285855869;
+  // replay_rewards
+  uint64 replay_rewards = 360930196;
 }
 
 // Regions claimed from the free list, by database
@@ -7464,6 +7494,16 @@ message MetricsGuiDbRegionClaimed {
   uint64 votes = 335226746;
   // vote_events
   uint64 vote_events = 301994052;
+  // replay_lthash
+  uint64 replay_lthash = 333868648;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 310099986;
+  // vote_batch
+  uint64 vote_batch = 306291356;
+  // replay_cert
+  uint64 replay_cert = 333648125;
+  // replay_rewards
+  uint64 replay_rewards = 518776244;
 }
 
 // Eviction passes that removed at least one record, by database
@@ -7510,6 +7550,16 @@ message MetricsGuiDbEvictionPassCompleted {
   uint64 votes = 293818360;
   // vote_events
   uint64 vote_events = 398020774;
+  // replay_lthash
+  uint64 replay_lthash = 283578596;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 335515448;
+  // vote_batch
+  uint64 vote_batch = 426215030;
+  // replay_cert
+  uint64 replay_cert = 329131341;
+  // replay_rewards
+  uint64 replay_rewards = 508503847;
 }
 
 // Records evicted from the database, by database
@@ -7556,6 +7606,16 @@ message MetricsGuiDbRecordEvicted {
   uint64 votes = 272288949;
   // vote_events
   uint64 vote_events = 441815466;
+  // replay_lthash
+  uint64 replay_lthash = 345380246;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 345234220;
+  // vote_batch
+  uint64 vote_batch = 406752164;
+  // replay_cert
+  uint64 replay_cert = 380945538;
+  // replay_rewards
+  uint64 replay_rewards = 436805125;
 }
 
 // Time-series records returned by scans, by database
@@ -7602,6 +7662,16 @@ message MetricsGuiDbTimeSeriesRecordRead {
   uint64 votes = 274489242;
   // vote_events
   uint64 vote_events = 491821582;
+  // replay_lthash
+  uint64 replay_lthash = 309888520;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 317130065;
+  // vote_batch
+  uint64 vote_batch = 278072243;
+  // replay_cert
+  uint64 replay_cert = 455284686;
+  // replay_rewards
+  uint64 replay_rewards = 296635710;
 }
 
 // Time-series scans, by database
@@ -7648,6 +7718,16 @@ message MetricsGuiDbTimeSeriesScanned {
   uint64 votes = 460468680;
   // vote_events
   uint64 vote_events = 345979548;
+  // replay_lthash
+  uint64 replay_lthash = 335405114;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 392413418;
+  // vote_batch
+  uint64 vote_batch = 395569381;
+  // replay_cert
+  uint64 replay_cert = 502657303;
+  // replay_rewards
+  uint64 replay_rewards = 343590315;
 }
 
 // Time-series records appended, by database
@@ -7694,6 +7774,16 @@ message MetricsGuiDbTimeSeriesRecordAppended {
   uint64 votes = 296016993;
   // vote_events
   uint64 vote_events = 510849452;
+  // replay_lthash
+  uint64 replay_lthash = 301721470;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 273054565;
+  // vote_batch
+  uint64 vote_batch = 310103869;
+  // replay_cert
+  uint64 replay_cert = 328408078;
+  // replay_rewards
+  uint64 replay_rewards = 403493845;
 }
 
 // Key-value lookups (kv_get, kv_get_any, kv_iter_begin), by database
@@ -7740,6 +7830,16 @@ message MetricsGuiDbKvQueried {
   uint64 votes = 442916806;
   // vote_events
   uint64 vote_events = 461793653;
+  // replay_lthash
+  uint64 replay_lthash = 418228228;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 327464105;
+  // vote_batch
+  uint64 vote_batch = 351930835;
+  // replay_cert
+  uint64 replay_cert = 471371425;
+  // replay_rewards
+  uint64 replay_rewards = 391597128;
 }
 
 // Record capacity of regions owned by each database ring; grows on demand
@@ -7786,6 +7886,16 @@ message MetricsGuiDbRecordAllocated {
   uint64 votes = 318592996;
   // vote_events
   uint64 vote_events = 357416988;
+  // replay_lthash
+  uint64 replay_lthash = 482523114;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 287601043;
+  // vote_batch
+  uint64 vote_batch = 418432222;
+  // replay_cert
+  uint64 replay_cert = 529511255;
+  // replay_rewards
+  uint64 replay_rewards = 396465235;
 }
 
 // Records present in the store ring
@@ -7832,6 +7942,16 @@ message MetricsGuiDbRecordUsed {
   uint64 votes = 488511084;
   // vote_events
   uint64 vote_events = 361623073;
+  // replay_lthash
+  uint64 replay_lthash = 288339412;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 403944190;
+  // vote_batch
+  uint64 vote_batch = 458877128;
+  // replay_cert
+  uint64 replay_cert = 304083273;
+  // replay_rewards
+  uint64 replay_rewards = 529217054;
 }
 
 // Bytes of regions owned by each database ring; grows on demand
@@ -7878,6 +7998,16 @@ message MetricsGuiDbAllocatedBytes {
   uint64 votes = 305491293;
   // vote_events
   uint64 vote_events = 382048343;
+  // replay_lthash
+  uint64 replay_lthash = 286268776;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 286720977;
+  // vote_batch
+  uint64 vote_batch = 508237481;
+  // replay_cert
+  uint64 replay_cert = 479158022;
+  // replay_rewards
+  uint64 replay_rewards = 448561112;
 }
 
 // Bytes occupied by records present in the store ring
@@ -7924,6 +8054,16 @@ message MetricsGuiDbUsedBytes {
   uint64 votes = 491205299;
   // vote_events
   uint64 vote_events = 518497421;
+  // replay_lthash
+  uint64 replay_lthash = 481722946;
+  // replay_lthash_batch
+  uint64 replay_lthash_batch = 349518129;
+  // vote_batch
+  uint64 vote_batch = 323581678;
+  // replay_cert
+  uint64 replay_cert = 480830344;
+  // replay_rewards
+  uint64 replay_rewards = 328125847;
 }
 
 // Times the tile tried to park while idle (efficient mode), by result
@@ -12931,6 +13071,18 @@ message MetricsGui {
   MetricsGuiDbForcedEvictWriteCompleted db_forced_evict_write_completed = 46;
   // Votes track records dropped because they were malformed, or markers for a slot older than the recently tracked slots
   uint64 vote_record_dropped = 286774468;
+  // Votes for a slot older than the recently tracked slots, recorded as a vote batch of their own
+  uint64 vote_late_recorded = 269679291;
+  // Timeline response chunks served from the chunk cache
+  uint64 timeline_chunk_hit = 283824574;
+  // Timeline response chunks built, compressed and added to the chunk cache
+  uint64 timeline_chunk_miss = 439231069;
+  // Timeline rows recorded after their chunk was cached, so missing from the frozen cached chunk
+  uint64 timeline_chunk_late = 334971405;
+  // Raw timeline queries answered without the chunk cache (uncompressed connection, row limit, or oversized chunk)
+  uint64 timeline_chunk_fallback = 445413164;
+  // Timeline samples dropped because their day record was not prepared yet
+  uint64 timeline_day_missing = 507006402;
 }
 
 // Metrics of one event tile instance, one row per sweep

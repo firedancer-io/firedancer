@@ -1497,6 +1497,7 @@ struct test_lthash_ctx {
   ulong                  add_cnt;        /* accounts added */
   ulong                  sub_task_cnt;   /* subtraction tasks completed, each a batch of accounts */
   ulong                  add_task_cnt;   /* addition tasks completed */
+  ulong                  spec_task_cnt;  /* speculative addition tasks completed */
   ulong                  txn_exec_cnt;
   ulong                  block_end_cnt;
   fd_acct_addr_t const * late_alts;       /* writable lookup table accounts handed back, as the exec tile would,
@@ -1627,6 +1628,7 @@ lthash_complete( fd_sched_t *            sched,
                  fd_lthash_value_t *     v ) {
   int   is_add   = task->task_type==FD_SCHED_TT_LTHASH_ADD;
   ulong bank_idx = task->lthash->bank_idx;
+  if( task->lthash->speculative ) { FD_TEST( is_add ); ctx->spec_task_cnt++; }
   FD_TEST( bank_idx<TEST_LTHASH_BANK_MAX );
   for( ulong i=0UL; i<task->lthash->cnt; i++ ) {
     test_lthash_acct_t * a = lthash_acct( ctx, task->lthash->accts+i );
@@ -2745,6 +2747,7 @@ run_lthash_speculate_case( int hold_writer ) {
     lthash_drive_task( sched, held, ctx );
   }
   lthash_drive( sched, ctx, 100UL );
+  FD_TEST( ctx->spec_task_cnt==1UL );
 
   /* The guess was hashed before the block ran dry. */
   FD_TEST( ctx->txn_exec_cnt==1UL && ctx->sub_cnt==1UL && ctx->add_cnt==1UL && !ctx->block_end_cnt );
@@ -2766,6 +2769,7 @@ run_lthash_speculate_case( int hold_writer ) {
   FD_TEST( !fd_lthash_eq( ctx->delta, ctx->handed ) );
   FD_TEST( fd_lthash_eq( ctx->handed, expected ) );
   FD_TEST( ctx->block_end_step[ 2 ]>ctx->last_lthash_step[ 2 ] );
+  FD_TEST( ctx->add_task_cnt==2UL && ctx->spec_task_cnt==1UL );
   /* T2's write undid the applied guess.  The drain added A again. */
   lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=2UL, .first_write=2UL, .add_created=2UL, .spec=1UL, .entry=1UL, .sub_dispatched=1UL, .sub_task=1UL, .sub_applied=1UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .add_undone=1UL, .spec_applied=1UL, .frozen=1UL } );
   char * state = fd_sched_get_state_cstr( sched );
@@ -2881,6 +2885,7 @@ run_lthash_spec_blocked_conflicts_case( void ) {
   lthash_drive_task( sched, task, ctx );
   lthash_drive( sched, ctx, 100UL );
   FD_TEST( ctx->txn_exec_cnt==3UL && ctx->sub_cnt==2UL && ctx->add_cnt==2UL && !ctx->block_end_cnt );
+  FD_TEST( ctx->spec_task_cnt==2UL );
   lthash_check_acct( ctx, 2UL, acct, 1UL, 1UL, 2UL );
   FD_TEST( fd_sched_is_drained( sched ) );
   lthash_check_metrics( sched, &(test_lthash_metrics_t){ .parsed_writable=3UL, .first_write=2UL, .coalesced=1UL, .add_created=2UL, .spec=2UL, .entry=2UL, .sub_dispatched=2UL, .sub_task=1UL, .sub_applied=2UL, .add_surfaced=2UL, .add_dispatched=2UL, .add_task=2UL, .add_applied=2UL, .spec_applied=2UL } );

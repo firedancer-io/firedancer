@@ -625,7 +625,15 @@ test_timeline_db( fd_gui_t * gui ) {
   FD_TEST( FD_GUI_HIST_REPLAY_LTHASH==20 );
   FD_TEST( FD_GUI_HIST_REPLAY_LTHASH_BATCH==21 );
   FD_TEST( FD_GUI_HIST_VOTE_BATCH==22 );
-  FD_TEST( FD_GUI_HIST_CNT==23 );
+  FD_TEST( FD_GUI_HIST_REPLAY_CERT==23 );
+  FD_TEST( FD_GUI_HIST_REPLAY_REWARDS==24 );
+  FD_TEST( FD_GUI_HIST_CNT==25 );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_REWARDS ].name, "replay_rewards" ) );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_REWARDS ].kind==FD_GUI_STORE_KIND_TS );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_REWARDS ].ts_off==offsetof(fd_gui_store_replay_rewards_t,insert_time_ns) );
+  FD_TEST( !strcmp( descs[ FD_GUI_HIST_REPLAY_CERT ].name, "replay_cert" ) );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_CERT ].kind==FD_GUI_STORE_KIND_TS );
+  FD_TEST( descs[ FD_GUI_HIST_REPLAY_CERT ].ts_off==offsetof(fd_gui_store_replay_cert_t,insert_time_ns) );
   FD_TEST( !strcmp( descs[ FD_GUI_HIST_VOTE_BATCH ].name, "vote_batch" ) );
   FD_TEST( descs[ FD_GUI_HIST_VOTE_BATCH ].kind==FD_GUI_STORE_KIND_TS );
   FD_TEST( descs[ FD_GUI_HIST_VOTE_BATCH ].ts_off==offsetof(fd_gui_store_vote_t,insert_time_ns) );
@@ -2546,6 +2554,22 @@ test_timeline_limits( fd_gui_t * gui ) {
     test_json_t json = timeline_response( gui );
     FD_TEST( test_json_string_eq( test_json_field( test_json_field( json, "error" ), "code" ), "result_limit_exceeded" ) );
 
+  }
+  /* Cert verify rows past their cap trip the limit.  A later window
+     keeps the txn rows above out of the query. */
+  long const cts = ts+100L;
+  fd_gui_store_replay_cert_t cert = { .insert_time_ns=cts, .start_ns=cts-1L, .end_ns=cts, .slot=100UL, .exec_idx=0 };
+  for( ulong i=0UL; i<FD_GUI_TIMELINE_QUERY_CERT_MAX; i++ ) FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_CERT, &cert ) );
+  for( int kind=0; kind<2; kind++ ) {
+    FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, cts, cts+1L, kind, 7UL ) );
+    test_json_t json = timeline_response( gui );
+    FD_TEST( test_json_count( timeline_value( json, "state" ) )==1 );
+  }
+  FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_CERT, &cert ) );
+  for( int kind=0; kind<2; kind++ ) {
+    FD_TEST( !fd_gui_printf_timeline_query_tile_states( gui, cts, cts+1L, kind, 7UL ) );
+    test_json_t json = timeline_response( gui );
+    FD_TEST( test_json_string_eq( test_json_field( test_json_field( json, "error" ), "code" ), "result_limit_exceeded" ) );
   }
   gui->tile_state.exec_cnt = 0UL;
   gui->tile_state.pos_cnt  = 0UL;

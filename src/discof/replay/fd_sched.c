@@ -598,6 +598,7 @@ struct fd_sched_lthash_batch {
   ulong          cnt; /* In [0, FD_SCHED_LTHASH_BATCH_MAX]. */
   uint           lane;
   uchar          kind;
+  uchar          speculative;
   uint           entry_idx[ FD_SCHED_LTHASH_BATCH_MAX ]; /* Entries in the lane map. */
   uint           ptxn_idx [ FD_SCHED_LTHASH_BATCH_MAX ]; /* FD_RDISP_LTHASH_PSEUDO_TXN bit set.  0 for a subtraction. */
   fd_acct_addr_t accts    [ FD_SCHED_LTHASH_BATCH_MAX ];
@@ -1838,10 +1839,11 @@ lthash_batch_init( fd_sched_block_t *        block,
                    fd_sched_lthash_batch_t * batch,
                    ulong                     bank_idx,
                    ulong                     kind ) {
-  batch->bank_idx = bank_idx;
-  batch->cnt      = 0UL;
-  batch->lane     = (uint)block->staging_lane;
-  batch->kind     = (uchar)kind;
+  batch->bank_idx    = bank_idx;
+  batch->cnt         = 0UL;
+  batch->lane        = (uint)block->staging_lane;
+  batch->kind        = (uchar)kind;
+  batch->speculative = 0;
 }
 
 static inline void
@@ -1865,20 +1867,22 @@ lthash_dispatch( fd_sched_t *                    sched,
   FD_TEST( batch->cnt && batch->cnt<=FD_SCHED_LTHASH_BATCH_MAX );
   fd_sched_lthash_batch_t * rec = sched->lthash_inflight+exec_tile_idx;
   if( rec!=batch ) { /* FIXME optimize for end-of-block additions */
-    rec->bank_idx = batch->bank_idx;
-    rec->cnt      = batch->cnt;
-    rec->lane     = batch->lane;
-    rec->kind     = batch->kind;
+    rec->bank_idx    = batch->bank_idx;
+    rec->cnt         = batch->cnt;
+    rec->lane        = batch->lane;
+    rec->kind        = batch->kind;
+    rec->speculative = batch->speculative;
     fd_memcpy( rec->entry_idx, batch->entry_idx, batch->cnt*sizeof(uint)           );
     fd_memcpy( rec->ptxn_idx,  batch->ptxn_idx,  batch->cnt*sizeof(uint)           );
     fd_memcpy( rec->accts,     batch->accts,     batch->cnt*sizeof(fd_acct_addr_t) );
   }
 
-  out->task_type        = rec->kind;
-  out->lthash->bank_idx = rec->bank_idx;
-  out->lthash->exec_idx = (ulong)exec_tile_idx;
-  out->lthash->cnt      = rec->cnt;
-  out->lthash->accts    = rec->accts;
+  out->task_type           = rec->kind;
+  out->lthash->bank_idx    = rec->bank_idx;
+  out->lthash->exec_idx    = (ulong)exec_tile_idx;
+  out->lthash->cnt         = rec->cnt;
+  out->lthash->accts       = rec->accts;
+  out->lthash->speculative = rec->speculative;
 
   sched->lthash_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->lthash_ready_bitset[ 0 ], exec_tile_idx );
   sched->tile_to_bank_idx[ exec_tile_idx ] = rec->bank_idx;
@@ -1938,6 +1942,7 @@ lthash_dispatch_one_add( fd_sched_t *              sched,
                          fd_sched_task_t *         out ) {
   fd_sched_lthash_batch_t * rec = sched->lthash_inflight+exec_tile_idx;
   lthash_batch_init( block, rec, bank_idx, FD_SCHED_TT_LTHASH_ADD );
+  rec->speculative = 1; /* Both callers dispatch a speculation. */
   lthash_batch_append( sched, rec, e, ptxn_idx );
   lthash_dispatch( sched, block, rec, exec_tile_idx, out );
 }

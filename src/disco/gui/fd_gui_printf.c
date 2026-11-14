@@ -3816,14 +3816,35 @@ fd_gui_printf_timeline_query_revenue( fd_gui_t * gui,
 #define FD_GUI_STATES_OUT_LTHASH_SLOT_DELTA (12)
 #define FD_GUI_STATES_OUT_LTHASH_KIND       (13)
 #define FD_GUI_STATES_OUT_LTHASH_ACCT_CNT   (14)
-#define FD_GUI_STATES_OUT_TILE_START        (15)
-#define FD_GUI_STATES_OUT_CNT               (16)
+#define FD_GUI_STATES_OUT_LTHASH_SPECULATIVE (15)
+#define FD_GUI_STATES_OUT_LTHASH_DATA_SZ    (16)
+#define FD_GUI_STATES_OUT_LTHASH_ACQUIRE_NS (17)
+#define FD_GUI_STATES_OUT_LTHASH_WAIT_NS    (18)
+#define FD_GUI_STATES_OUT_CERT_STATE_LO     (19)
+#define FD_GUI_STATES_OUT_CERT_SLOT_DELTA   (20)
+#define FD_GUI_STATES_OUT_CERT_KIND         (21)
+#define FD_GUI_STATES_OUT_CERT_SIGNER_CNT   (22)
+#define FD_GUI_STATES_OUT_CERT_VALIDATOR_CNT (23)
+#define FD_GUI_STATES_OUT_CERT_STAKE_BPS    (24)
+#define FD_GUI_STATES_OUT_CERT_QUORUM       (25)
+#define FD_GUI_STATES_OUT_CERT_OK           (26)
+#define FD_GUI_STATES_OUT_REWARDS_STATE_LO  (27)
+#define FD_GUI_STATES_OUT_REWARDS_SLOT_DELTA (28)
+#define FD_GUI_STATES_OUT_REWARDS_SLICE_IDX (29)
+#define FD_GUI_STATES_OUT_REWARDS_SLICE_CNT (30)
+#define FD_GUI_STATES_OUT_REWARDS_ACCT_CNT  (31)
+#define FD_GUI_STATES_OUT_REWARDS_CREDITS   (32)
+#define FD_GUI_STATES_OUT_REWARDS_OK        (33)
+#define FD_GUI_STATES_OUT_TILE_START        (34)
+#define FD_GUI_STATES_OUT_CNT               (35)
 
 #define FD_GUI_STATES_LANE_EXEC      (0)
 #define FD_GUI_STATES_LANE_SIGVERIFY (1)
 #define FD_GUI_STATES_LANE_SLOT      (2)
 #define FD_GUI_STATES_LANE_LTHASH    (3)
-#define FD_GUI_STATES_LANE_CNT       (4)
+#define FD_GUI_STATES_LANE_CERT      (4)
+#define FD_GUI_STATES_LANE_REWARDS   (5)
+#define FD_GUI_STATES_LANE_CNT       (6)
 
 /* fd_gui_tile_states_row_slot returns the slot of a tile states row.
    Batch rows report the slot of their member that ended last. */
@@ -3833,7 +3854,9 @@ fd_gui_tile_states_row_slot( void const * r,
                              int          lane,
                              int          batch ) {
   switch( lane ) {
-    case FD_GUI_STATES_LANE_SLOT:   return ((fd_gui_store_replay_slot_state_t const *)r)->slot;
+    case FD_GUI_STATES_LANE_SLOT:    return ((fd_gui_store_replay_slot_state_t const *)r)->slot;
+    case FD_GUI_STATES_LANE_CERT:    return ((fd_gui_store_replay_cert_t const *)r)->slot;
+    case FD_GUI_STATES_LANE_REWARDS: return ((fd_gui_store_replay_rewards_t const *)r)->slot;
     case FD_GUI_STATES_LANE_LTHASH: return batch ? ((fd_gui_store_replay_lthash_batch_t const *)r)->slot
                                                  : ((fd_gui_store_replay_lthash_t const *)r)->slot;
     default:                        return batch ? ((fd_gui_store_replay_txn_batch_t const *)r)->slot
@@ -3868,10 +3891,45 @@ fd_gui_tile_states_flush( fd_gui_t * gui,
   if( lane==FD_GUI_STATES_LANE_LTHASH ) {
     /* An lthash row is one state, so a segment is one state. */
     switch( out ) {
-      case FD_GUI_STATES_OUT_LTHASH_STATE_LO:   jsonp_ulong( gui->http, NULL, lo );              break;
-      case FD_GUI_STATES_OUT_LTHASH_SLOT_DELTA: jsonp_ulong( gui->http, NULL, l->slot-refslot ); break;
-      case FD_GUI_STATES_OUT_LTHASH_KIND:       jsonp_ulong( gui->http, NULL, l->kind );         break;
-      case FD_GUI_STATES_OUT_LTHASH_ACCT_CNT:   jsonp_ulong( gui->http, NULL, l->cnt );          break;
+      case FD_GUI_STATES_OUT_LTHASH_STATE_LO:    jsonp_ulong( gui->http, NULL, lo );              break;
+      case FD_GUI_STATES_OUT_LTHASH_SLOT_DELTA:  jsonp_ulong( gui->http, NULL, l->slot-refslot ); break;
+      case FD_GUI_STATES_OUT_LTHASH_KIND:        jsonp_ulong( gui->http, NULL, l->kind );         break;
+      case FD_GUI_STATES_OUT_LTHASH_ACCT_CNT:    jsonp_ulong( gui->http, NULL, l->cnt );          break;
+      case FD_GUI_STATES_OUT_LTHASH_SPECULATIVE: jsonp_ulong( gui->http, NULL, l->speculative );  break;
+      case FD_GUI_STATES_OUT_LTHASH_DATA_SZ:     jsonp_ulong( gui->http, NULL, l->data_sz );      break;
+      case FD_GUI_STATES_OUT_LTHASH_ACQUIRE_NS:  jsonp_ulong( gui->http, NULL, l->acquire_ns );   break;
+      case FD_GUI_STATES_OUT_LTHASH_WAIT_NS:     jsonp_ulong( gui->http, NULL, l->wait_ns );      break;
+      default: break;
+    }
+    return;
+  }
+  if( lane==FD_GUI_STATES_LANE_CERT ) {
+    fd_gui_store_replay_cert_t const * c = r;
+    switch( out ) {
+      case FD_GUI_STATES_OUT_CERT_STATE_LO:      jsonp_ulong( gui->http, NULL, lo );              break;
+      case FD_GUI_STATES_OUT_CERT_SLOT_DELTA:    jsonp_ulong( gui->http, NULL, c->slot-refslot ); break;
+      case FD_GUI_STATES_OUT_CERT_KIND:          jsonp_ulong( gui->http, NULL, c->kind );         break;
+      case FD_GUI_STATES_OUT_CERT_SIGNER_CNT:    jsonp_ulong( gui->http, NULL, c->signer_cnt );   break;
+      case FD_GUI_STATES_OUT_CERT_VALIDATOR_CNT: jsonp_ulong( gui->http, NULL, c->validator_cnt ); break;
+      case FD_GUI_STATES_OUT_CERT_STAKE_BPS:
+        jsonp_ulong( gui->http, NULL, c->total_stake ? (ulong)(((uint128)c->signer_stake*10000UL)/c->total_stake) : 0UL );
+        break;
+      case FD_GUI_STATES_OUT_CERT_QUORUM:        jsonp_ulong( gui->http, NULL, c->quorum );       break;
+      case FD_GUI_STATES_OUT_CERT_OK:            jsonp_ulong( gui->http, NULL, c->ok );           break;
+      default: break;
+    }
+    return;
+  }
+  if( lane==FD_GUI_STATES_LANE_REWARDS ) {
+    fd_gui_store_replay_rewards_t const * w = r;
+    switch( out ) {
+      case FD_GUI_STATES_OUT_REWARDS_STATE_LO:   jsonp_ulong( gui->http, NULL, lo );              break;
+      case FD_GUI_STATES_OUT_REWARDS_SLOT_DELTA: jsonp_ulong( gui->http, NULL, w->slot-refslot ); break;
+      case FD_GUI_STATES_OUT_REWARDS_SLICE_IDX:  jsonp_ulong( gui->http, NULL, w->slice_idx );    break;
+      case FD_GUI_STATES_OUT_REWARDS_SLICE_CNT:  jsonp_ulong( gui->http, NULL, w->slice_cnt );    break;
+      case FD_GUI_STATES_OUT_REWARDS_ACCT_CNT:   jsonp_ulong( gui->http, NULL, w->acct_cnt );     break;
+      case FD_GUI_STATES_OUT_REWARDS_CREDITS:    jsonp_ulong_as_str( gui->http, NULL, w->leader_credits ); break;
+      case FD_GUI_STATES_OUT_REWARDS_OK:         jsonp_ulong( gui->http, NULL, w->ok );           break;
       default: break;
     }
     return;
@@ -3905,7 +3963,8 @@ fd_gui_tile_states_flush( fd_gui_t * gui,
    clamped to start where the predecessor ends.
    Consecutive states from one row and lane form a txn segment,
    consecutive slot states of one slot a slot segment, and an lthash
-   task an lthash segment, counted into seg_cnt[ lane ]. */
+   task an lthash segment, a cert verify task a cert segment and a
+   rewards slice a rewards segment, counted into seg_cnt[ lane ]. */
 
 static void
 fd_gui_tile_states_walk( fd_gui_t * gui,
@@ -4101,6 +4160,40 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
     fd_gui_timeline_rows_end( &it );
     if( FD_UNLIKELY( limit ) ) goto done;
 
+    /* Cert verify tasks and reward slices run on execrp tiles too, and
+       both granularities report them from the same rows. */
+    ulong cert_cnt = 0UL;
+    rc = fd_gui_timeline_rows_begin( gui, &it, FD_GUI_HIST_REPLAY_CERT, start, end );
+    if( FD_UNLIKELY( rc ) ) goto done;
+    while( fd_gui_timeline_rows_next( &it ) ) {
+      fd_gui_store_replay_cert_t const * c = it.rec;
+      if( c->exec_idx>=exec_cnt || c->start_ns>=c->end_ns || c->end_ns<start || c->end_ns>=end ) continue;
+      if( FD_UNLIKELY( cert_cnt==FD_GUI_TIMELINE_QUERY_CERT_MAX ) ) { limit = 1; break; }
+      n = fd_gui_tile_states_push( e, n, c->start_ns, c->end_ns, start, end, row_cnt, c->exec_idx,
+                                   FD_GUI_TILE_STATE_CERT_VERIFY, FD_GUI_STATES_LANE_CERT );
+      refslot = fd_ulong_min( refslot, c->slot );
+      rows[ row_cnt++ ] = c;
+      cert_cnt++;
+    }
+    fd_gui_timeline_rows_end( &it );
+    if( FD_UNLIKELY( limit ) ) goto done;
+
+    ulong rewards_cnt = 0UL;
+    rc = fd_gui_timeline_rows_begin( gui, &it, FD_GUI_HIST_REPLAY_REWARDS, start, end );
+    if( FD_UNLIKELY( rc ) ) goto done;
+    while( fd_gui_timeline_rows_next( &it ) ) {
+      fd_gui_store_replay_rewards_t const * w = it.rec;
+      if( w->exec_idx>=exec_cnt || w->start_ns>=w->end_ns || w->end_ns<start || w->end_ns>=end ) continue;
+      if( FD_UNLIKELY( rewards_cnt==FD_GUI_TIMELINE_QUERY_REWARDS_MAX ) ) { limit = 1; break; }
+      n = fd_gui_tile_states_push( e, n, w->start_ns, w->end_ns, start, end, row_cnt, w->exec_idx,
+                                   FD_GUI_TILE_STATE_REWARDS, FD_GUI_STATES_LANE_REWARDS );
+      refslot = fd_ulong_min( refslot, w->slot );
+      rows[ row_cnt++ ] = w;
+      rewards_cnt++;
+    }
+    fd_gui_timeline_rows_end( &it );
+    if( FD_UNLIKELY( limit ) ) goto done;
+
     if( gui->tile_state.pos_cnt>exec_cnt ) {
       ulong slot_cnt = 0UL;
       rc = fd_gui_timeline_rows_begin( gui, &it, FD_GUI_HIST_REPLAY_SLOT_STATE, start, end );
@@ -4128,7 +4221,9 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
   fd_gui_tile_states_walk( gui, n, start, end, refslot, FD_GUI_STATES_OUT_COUNT, batch, seg_cnt );
   if( FD_UNLIKELY( seg_cnt[ FD_GUI_STATES_LANE_EXEC ]+seg_cnt[ FD_GUI_STATES_LANE_SIGVERIFY ]>2UL*FD_GUI_TIMELINE_QUERY_TXN_MAX ||
                    seg_cnt[ FD_GUI_STATES_LANE_SLOT ]>FD_GUI_TIMELINE_QUERY_SLOT_STATE_MAX ||
-                   seg_cnt[ FD_GUI_STATES_LANE_LTHASH ]>FD_GUI_TIMELINE_QUERY_LTHASH_MAX ) ) {
+                   seg_cnt[ FD_GUI_STATES_LANE_LTHASH ]>FD_GUI_TIMELINE_QUERY_LTHASH_MAX ||
+                   seg_cnt[ FD_GUI_STATES_LANE_CERT ]>FD_GUI_TIMELINE_QUERY_CERT_MAX ||
+                   seg_cnt[ FD_GUI_STATES_LANE_REWARDS ]>FD_GUI_TIMELINE_QUERY_REWARDS_MAX ) ) {
     fd_gui_timeline_limit( gui, key, id );
     return 0;
   }
@@ -4146,13 +4241,19 @@ fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
   static char const * const names[ FD_GUI_STATES_OUT_CNT ] = {
     "state_cnt", "state", "dur", "slot_state_lo", "slot_state_cnt", "slot_delta",
     "txn_state_lo", "txn_state_cnt", "txn_slot_delta", "txn_idx", "txn_error_code",
-    "lthash_state_lo", "lthash_slot_delta", "lthash_kind", "lthash_acct_cnt", "tile_start_ts_delta"
+    "lthash_state_lo", "lthash_slot_delta", "lthash_kind", "lthash_acct_cnt",
+    "lthash_speculative", "lthash_data_sz", "lthash_acquire_ns", "lthash_wait_ns",
+    "cert_state_lo", "cert_slot_delta", "cert_kind", "cert_signer_cnt", "cert_validator_cnt",
+    "cert_stake_bps", "cert_quorum", "cert_ok",
+    "rewards_state_lo", "rewards_slot_delta", "rewards_slice_idx", "rewards_slice_cnt",
+    "rewards_acct_cnt", "rewards_credits", "rewards_ok", "tile_start_ts_delta"
   };
   for( int out=FD_GUI_STATES_OUT_STATE_CNT; out<FD_GUI_STATES_OUT_CNT; out++ ) {
     jsonp_open_array( gui->http, names[ out ] );
     /* txn_batch maps every non-idle state (batch states, lthash
-       batches and slot states) to its slot through the slot_* arrays;
-       the txn_* and lthash_* arrays stay empty. */
+       batches, cert verify tasks, reward slices and slot states) to
+       its slot through the slot_* arrays; the txn_*, lthash_*, cert_*
+       and rewards_* arrays stay empty. */
     if( !batch || out<=FD_GUI_STATES_OUT_SLOT_DELTA || out==FD_GUI_STATES_OUT_TILE_START ) fd_gui_tile_states_walk( gui, n, start, end, refslot, out, batch, seg_cnt );
     jsonp_close_array( gui->http );
   }
@@ -4300,11 +4401,13 @@ fd_gui_chunk_run_span( int              kind,
       }
     }
   } else {
-    /* Lthash tasks and slot states (and their batches) show in the
-       window of their end. */
+    /* Lthash, cert verify and rewards tasks and slot states (and
+       their batches) show in the window of their end. */
     fd_gui_store_replay_slot_state_t const * st = rec;
     FD_STATIC_ASSERT( offsetof( fd_gui_store_replay_slot_state_t,   end_ns )==offsetof( fd_gui_store_replay_lthash_t, end_ns ), layout );
     FD_STATIC_ASSERT( offsetof( fd_gui_store_replay_lthash_batch_t, end_ns )==offsetof( fd_gui_store_replay_lthash_t, end_ns ), layout );
+    FD_STATIC_ASSERT( offsetof( fd_gui_store_replay_cert_t,         end_ns )==offsetof( fd_gui_store_replay_lthash_t, end_ns ), layout );
+    FD_STATIC_ASSERT( offsetof( fd_gui_store_replay_rewards_t,      end_ns )==offsetof( fd_gui_store_replay_lthash_t, end_ns ), layout );
     lo = hi = st->end_ns;
   }
   if( hi<0L || hi<lo ) return 0;
@@ -4361,16 +4464,20 @@ fd_gui_chunk_run_collect( fd_gui_t * gui,
     return 0;
   }
 
-  int dbi[ FD_GUI_CHUNK_RUN_SETS ] = { -1, -1, -1 };
+  int dbi[ FD_GUI_CHUNK_RUN_SETS ] = { -1, -1, -1, -1, -1 };
   switch( kind ) {
     case FD_GUI_CHUNK_KIND_TILE_STATES_TXN:
       dbi[ 0 ] = FD_GUI_HIST_REPLAY_TXN;
       dbi[ 1 ] = FD_GUI_HIST_REPLAY_LTHASH;
+      dbi[ 3 ] = FD_GUI_HIST_REPLAY_CERT;
+      dbi[ 4 ] = FD_GUI_HIST_REPLAY_REWARDS;
       if( gui->tile_state.pos_cnt>gui->tile_state.exec_cnt ) dbi[ 2 ] = FD_GUI_HIST_REPLAY_SLOT_STATE;
       break;
     case FD_GUI_CHUNK_KIND_TILE_STATES_BATCH:
       dbi[ 0 ] = FD_GUI_HIST_REPLAY_TXN_BATCH;
       dbi[ 1 ] = FD_GUI_HIST_REPLAY_LTHASH_BATCH;
+      dbi[ 3 ] = FD_GUI_HIST_REPLAY_CERT;
+      dbi[ 4 ] = FD_GUI_HIST_REPLAY_REWARDS;
       if( gui->tile_state.pos_cnt>gui->tile_state.exec_cnt ) dbi[ 2 ] = FD_GUI_HIST_REPLAY_SLOT_STATE;
       break;
     case FD_GUI_CHUNK_KIND_TXN_META:      dbi[ 0 ] = FD_GUI_HIST_REPLAY_TXN;       break;

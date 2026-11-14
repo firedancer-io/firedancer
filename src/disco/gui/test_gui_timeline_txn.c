@@ -295,8 +295,10 @@ test_lthash( fd_gui_t * gui ) {
   /* Tile 0: an add overlapping the txn's end.  Tile 1: a sub, and an
      out of range tile that is ignored. */
   fd_gui_store_replay_lthash_t l[ 3 ] = {
-    { .insert_time_ns=ts+30L, .start_ns=ts+5L,  .end_ns=ts+15L, .slot=201UL, .exec_idx=0, .kind=FD_GUI_LTHASH_KIND_ADD, .cnt=32 },
-    { .insert_time_ns=ts+30L, .start_ns=ts+2L,  .end_ns=ts+6L,  .slot=200UL, .exec_idx=1, .kind=FD_GUI_LTHASH_KIND_SUB, .cnt=8  },
+    { .insert_time_ns=ts+30L, .start_ns=ts+5L,  .end_ns=ts+15L, .slot=201UL, .exec_idx=0, .kind=FD_GUI_LTHASH_KIND_ADD, .cnt=32,
+      .speculative=1, .data_sz=4096, .acquire_ns=7, .wait_ns=3 },
+    { .insert_time_ns=ts+30L, .start_ns=ts+2L,  .end_ns=ts+6L,  .slot=200UL, .exec_idx=1, .kind=FD_GUI_LTHASH_KIND_SUB, .cnt=8,
+      .speculative=0, .data_sz=512,  .acquire_ns=2, .wait_ns=0 },
     { .insert_time_ns=ts+30L, .start_ns=ts+2L,  .end_ns=ts+6L,  .slot=200UL, .exec_idx=5, .kind=FD_GUI_LTHASH_KIND_SUB, .cnt=8  },
   };
   for( ulong i=0UL; i<3UL; i++ ) FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_LTHASH, l+i ) );
@@ -317,21 +319,26 @@ test_lthash( fd_gui_t * gui ) {
   FD_TEST( count( field( value, "txn_state_lo" ) )==1UL );
   FD_TEST( count( field( value, "lthash_state_lo" ) )==2UL );
   ulong const lo[] = { 1UL, 2UL }, delta[] = { 1UL, 0UL }, kind[] = { 1UL, 0UL }, acct[] = { 32UL, 8UL };
+  ulong const spec[] = { 1UL, 0UL }, data_sz[] = { 4096UL, 512UL }, acquire[] = { 7UL, 2UL }, wait[] = { 3UL, 0UL };
   for( ulong i=0UL; i<2UL; i++ ) {
-    FD_TEST( number( element( field( value, "lthash_state_lo"   ), i ) )==lo[ i ] );
-    FD_TEST( number( element( field( value, "lthash_slot_delta" ), i ) )==delta[ i ] );
-    FD_TEST( number( element( field( value, "lthash_kind"       ), i ) )==kind[ i ] );
-    FD_TEST( number( element( field( value, "lthash_acct_cnt"   ), i ) )==acct[ i ] );
+    FD_TEST( number( element( field( value, "lthash_state_lo"    ), i ) )==lo[ i ] );
+    FD_TEST( number( element( field( value, "lthash_slot_delta"  ), i ) )==delta[ i ] );
+    FD_TEST( number( element( field( value, "lthash_kind"        ), i ) )==kind[ i ] );
+    FD_TEST( number( element( field( value, "lthash_acct_cnt"    ), i ) )==acct[ i ] );
+    FD_TEST( number( element( field( value, "lthash_speculative" ), i ) )==spec[ i ] );
+    FD_TEST( number( element( field( value, "lthash_data_sz"     ), i ) )==data_sz[ i ] );
+    FD_TEST( number( element( field( value, "lthash_acquire_ns"  ), i ) )==acquire[ i ] );
+    FD_TEST( number( element( field( value, "lthash_wait_ns"     ), i ) )==wait[ i ] );
   }
 
   /* Producer: a done frag is recorded as a row, and bad ones are not. */
   long const now  = 60000000000L;
   long const tick = fd_tickcount();
   gui->tick_per_ns = 1e30;
-  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 300UL, 17UL, tick, tick, now );
-  fd_gui_handle_lthash_done( gui, 2UL, FD_GUI_LTHASH_KIND_ADD, 300UL, 17UL, tick, tick, now ); /* no such tile */
-  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 300UL, 0UL,  tick, tick, now ); /* empty */
-  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 300UL, 17UL, tick, tick-1L, now ); /* reversed */
+  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 300UL, 17UL, 0, 0UL, tick, tick, tick, 0L, now );
+  fd_gui_handle_lthash_done( gui, 2UL, FD_GUI_LTHASH_KIND_ADD, 300UL, 17UL, 0, 0UL, tick, tick, tick, 0L, now ); /* no such tile */
+  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 300UL, 0UL,  0, 0UL, tick, tick, tick, 0L, now ); /* empty */
+  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 300UL, 17UL, 0, 0UL, tick, tick, tick-1L, 0L, now ); /* reversed */
   fd_gui_hist_iter_t it;
   FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_LTHASH, now, now, NULL, NULL ) );
   ulong rows = 0UL;
@@ -343,7 +350,206 @@ test_lthash( fd_gui_t * gui ) {
   }
   fd_gui_hist_range_end( &it );
   FD_TEST( rows==1UL );
-  fd_gui_lthash_batch_flush( gui, now+FD_GUI_LTHASH_BATCH_IDLE_NS ); /* close the producer's batch */
+
+  /* Conversion: wait and acquire from ticks, clamped at zero, and the
+     bytes saturated.  A scan covers whole windows, so each loop skips
+     rows inserted at other times. */
+  gui->tick_per_ns = 1.0;
+  long const now2 = now+1000L;
+  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 301UL, 5UL, 1, 1UL<<40, tick-100L, tick, tick+50L, 20L, now2 );
+  long const now3 = now+2000L;
+  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 302UL, 5UL, 0, 0UL, tick+10L, tick, tick+50L, -5L, now3 );
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_LTHASH, now2, now2+1L, NULL, NULL ) );
+  rows = 0UL;
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_lthash_t const * r = it.rec;
+    if( r->insert_time_ns!=now2 ) continue;
+    FD_TEST( r->slot==301UL && r->speculative==1 && r->data_sz==UINT_MAX && r->wait_ns==100U && r->acquire_ns==20U );
+    FD_TEST( r->end_ns-r->start_ns==50L );
+    rows++;
+  }
+  fd_gui_hist_range_end( &it );
+  FD_TEST( rows==1UL );
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_LTHASH, now3, now3+1L, NULL, NULL ) );
+  rows = 0UL;
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_lthash_t const * r = it.rec;
+    if( r->insert_time_ns!=now3 ) continue;
+    FD_TEST( r->slot==302UL && !r->speculative && !r->data_sz && !r->wait_ns && !r->acquire_ns );
+    rows++;
+  }
+  fd_gui_hist_range_end( &it );
+  FD_TEST( rows==1UL );
+  /* An acquire or a wait too long for the record saturates. */
+  long const now4 = now+3000L;
+  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 303UL, 5UL, 0, 0UL, tick, tick, tick+50L, 1L<<40, now4 );
+  long const now5 = now+4000L;
+  fd_gui_handle_lthash_done( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 304UL, 5UL, 0, 0UL, tick-(1L<<40), tick, tick+50L, 0L, now5 );
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_LTHASH, now4, now4+1L, NULL, NULL ) );
+  rows = 0UL;
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_lthash_t const * r = it.rec;
+    if( r->insert_time_ns!=now4 ) continue;
+    FD_TEST( r->slot==303UL && r->acquire_ns==UINT_MAX );
+    rows++;
+  }
+  fd_gui_hist_range_end( &it );
+  FD_TEST( rows==1UL );
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_LTHASH, now5, now5+1L, NULL, NULL ) );
+  rows = 0UL;
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_lthash_t const * r = it.rec;
+    if( r->insert_time_ns!=now5 ) continue;
+    FD_TEST( r->slot==304UL && r->wait_ns==UINT_MAX );
+    rows++;
+  }
+  fd_gui_hist_range_end( &it );
+  FD_TEST( rows==1UL );
+  fd_gui_lthash_batch_flush( gui, now3+FD_GUI_LTHASH_BATCH_IDLE_NS ); /* close the producer's batch */
+
+  gui->tile_state.exec_cnt = 0UL;
+  gui->tile_state.pos_cnt  = 0UL;
+}
+
+/* Cert verify and rewards done frags are recorded as rows, bad ones
+   are dropped, and values wider than the record are saturated. */
+static void
+test_cert_rewards( fd_gui_t * gui ) {
+  long const now  = 75000000000L;
+  long const tick = fd_tickcount();
+  gui->tile_state.exec_cnt = 2UL;
+  gui->tile_state.pos_cnt  = 2UL;
+  gui->tick_per_ns = 1e30;
+
+  fd_gui_handle_cert_verify_done( gui, 1UL, 2, 300UL, 3UL, 40UL, 50UL, 600UL, 1000UL, 1, tick, tick, now );
+  fd_gui_handle_cert_verify_done( gui, 0UL, 1, 301UL, 3UL, 0UL,  50UL, 0UL,   1000UL, 0, tick, tick, now ); /* failed, kept */
+  fd_gui_handle_cert_verify_done( gui, 0UL, 9999, 302UL, 9999UL, (ulong)UINT_MAX+5UL, (ulong)UINT_MAX+6UL, 1UL, 2UL, 1, tick, tick, now ); /* wide */
+  fd_gui_handle_cert_verify_done( gui, 2UL, 2, 303UL, 3UL, 40UL, 50UL, 600UL, 1000UL, 1, tick, tick, now ); /* no such tile */
+  fd_gui_handle_cert_verify_done( gui, 1UL, 2, 304UL, 3UL, 40UL, 50UL, 600UL, 1000UL, 1, tick, tick-1L, now ); /* reversed */
+  fd_gui_hist_iter_t it;
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_CERT, now, now, NULL, NULL ) );
+  ulong rows = 0UL;
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_cert_t const * r = it.rec;
+    FD_TEST( r->start_ns==now && r->end_ns==now && r->insert_time_ns==now );
+    if( rows==0UL ) {
+      FD_TEST( r->slot==300UL && r->exec_idx==1 && r->kind==2 && r->quorum==3 && r->signer_cnt==40U && r->validator_cnt==50U );
+      FD_TEST( r->signer_stake==600UL && r->total_stake==1000UL && r->ok==1 );
+    } else if( rows==1UL ) {
+      FD_TEST( r->slot==301UL && r->exec_idx==0 && r->kind==1 && r->signer_cnt==0U && r->signer_stake==0UL && r->ok==0 );
+    } else {
+      FD_TEST( r->slot==302UL && r->kind==UCHAR_MAX && r->quorum==UCHAR_MAX && r->signer_cnt==UINT_MAX && r->validator_cnt==UINT_MAX && r->ok==1 );
+    }
+    rows++;
+  }
+  fd_gui_hist_range_end( &it );
+  FD_TEST( rows==3UL );
+
+  long const now2 = 76000000000L;
+  fd_gui_handle_rewards_done( gui, 1UL, 400UL, 2UL, 8UL, 1000UL, 123456789UL, 1, tick, tick, now2 );
+  fd_gui_handle_rewards_done( gui, 0UL, 401UL, 0UL, 1UL, 0UL,    0UL,         1, tick, tick, now2 ); /* no accounts, kept */
+  fd_gui_handle_rewards_done( gui, 0UL, 402UL, 3UL, 8UL, 5UL,    7UL,         0, tick, tick, now2 ); /* failed, kept */
+  fd_gui_handle_rewards_done( gui, 0UL, 403UL, 70000UL, 80000UL, (ulong)UINT_MAX+5UL, 7UL, 1, tick, tick, now2 ); /* wide */
+  fd_gui_handle_rewards_done( gui, 2UL, 404UL, 2UL, 8UL, 1000UL, 1UL, 1, tick, tick, now2 ); /* no such tile */
+  fd_gui_handle_rewards_done( gui, 1UL, 405UL, 2UL, 8UL, 1000UL, 1UL, 1, tick, tick-1L, now2 ); /* reversed */
+  FD_TEST( !fd_gui_hist_range_begin( gui, &it, FD_GUI_HIST_REPLAY_REWARDS, now2, now2, NULL, NULL ) );
+  rows = 0UL;
+  while( fd_gui_hist_range_next( &it ) ) {
+    fd_gui_store_replay_rewards_t const * r = it.rec;
+    FD_TEST( r->start_ns==now2 && r->end_ns==now2 && r->insert_time_ns==now2 );
+    if( rows==0UL ) {
+      FD_TEST( r->slot==400UL && r->exec_idx==1 && r->slice_idx==2 && r->slice_cnt==8 && r->acct_cnt==1000U && r->leader_credits==123456789UL && r->ok==1 );
+    } else if( rows==1UL ) {
+      FD_TEST( r->slot==401UL && r->exec_idx==0 && r->acct_cnt==0U && r->leader_credits==0UL && r->ok==1 );
+    } else if( rows==2UL ) {
+      FD_TEST( r->slot==402UL && r->slice_idx==3 && r->acct_cnt==5U && r->ok==0 );
+    } else {
+      FD_TEST( r->slot==403UL && r->slice_idx==USHRT_MAX && r->slice_cnt==USHRT_MAX && r->acct_cnt==UINT_MAX );
+    }
+    rows++;
+  }
+  fd_gui_hist_range_end( &it );
+  FD_TEST( rows==4UL );
+
+  gui->tile_state.exec_cnt = 0UL;
+  gui->tile_state.pos_cnt  = 0UL;
+}
+
+/* Cert verify and rewards tasks are the fifth and sixth
+   query_tile_states lanes on execrp tiles.  txn_batch reports them as
+   slot segments and leaves their own arrays empty. */
+static void
+test_cert_rewards_lanes( fd_gui_t * gui ) {
+  long const ts = 90000000000L;
+  gui->tile_state.exec_cnt = 2UL;
+  gui->tile_state.pos_cnt  = 2UL;
+  fd_gui_store_replay_cert_t c[ 2 ] = {
+    { .insert_time_ns=ts+90L, .start_ns=ts+10L, .end_ns=ts+30L, .slot=500UL, .signer_stake=600UL, .total_stake=1000UL,
+      .signer_cnt=40U, .validator_cnt=50U, .exec_idx=0, .kind=2, .quorum=3, .ok=1 },
+    { .insert_time_ns=ts+90L, .start_ns=ts+20L, .end_ns=ts+60L, .slot=501UL, .signer_stake=5UL, .total_stake=0UL,
+      .signer_cnt=5U, .validator_cnt=7U, .exec_idx=1, .kind=1, .quorum=0, .ok=0 },
+  };
+  fd_gui_store_replay_rewards_t r[ 2 ] = {
+    { .insert_time_ns=ts+90L, .start_ns=ts+40L, .end_ns=ts+70L, .slot=501UL, .leader_credits=123456789012UL,
+      .acct_cnt=100U, .slice_idx=1, .slice_cnt=4, .exec_idx=0, .ok=1 },
+    { .insert_time_ns=ts+90L, .start_ns=ts+70L, .end_ns=ts+90L, .slot=500UL, .leader_credits=0UL,
+      .acct_cnt=0U, .slice_idx=0, .slice_cnt=4, .exec_idx=1, .ok=1 },
+  };
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_CERT,    c+i ) );
+  for( ulong i=0UL; i<2UL; i++ ) FD_TEST( !fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_REWARDS, r+i ) );
+
+  ulong const states[] = { FD_GUI_TILE_STATE_CERT_VERIFY, FD_GUI_TILE_STATE_IDLE, FD_GUI_TILE_STATE_REWARDS,
+                           FD_GUI_TILE_STATE_CERT_VERIFY, FD_GUI_TILE_STATE_IDLE, FD_GUI_TILE_STATE_REWARDS };
+  ulong const durs[]   = { 20UL, 10UL, 30UL, 40UL, 10UL, 20UL };
+  for( int batch=0; batch<2; batch++ ) {
+    json_t value = field( query_batch( gui, "query_tile_states", ts, ts+100L, batch ), "value" );
+    FD_TEST( number( field( value, "reference_slot" ) )==500UL );
+    FD_TEST( count( field( value, "state" ) )==6UL );
+    for( ulong i=0UL; i<6UL; i++ ) {
+      FD_TEST( number( element( field( value, "state" ), i ) )==states[ i ] );
+      FD_TEST( number( element( field( value, "dur"   ), i ) )==durs[ i ] );
+    }
+    FD_TEST( number( element( field( value, "state_cnt" ), 0UL ) )==3UL );
+    FD_TEST( number( element( field( value, "state_cnt" ), 1UL ) )==3UL );
+    FD_TEST( !count( field( value, "txn_state_lo" ) ) && !count( field( value, "lthash_state_lo" ) ) );
+    char const * const cert_names[]    = { "cert_state_lo", "cert_slot_delta", "cert_kind", "cert_signer_cnt", "cert_validator_cnt",
+                                           "cert_stake_bps", "cert_quorum", "cert_ok" };
+    char const * const rewards_names[] = { "rewards_state_lo", "rewards_slot_delta", "rewards_slice_idx", "rewards_slice_cnt",
+                                           "rewards_acct_cnt", "rewards_credits", "rewards_ok" };
+    if( batch ) {
+      /* Four slot segments: each cert or rewards task is its own slot run. */
+      for( ulong i=0UL; i<8UL; i++ ) FD_TEST( !count( field( value, cert_names[ i ] ) ) );
+      for( ulong i=0UL; i<7UL; i++ ) FD_TEST( !count( field( value, rewards_names[ i ] ) ) );
+      FD_TEST( count( field( value, "slot_state_lo" ) )==4UL );
+      continue;
+    }
+    ulong const cert_lo[]    = { 0UL, 3UL }, cert_delta[] = { 0UL, 1UL }, cert_kind[] = { 2UL, 1UL };
+    ulong const cert_signer[] = { 40UL, 5UL }, cert_val[] = { 50UL, 7UL }, cert_bps[] = { 6000UL, 0UL };
+    ulong const cert_quorum[] = { 3UL, 0UL }, cert_ok[] = { 1UL, 0UL };
+    for( ulong i=0UL; i<2UL; i++ ) {
+      FD_TEST( number( element( field( value, "cert_state_lo"      ), i ) )==cert_lo[ i ] );
+      FD_TEST( number( element( field( value, "cert_slot_delta"    ), i ) )==cert_delta[ i ] );
+      FD_TEST( number( element( field( value, "cert_kind"          ), i ) )==cert_kind[ i ] );
+      FD_TEST( number( element( field( value, "cert_signer_cnt"    ), i ) )==cert_signer[ i ] );
+      FD_TEST( number( element( field( value, "cert_validator_cnt" ), i ) )==cert_val[ i ] );
+      FD_TEST( number( element( field( value, "cert_stake_bps"     ), i ) )==cert_bps[ i ] );
+      FD_TEST( number( element( field( value, "cert_quorum"        ), i ) )==cert_quorum[ i ] );
+      FD_TEST( number( element( field( value, "cert_ok"            ), i ) )==cert_ok[ i ] );
+    }
+    FD_TEST( count( field( value, "cert_state_lo" ) )==2UL && count( field( value, "cert_ok" ) )==2UL );
+    ulong const rw_lo[] = { 2UL, 5UL }, rw_delta[] = { 1UL, 0UL }, rw_idx[] = { 1UL, 0UL }, rw_acct[] = { 100UL, 0UL };
+    char const * const rw_credits[] = { "123456789012", "0" };
+    for( ulong i=0UL; i<2UL; i++ ) {
+      FD_TEST( number( element( field( value, "rewards_state_lo"   ), i ) )==rw_lo[ i ] );
+      FD_TEST( number( element( field( value, "rewards_slot_delta" ), i ) )==rw_delta[ i ] );
+      FD_TEST( number( element( field( value, "rewards_slice_idx"  ), i ) )==rw_idx[ i ] );
+      FD_TEST( number( element( field( value, "rewards_slice_cnt"  ), i ) )==4UL );
+      FD_TEST( number( element( field( value, "rewards_acct_cnt"   ), i ) )==rw_acct[ i ] );
+      FD_TEST( string_eq( element( field( value, "rewards_credits" ), i ), rw_credits[ i ] ) );
+      FD_TEST( number( element( field( value, "rewards_ok"         ), i ) )==1UL );
+    }
+    FD_TEST( count( field( value, "rewards_state_lo" ) )==2UL && count( field( value, "rewards_ok" ) )==2UL );
+  }
 
   gui->tile_state.exec_cnt = 0UL;
   gui->tile_state.pos_cnt  = 0UL;
@@ -364,12 +570,12 @@ test_lthash_batch( fd_gui_t * gui ) {
   /* Tile 0: three tasks within the gap, then one after a longer gap.
      Tile 1: two tasks within the gap for different slots, which merge
      (slots do not split batches; the batch takes the later slot). */
-  fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_SUB, 500UL, 8UL,  base,            base+100L,        now );
-  fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_SUB, 500UL, 16UL, base+200L,       base+300L,        now );
-  fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_ADD, 500UL, 32UL, base+300L+gap,   base+400L+gap,    now );
-  fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_ADD, 500UL, 4UL,  base+3L*gap,     base+3L*gap+50L,  now );
-  fd_gui_lthash_record( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 500UL, 2UL,  base,            base+10L,         now );
-  fd_gui_lthash_record( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 501UL, 3UL,  base+20L,        base+30L,         now );
+  fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_SUB, 500UL, 8UL,  0, 0UL, base,          base+100L,       0L, 0L, now );
+  fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_SUB, 500UL, 16UL, 0, 0UL, base+200L,     base+300L,       0L, 0L, now );
+  fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_ADD, 500UL, 32UL, 0, 0UL, base+300L+gap, base+400L+gap,   0L, 0L, now );
+  fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_ADD, 500UL, 4UL,  0, 0UL, base+3L*gap,   base+3L*gap+50L, 0L, 0L, now );
+  fd_gui_lthash_record( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 500UL, 2UL,  0, 0UL, base,          base+10L,        0L, 0L, now );
+  fd_gui_lthash_record( gui, 1UL, FD_GUI_LTHASH_KIND_ADD, 501UL, 3UL,  0, 0UL, base+20L,      base+30L,        0L, 0L, now );
   /* Tile 0's last batch is not idle long enough yet.  The rest were
      closed by a later task or are idle. */
   fd_gui_lthash_batch_flush( gui, now );
@@ -411,6 +617,8 @@ test_lthash_batch( fd_gui_t * gui ) {
     FD_TEST( number( element( field( value, "dur" ), i ) )==bdurs[ i ] );
   }
   FD_TEST( !count( field( value, "lthash_state_lo" ) ) );
+  FD_TEST( !count( field( value, "lthash_speculative" ) ) && !count( field( value, "lthash_data_sz" ) ) );
+  FD_TEST( !count( field( value, "lthash_acquire_ns" ) ) && !count( field( value, "lthash_wait_ns" ) ) );
   value = field( query( gui, "query_tile_states", base, base+4L*gap ), "value" );
   ulong lthash_states = 0UL;
   for( ulong i=0UL; i<count( field( value, "state" ) ); i++ ) {
@@ -424,7 +632,7 @@ test_lthash_batch( fd_gui_t * gui ) {
   long const now2 = t0+2000L;
   for( ulong i=0UL; i<FD_GUI_TXN_BATCH_MAX_TXN+1UL; i++ ) {
     long t = t0+(long)i*10L;
-    fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_ADD, 600UL, 1UL, t, t+5L, now2 );
+    fd_gui_lthash_record( gui, 0UL, FD_GUI_LTHASH_KIND_ADD, 600UL, 1UL, 0, 0UL, t, t+5L, 0L, 0L, now2 );
   }
   fd_gui_lthash_batch_flush( gui, now2+FD_GUI_LTHASH_BATCH_IDLE_NS );
   cnt = 0UL;
@@ -889,6 +1097,8 @@ main( int argc, char ** argv ) {
   test_limit( gui );
   test_lthash( gui ); /* after test_limit: time-series appends are in time order */
   test_lthash_batch( gui );
+  test_cert_rewards( gui );
+  test_cert_rewards_lanes( gui );
   test_revenue( gui );
   test_chunks( gui );
   test_chunk_runs( gui ); /* after test_chunks: rows after its windows */

@@ -568,19 +568,23 @@ test_execrp_run( test_env_t * env,
 
 /* test_lthash_run sends an LtHash task of task_type for the cnt
    accounts at acct on the test bank and checks that the done message
-   echoes the request.  The sum is in the tile's result entry. */
+   echoes the request and counts data_sz bytes of account data.  The sum
+   is in the tile's result entry. */
 
 static void
 test_lthash_run( test_env_t *        env,
                  ulong               task_type,
                  fd_pubkey_t const * acct,
-                 ulong               cnt ) {
+                 ulong               cnt,
+                 ulong               data_sz ) {
   ulong in_chunk = env->execrp->replay_in->chunk0;
   ulong in_sz    = fd_execrp_lthash_msg_sz( cnt );
   fd_execrp_lthash_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
   fd_memset( in_msg, 0, in_sz );
-  in_msg->bank_idx = env->bank_idx;
-  in_msg->cnt      = cnt;
+  in_msg->bank_idx      = env->bank_idx;
+  in_msg->cnt           = cnt;
+  in_msg->speculative   = 1UL;
+  in_msg->tick_dispatch = 12345L;
   for( ulong i=0UL; i<cnt; i++ ) memcpy( in_msg->acct[ i ].b, acct[ i ].uc, sizeof(fd_acct_addr_t) );
   test_poison_out( env );
 
@@ -593,6 +597,10 @@ test_lthash_run( test_env_t *        env,
   fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, task_type );
   FD_TEST( out_msg->lthash->cnt==cnt );
   FD_TEST( out_msg->lthash->slot==bank->f.slot );
+  FD_TEST( out_msg->lthash->speculative==1UL );
+  FD_TEST( out_msg->lthash->tick_dispatch==12345L );
+  FD_TEST( out_msg->lthash->data_sz==data_sz );
+  FD_TEST( out_msg->lthash->acquire_ticks>=0L );
   FD_TEST( out_msg->lthash->tick_start<=out_msg->lthash->tick_end );
 }
 
@@ -866,9 +874,14 @@ FD_UNIT_TEST( execrp_lthash ) {
 
   fd_lthash_value_t sub_expected[ TEST_LTHASH_ACCT_CNT ];
   fd_lthash_value_t add_expected[ TEST_LTHASH_ACCT_CNT ];
+  ulong             sub_data_sz [ TEST_LTHASH_ACCT_CNT ];
+  ulong             add_data_sz [ TEST_LTHASH_ACCT_CNT ];
   for( ulong i=0UL; i<TEST_LTHASH_ACCT_CNT; i++ ) {
+    test_acct_version_t const * add = child[ i ].present ? child+i : parent+i;
     test_version_hash( key+i, parent+i, data, sub_expected+i );
-    test_version_hash( key+i, child[ i ].present ? child+i : parent+i, data, add_expected+i );
+    test_version_hash( key+i, add,      data, add_expected+i );
+    sub_data_sz[ i ] = parent[ i ].data_len;
+    add_data_sz[ i ] = add->data_len;
   }
   FD_TEST( !fd_lthash_eq( sub_expected, add_expected ) );
   FD_TEST( fd_lthash_is_zero( add_expected+1 ) && fd_lthash_is_zero( add_expected+8 ) ); /* closed */
@@ -883,9 +896,9 @@ FD_UNIT_TEST( execrp_lthash ) {
   /* Each account alone.  SUB reads the parent fork, ADD this bank's. */
   fd_lthash_value_t const * sum = &env->execrp->result->lthash;
   for( ulong i=0UL; i<TEST_LTHASH_ACCT_CNT; i++ ) {
-    test_lthash_run( env, FD_EXECRP_TT_LTHASH_SUB, key+i, 1UL );
+    test_lthash_run( env, FD_EXECRP_TT_LTHASH_SUB, key+i, 1UL, sub_data_sz[ i ] );
     FD_TEST( fd_lthash_eq( sum, sub_expected+i ) );
-    test_lthash_run( env, FD_EXECRP_TT_LTHASH_ADD, key+i, 1UL );
+    test_lthash_run( env, FD_EXECRP_TT_LTHASH_ADD, key+i, 1UL, add_data_sz[ i ] );
     FD_TEST( fd_lthash_eq( sum, add_expected+i ) );
   }
 
@@ -898,13 +911,17 @@ FD_UNIT_TEST( execrp_lthash ) {
     ulong cnt = batch_cnt[ b ];
     fd_lthash_value_t sub_sum[1]; fd_lthash_zero( sub_sum );
     fd_lthash_value_t add_sum[1]; fd_lthash_zero( add_sum );
+    ulong sub_sz = 0UL;
+    ulong add_sz = 0UL;
     for( ulong i=0UL; i<cnt; i++ ) {
       fd_lthash_add( sub_sum, sub_expected+i );
       fd_lthash_add( add_sum, add_expected+i );
+      sub_sz += sub_data_sz[ i ];
+      add_sz += add_data_sz[ i ];
     }
-    test_lthash_run( env, FD_EXECRP_TT_LTHASH_SUB, key, cnt );
+    test_lthash_run( env, FD_EXECRP_TT_LTHASH_SUB, key, cnt, sub_sz );
     FD_TEST( fd_lthash_eq( sum, sub_sum ) );
-    test_lthash_run( env, FD_EXECRP_TT_LTHASH_ADD, key, cnt );
+    test_lthash_run( env, FD_EXECRP_TT_LTHASH_ADD, key, cnt, add_sz );
     FD_TEST( fd_lthash_eq( sum, add_sum ) );
   }
 

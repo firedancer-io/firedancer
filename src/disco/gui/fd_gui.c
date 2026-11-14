@@ -4144,13 +4144,21 @@ fd_gui_handle_lthash_done( fd_gui_t * gui,
                            int        kind,
                            ulong      slot,
                            ulong      cnt,
+                           int        speculative,
+                           ulong      data_sz,
+                           long       tick_dispatch,
                            long       tick_start,
                            long       tick_end,
+                           long       acquire_ticks,
                            long       now ) {
   if( FD_UNLIKELY( tick_end<tick_start ) ) return;
-  long tick_now = fd_tickcount();
-  fd_gui_lthash_record( gui, exec_idx, kind, slot, cnt, fd_gui_tick_to_nanos( gui, now, tick_now, tick_start ),
-                        fd_gui_tick_to_nanos( gui, now, tick_now, tick_end ), now );
+  long tick_now    = fd_tickcount();
+  long start_ns    = fd_gui_tick_to_nanos( gui, now, tick_now, tick_start    );
+  long end_ns      = fd_gui_tick_to_nanos( gui, now, tick_now, tick_end      );
+  long dispatch_ns = fd_gui_tick_to_nanos( gui, now, tick_now, tick_dispatch );
+  long wait_ns     = fd_long_max( 0L, start_ns-dispatch_ns );
+  long acquire_ns  = (long)((double)fd_long_max( 0L, acquire_ticks )/gui->tick_per_ns);
+  fd_gui_lthash_record( gui, exec_idx, kind, slot, cnt, speculative, data_sz, start_ns, end_ns, acquire_ns, wait_ns, now );
 }
 
 void
@@ -4159,8 +4167,12 @@ fd_gui_lthash_record( fd_gui_t * gui,
                       int        kind,
                       ulong      slot,
                       ulong      cnt,
+                      int        speculative,
+                      ulong      data_sz,
                       long       start_ns,
                       long       end_ns,
+                      long       acquire_ns,
+                      long       wait_ns,
                       long       now ) {
   if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return;
   if( FD_UNLIKELY( exec_idx>=gui->tile_state.exec_cnt || !cnt || cnt>UCHAR_MAX || end_ns<start_ns ) ) return;
@@ -4169,9 +4181,13 @@ fd_gui_lthash_record( fd_gui_t * gui,
     .start_ns       = start_ns,
     .end_ns         = end_ns,
     .slot           = slot,
-    .exec_idx       = (ushort)exec_idx,
+    .data_sz        = (uint)fd_ulong_min( data_sz, UINT_MAX ),
+    .acquire_ns     = (uint)fd_ulong_min( (ulong)fd_long_max( 0L, acquire_ns ), UINT_MAX ),
+    .wait_ns        = (uint)fd_ulong_min( (ulong)fd_long_max( 0L, wait_ns    ), UINT_MAX ),
+    .exec_idx       = (uchar)exec_idx,
     .kind           = (uchar)kind,
-    .cnt            = (uchar)cnt
+    .cnt            = (uchar)cnt,
+    .speculative    = (uchar)!!speculative
   };
   fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_LTHASH, &rec );
   fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_TXN ), rec.end_ns, rec.end_ns );
@@ -4204,6 +4220,76 @@ fd_gui_lthash_record( fd_gui_t * gui,
     .exec_idx = (ushort)exec_idx,
     .task_cnt = 1
   };
+}
+
+void
+fd_gui_handle_cert_verify_done( fd_gui_t * gui,
+                                ulong      exec_idx,
+                                int        kind,
+                                ulong      slot,
+                                ulong      quorum,
+                                ulong      signer_cnt,
+                                ulong      validator_cnt,
+                                ulong      signer_stake,
+                                ulong      total_stake,
+                                int        ok,
+                                long       tick_start,
+                                long       tick_end,
+                                long       now ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return;
+  if( FD_UNLIKELY( exec_idx>=gui->tile_state.exec_cnt || tick_end<tick_start ) ) return;
+  long tick_now = fd_tickcount();
+  fd_gui_store_replay_cert_t rec = {
+    .insert_time_ns = now,
+    .start_ns       = fd_gui_tick_to_nanos( gui, now, tick_now, tick_start ),
+    .end_ns         = fd_gui_tick_to_nanos( gui, now, tick_now, tick_end ),
+    .slot           = slot,
+    .signer_stake   = signer_stake,
+    .total_stake    = total_stake,
+    .signer_cnt     = (uint)fd_ulong_min( signer_cnt,    UINT_MAX ),
+    .validator_cnt  = (uint)fd_ulong_min( validator_cnt, UINT_MAX ),
+    .exec_idx       = (ushort)exec_idx,
+    .kind           = (uchar)fd_ulong_min( (ulong)kind,  UCHAR_MAX ),
+    .quorum         = (uchar)fd_ulong_min( quorum,       UCHAR_MAX ),
+    .ok             = (uchar)!!ok
+  };
+  if( FD_UNLIKELY( rec.end_ns<rec.start_ns ) ) return;
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_CERT, &rec );
+  fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_TXN )|FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_BATCH ), rec.end_ns, rec.end_ns );
+  fd_gui_tile_state_add( gui, exec_idx, FD_GUI_TILE_STATE_CERT_VERIFY, rec.start_ns, rec.end_ns, now );
+}
+
+void
+fd_gui_handle_rewards_done( fd_gui_t * gui,
+                            ulong      exec_idx,
+                            ulong      slot,
+                            ulong      slice_idx,
+                            ulong      slice_cnt,
+                            ulong      acct_cnt,
+                            ulong      leader_credits,
+                            int        ok,
+                            long       tick_start,
+                            long       tick_end,
+                            long       now ) {
+  if( FD_UNLIKELY( !gui->db || !gui->hist ) ) return;
+  if( FD_UNLIKELY( exec_idx>=gui->tile_state.exec_cnt || tick_end<tick_start ) ) return;
+  long tick_now = fd_tickcount();
+  fd_gui_store_replay_rewards_t rec = {
+    .insert_time_ns = now,
+    .start_ns       = fd_gui_tick_to_nanos( gui, now, tick_now, tick_start ),
+    .end_ns         = fd_gui_tick_to_nanos( gui, now, tick_now, tick_end ),
+    .slot           = slot,
+    .leader_credits = leader_credits,
+    .acct_cnt       = (uint)fd_ulong_min( acct_cnt,  UINT_MAX ),
+    .slice_idx      = (ushort)fd_ulong_min( slice_idx, USHORT_MAX ),
+    .slice_cnt      = (ushort)fd_ulong_min( slice_cnt, USHORT_MAX ),
+    .exec_idx       = (ushort)exec_idx,
+    .ok             = (uchar)!!ok
+  };
+  if( FD_UNLIKELY( rec.end_ns<rec.start_ns ) ) return;
+  fd_gui_hist_ts_append( gui, FD_GUI_HIST_REPLAY_REWARDS, &rec );
+  fd_gui_chunk_note( &gui->chunk, FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_TXN )|FD_GUI_CHUNK_MASK( FD_GUI_CHUNK_KIND_TILE_STATES_BATCH ), rec.end_ns, rec.end_ns );
+  fd_gui_tile_state_add( gui, exec_idx, FD_GUI_TILE_STATE_REWARDS, rec.start_ns, rec.end_ns, now );
 }
 
 void
