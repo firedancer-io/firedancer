@@ -36,8 +36,6 @@ class Tile(Enum):
     REPLAY = 31
     EXECRP = 32
     ACCDB = 33
-    TOWER = 34
-    TXSEND = 35
 
     DIAG = 36
     EVENT = 37

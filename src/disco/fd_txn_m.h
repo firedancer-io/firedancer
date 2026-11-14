@@ -6,11 +6,12 @@
 
 #include "../ballet/txn/fd_txn.h"
 
+/* Keep in sync with events/schema/events.proto:TxnProtocol */
 #define FD_TXN_M_TPU_SOURCE_QUIC   (1UL)
 #define FD_TXN_M_TPU_SOURCE_UDP    (2UL)
 #define FD_TXN_M_TPU_SOURCE_GOSSIP (3UL)
 #define FD_TXN_M_TPU_SOURCE_BUNDLE (4UL)
-#define FD_TXN_M_TPU_SOURCE_TXSEND (5UL)
+//#define FD_TXN_M_TPU_SOURCE_TXSEND (5UL) /* deprecated */
 
 struct fd_txn_m {
   /* The block height of the computed slot that this transaction is

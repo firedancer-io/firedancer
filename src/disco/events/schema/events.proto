@@ -9,7 +9,7 @@ enum TxnProtocol {
   TXN_PROTOCOL_UDP = 2;  // UDP
   TXN_PROTOCOL_GOSSIP = 3;  // Gossip
   TXN_PROTOCOL_BUNDLE = 4;  // Bundle
-  TXN_PROTOCOL_TXSEND = 5;  // Internal vote sender
+  TXN_PROTOCOL_TXSEND = 5 [deprecated = true];  // Internal vote sender
 }
 
 // The protocol used to send the shred
@@ -12736,9 +12736,9 @@ message MetricsVotor {
   // Handshakes dropped due to eviction
   uint64 client_handshake_evicted = 64;
   // Stream receive events
-  uint64 client_stream_rx = 65;
+  uint64 client_stream_rx = 65 [deprecated = true];
   // Stream payload bytes received
-  uint64 client_stream_rx_bytes = 66;
+  uint64 client_stream_rx_bytes = 66 [deprecated = true];
   // QUIC frames received, by frame type
   MetricsVotorClientFrameRx client_frame_rx = 67;
   // QUIC frames that failed to parse
@@ -12794,9 +12794,9 @@ message MetricsVotor {
   // Handshakes dropped due to eviction
   uint64 server_handshake_evicted = 93;
   // Stream receive events
-  uint64 server_stream_rx = 94;
+  uint64 server_stream_rx = 94 [deprecated = true];
   // Stream payload bytes received
-  uint64 server_stream_rx_bytes = 95;
+  uint64 server_stream_rx_bytes = 95 [deprecated = true];
   // QUIC frames received, by frame type
   MetricsVotorServerFrameRx server_frame_rx = 96;
   // QUIC frames that failed to parse

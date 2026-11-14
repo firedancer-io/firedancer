@@ -391,6 +391,11 @@ typedef struct {
 #define BUNDLE_META_SZ 40UL
 FD_STATIC_ASSERT( sizeof(block_builder_info_t)==BUNDLE_META_SZ, blk_engine_cfg );
 
+FD_FN_PURE static inline ulong
+bundle_meta_sz( fd_topo_tile_t const * tile ) {
+  return tile->pack.bundle.enabled ? BUNDLE_META_SZ : 0UL;
+}
+
 #define FD_PACK_METRIC_STATE_TRANSACTIONS 0
 #define FD_PACK_METRIC_STATE_EXECLES      1
 #define FD_PACK_METRIC_STATE_LEADER       2
@@ -444,7 +449,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t )                                   );
   l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint()                                        );
   l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
-                                                                        BUNDLE_META_SZ,
+                                                                        bundle_meta_sz( tile ),
                                                                         tile->pack.execle_tile_count,
                                                                         limits                               ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -1279,7 +1284,7 @@ unprivileged_init( fd_topo_t const *      topo,
     .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
   }};
 
-  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count, limits_upper );
+  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, bundle_meta_sz( tile ), tile->pack.execle_tile_count, limits_upper );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
@@ -1296,7 +1301,7 @@ unprivileged_init( fd_topo_t const *      topo,
   }};
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
-                                         tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count,
+                                         tile->pack.max_pending_transactions, bundle_meta_sz( tile ), tile->pack.execle_tile_count,
                                          limits_upper,
                                          fd_type_pun_const( tile->pack.acct_blocklist ), tile->pack.acct_blocklist_cnt,
                                          rng ) );
@@ -1506,23 +1511,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* Pack can publish a frag in the following scenarios:
-
-   after_credit:
-     A. TIMED_OUT. Sets ctx->leader_slot=ULONG_MAX. return.
-     B. DONE_DRAINING. *after* DONE_PACKING. return.
-     C. SCHEDULE_MB. *doesn't* return.
-     D. EXHAUST_MICROBLOCKS. Sets ctx->leader_slot=ULONG_MAX. return.
-   after_frag:
-   	 E. ABANDONED. Requires ctx->leader_slot!=ULONG_MAX
-
-     It isn't possible to get a burst of 3, but a burst of 2 is possible
-     in these situations.
-
-     B -> E
-     C -> E
-     C -> D
- */
 #define STEM_BURST (2UL)
 
 #define STEM_LAZY  (128L*3000L)

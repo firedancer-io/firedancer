@@ -354,6 +354,82 @@ test_upgrade_sizing_balance_floor( void ) {
   FD_TEST( bal==1UL );
 }
 
+#define WRITE_HDR_SZ (16UL)
+
+static ulong
+build_write( uchar * buf,
+             ulong   declared_len,
+             ulong   present,
+             ulong   trailing ) {
+  FD_STORE( uint,  buf,      FD_BPF_INSTR_WRITE );
+  FD_STORE( uint,  buf+4UL,  0U                 );
+  FD_STORE( ulong, buf+8UL,  declared_len       );
+  fd_memset( buf+WRITE_HDR_SZ,         42, present  );
+  fd_memset( buf+WRITE_HDR_SZ+present,  7, trailing );
+  return WRITE_HDR_SZ+present+trailing;
+}
+
+static void
+test_decode_write( int unbound ) {
+  static uchar buf[ FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN+64UL ];
+  fd_bpf_instruction_t instr[1];
+  ulong max_legacy = FD_TXN_MTU_V0-WRITE_HDR_SZ;
+  ulong max_cpi    = FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN-WRITE_HDR_SZ;
+
+  ulong sz = build_write( buf, 9UL, 9UL, 100UL );
+  FD_TEST( !fd_bpf_instruction_decode( instr, buf, sz, unbound ) );
+  FD_TEST( instr->discriminant==FD_BPF_INSTR_WRITE );
+  FD_TEST( instr->inner.write.bytes_len==9UL );
+  FD_TEST( instr->inner.write.bytes==buf+WRITE_HDR_SZ );
+
+  sz = build_write( buf, max_legacy, max_legacy, 0UL );
+  FD_TEST( !fd_bpf_instruction_decode( instr, buf, sz, unbound ) );
+  FD_TEST( instr->inner.write.bytes_len==max_legacy );
+
+  sz = build_write( buf, max_legacy, max_legacy, 64UL );
+  FD_TEST( !fd_bpf_instruction_decode( instr, buf, sz, unbound ) );
+  FD_TEST( instr->inner.write.bytes_len==max_legacy );
+
+  sz = build_write( buf, max_legacy+1UL, max_legacy+1UL, 0UL );
+  FD_TEST( fd_bpf_instruction_decode( instr, buf, sz, unbound )==(unbound ? 0 : -1) );
+  if( unbound ) FD_TEST( instr->inner.write.bytes_len==max_legacy+1UL );
+
+  sz = build_write( buf, max_cpi, max_cpi, 0UL );
+  FD_TEST( fd_bpf_instruction_decode( instr, buf, sz, unbound )==(unbound ? 0 : -1) );
+  if( unbound ) FD_TEST( instr->inner.write.bytes_len==max_cpi );
+
+  sz = build_write( buf, 600UL, 512UL, 0UL );
+  FD_TEST( fd_bpf_instruction_decode( instr, buf, sz, unbound )==-1 );
+
+  sz = build_write( buf, ULONG_MAX, 512UL, 0UL );
+  FD_TEST( fd_bpf_instruction_decode( instr, buf, sz, unbound )==-1 );
+
+  sz = build_write( buf, max_cpi+1UL, max_cpi, 0UL );
+  FD_TEST( fd_bpf_instruction_decode( instr, buf, sz, unbound )==-1 );
+}
+
+static void
+test_decode_non_write( int unbound ) {
+  static uchar buf[ FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN ];
+  fd_bpf_instruction_t instr[1];
+  fd_memset( buf, 0xAB, sizeof(buf) );
+
+  FD_STORE( uint,  buf,     FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN );
+  FD_STORE( ulong, buf+4UL, 12345UL );
+  FD_TEST( !fd_bpf_instruction_decode( instr, buf, sizeof(buf), unbound ) );
+  FD_TEST( instr->discriminant==FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN );
+  FD_TEST( instr->inner.deploy_with_max_data_len.max_data_len==12345UL );
+  FD_TEST( fd_bpf_instruction_decode( instr, buf, 11UL, unbound )==-1 );
+
+  FD_STORE( uint, buf, FD_BPF_INSTR_CLOSE );
+  FD_TEST( !fd_bpf_instruction_decode( instr, buf, sizeof(buf), unbound ) );
+  FD_TEST( instr->discriminant==FD_BPF_INSTR_CLOSE );
+
+  FD_STORE( uint, buf, FD_BPF_INSTR_EXTEND_PROGRAM_CHECKED+1U );
+  FD_TEST( fd_bpf_instruction_decode( instr, buf, sizeof(buf), unbound )==-1 );
+  FD_TEST( fd_bpf_instruction_decode( instr, buf, 3UL,         unbound )==-1 );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -385,6 +461,11 @@ main( int     argc,
   test_upgrade_sizing_feature_on();
   test_upgrade_sizing_max_len_boundary();
   test_upgrade_sizing_balance_floor();
+
+  test_decode_write    ( 0 );
+  test_decode_write    ( 1 );
+  test_decode_non_write( 0 );
+  test_decode_non_write( 1 );
 
   fd_wksp_delete_anonymous( wksp );
 

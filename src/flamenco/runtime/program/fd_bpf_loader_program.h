@@ -163,8 +163,12 @@ typedef struct fd_bpf_state fd_bpf_state_t;
 /* fd_bpf_instruction_decode parses a bincode-encoded
    UpgradeableLoaderInstruction from [data, data+data_sz).
 
-   Only bytes up to FD_TXN_MTU_V0 are parsed, the rest are discarded,
-   matching Agave's limited_deserialize(data, PACKET_DATA_SIZE).
+   Unless unbound_loader_v3_instruction_data is active, only bytes up
+   to FD_TXN_MTU_V0 are parsed, the rest are discarded, matching
+   Agave's limited_deserialize(data, PACKET_DATA_SIZE).  Once
+   unbound_loader_v3_instruction_data is active, parsing is bounded by
+   data_sz, which is practically limited to
+   FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN (10240 bytes).
 
    Variable-length fields (`write.bytes`) point directly into `data`, so
    callers must keep that buffer alive.  Trailing bytes beyond the parsed
@@ -174,11 +178,12 @@ typedef struct fd_bpf_state fd_bpf_state_t;
 static inline int
 fd_bpf_instruction_decode( fd_bpf_instruction_t * out,
                            uchar const *          data,
-                           ulong                  data_sz ) {
+                           ulong                  data_sz,
+                           int                    unbound_loader_v3_instruction_data ) {
   uchar const * _payload    = data;
-  /* limited_deserialize(data, PACKET_DATA_SIZE)
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/bpf_loader/src/lib.rs#L157 */
-  ulong const   _payload_sz = fd_ulong_min( data_sz, FD_TXN_MTU_V0 );
+  /* https://github.com/anza-xyz/agave/blob/v4.5/programs/bpf_loader/src/lib.rs#L192-L204
+     https://github.com/anza-xyz/agave/blob/v4.5/programs/bpf_loader/src/lib.rs#L68-L73 */
+  ulong const   _payload_sz = unbound_loader_v3_instruction_data ? data_sz : fd_ulong_min( data_sz, FD_TXN_MTU_V0 );
   ulong         _i          = 0UL;
 
 # define CHECK( cond )   { if( FD_UNLIKELY( !(cond) ) ) { return -1; } }

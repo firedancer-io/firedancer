@@ -108,12 +108,11 @@
 #define IN_KIND_MOTOR      ( 5)
 #define IN_KIND_EXECRP     ( 6)
 #define IN_KIND_REPAIR     ( 7)
-#define IN_KIND_TXSEND     ( 8)
+#define IN_KIND_VOTOR      ( 8)
 #define IN_KIND_RPC        ( 9)
 #define IN_KIND_GOSSIP_OUT (10)
 #define IN_KIND_SNAPMK     (11)
 #define IN_KIND_ADMIN      (12)
-#define IN_KIND_VOTOR      (13)
 
 #define DEBUG_LOGGING 0
 
@@ -609,7 +608,9 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt, epoch_info_msg->staked_id_cnt );
   ulong epoch_info_sig = 4UL;
-  fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  /* epoch_info_sz can exceed USHORT_MAX, consumers derive it from the
+     message */
+  fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->epoch_out->chunk = fd_dcache_compact_next( ctx->epoch_out->chunk, epoch_info_sz, ctx->epoch_out->chunk0, ctx->epoch_out->wmark );
 
   fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, epoch_info_msg );
@@ -2466,7 +2467,6 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_txncache_reset( ctx->txncache );
   bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache, (fd_txncache_fork_id_t){USHORT_MAX} );
-  bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, fd_progcache_fork_id_initial()     );
 
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   fd_txncache_finalize_fork( ctx->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
@@ -3937,26 +3937,6 @@ process_resolv_slot_completed( fd_replay_tile_t * ctx, ulong bank_idx ) {
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for resolv", bank->idx, bank->f.slot, bank->refcnt ));
 }
 
-static void
-process_vote_txn_sent( fd_replay_tile_t *  ctx,
-                       fd_txn_m_t *        txnm ) {
-  /* The send tile has signed and sent a vote.  Add this vote to the
-     vote tracker.  We go through this exercise until the client has
-     seen a vote corresponding to the current identity rooted. */
-  if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
-    uchar *    payload = (uchar *)txnm + sizeof(fd_txn_m_t);
-    uchar      txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-    fd_txn_t * txn = (fd_txn_t *)txn_mem;
-    if( FD_UNLIKELY( !fd_txn_parse( payload, txnm->payload_sz, txn_mem, NULL ) ) ) {
-      FD_LOG_CRIT(( "Could not parse txn from send tile" ));
-    }
-    /* The identity of the validator that the signed the vote will
-       always be the first signer in the vote transaction. */
-    fd_pubkey_t * vote_identity = fd_type_pun( payload+txn->acct_addr_off );
-    fd_vote_tracker_insert( ctx->vote_tracker, vote_identity, fd_type_pun_const( payload+txn->signature_off ) );
-  }
-}
-
 static inline void
 maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
   if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX ) ) {
@@ -4403,10 +4383,6 @@ returnable_frag( fd_replay_tile_t *  ctx,
       }
       break;
     }
-    case IN_KIND_TXSEND: {
-      process_vote_txn_sent( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
-      break;
-    }
     case IN_KIND_GOSSIP_OUT: {
       FD_TEST( sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE );
       if( FD_UNLIKELY( ctx->wfs_complete ) ) break;
@@ -4850,7 +4826,6 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "repair_out"    ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
-    else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_misc"   ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;

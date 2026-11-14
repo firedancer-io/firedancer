@@ -37,6 +37,49 @@ wire_rx( test_bundle_env_t * env ) {
   return wire;
 }
 
+FD_UNIT_TEST( maintenance_deadlines_require_ready_request ) {
+  test_bundle_env_t env[1]; test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn_empty( env );
+  fd_bundle_tile_t * state = env->state;
+  test_bundle_env_mock_h2_hs( state );
+  state->keepalive->ts_next_tx = g_clock-1L;
+  state->builder_info_avail = 1;
+  state->builder_info_valid_until = g_clock-1L;
+  state->conn_deadline = g_clock+1000L;
+
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )<g_clock );
+  state->grpc_client->h2_hs_done = 0;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->conn_deadline );
+  state->grpc_client->h2_hs_done = 1;
+
+  uchar byte = 0;
+  fd_h2_rbuf_push( state->grpc_client->frame_tx, &byte, 1UL );
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )>g_clock );
+  fd_h2_rbuf_skip( state->grpc_client->frame_tx, 1UL );
+
+  state->auther.needs_poll = 1;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )>g_clock );
+  state->auther.needs_poll = 0;
+  state->auther.state = FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )>g_clock );
+  state->auther.state = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+
+  state->backoff_until = g_clock+500L;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->backoff_until );
+  state->keepalive->inflight = 1;
+  state->keepalive->ts_deadline = g_clock+100L;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->keepalive->ts_deadline );
+  state->keepalive->inflight = 0;
+  state->backoff_until = 0L;
+
+  state->builder_info_valid_until = LONG_MAX;
+  fd_grpc_client_h2_conn( state->grpc_client )->flags = FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )>g_clock );
+  fd_grpc_client_h2_conn( state->grpc_client )->flags = 0U;
+  FD_TEST( fd_bundle_client_next_deadline( state, g_clock )==state->keepalive->ts_next_tx );
+  test_bundle_env_destroy( env );
+}
+
 FD_UNIT_TEST( bundle_rx ) {
   test_bundle_env_t env[1]; test_bundle_env_create( env, wksp );
   fd_bundle_tile_t * state = env->state;

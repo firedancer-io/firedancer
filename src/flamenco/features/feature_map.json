@@ -200,7 +200,7 @@
   {"name":"ed25519_precompile_verify_strict","implemented":1,"pubkey":"ed9tNscbWLYBooxWA7FE2B5KHWs8A6sxfY8EzezEcoo","cleaned_up":1,"hardcode_for_fuzzing":1,"comment":"only impl the activated path"},
   {"name":"zk_elgamal_proof_program_enabled","implemented":1,"pubkey":"zkhiy5oLowR7HY4zogXjCjeMXyruLqBwSWH21qcFtnv","hardcode_for_fuzzing":1},
   {"name":"move_stake_and_move_lamports_ixs","implemented":1,"pubkey":"7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"deprecate_legacy_vote_ixs","implemented":0,"pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
+  {"name":"deprecate_legacy_vote_ixs","implemented":1,"pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
   {"name":"partitioned_epoch_rewards_superfeature","implemented":1,"pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"enable_secp256r1_precompile","implemented":1,"pubkey":"srremy31J5Y25FrAApwVb9kZcfXbusYMMsvTK9aWv5q","old":"sryYyFwxzJop1Bh9XpyiVWjZP4nfHExiqNp3Dh71W9i","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"get_sysvar_syscall_enabled","implemented":1,"pubkey":"CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq","hardcode_for_fuzzing":1},
@@ -274,7 +274,7 @@
   {"name":"disable_sbpf_v0_v1_v2_deployment","implemented":1,"pubkey":"B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g"},
   {"name":"commission_rate_in_basis_points","implemented":1,"pubkey":"Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj","hardcode_for_fuzzing":1},
   {"name":"loader_v3_minimum_extend_program_size","implemented":1,"pubkey":"YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5"},
-  {"name":"define_ltds_fee_only_semantics","implemented":1,"pubkey":"LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD"},
+  {"name":"define_ltds_fee_only_semantics","implemented":1,"pubkey":"LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD","hardcode_for_fuzzing":1},
   {"name":"validate_chained_block_id_2","implemented":1,"pubkey":"vcmrw431aNM8ngQ46derkZXipoTGQdbHkEygBDh12dA","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"reduce_slot_time_to_350ms","implemented":1,"pubkey":"iBRL5RuWhw4yqaAZu96RUULHckHTZAoe2b77qaV38JZ"},
   {"name":"reduce_slot_time_to_300ms","implemented":1,"pubkey":"iBRLL3k18HST852F1Mf3Lv83waTNQmmqvKDxvYGwQFL"},
@@ -289,7 +289,7 @@
   {"name":"relax_post_exec_min_balance_check","implemented":1,"pubkey":"BY4JhHLahVzS9ynfDz4exzGPbVXhFmJvEyMWsXbDBqME"},
   {"name":"upgrade_bpf_stake_program_to_v5_1","implemented":1,"pubkey":"s51VGwCAgebo2745DSUris72RavoLkXGUmVJosESCXr","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"custom_commission_collector","implemented":1,"pubkey":"3HcSrCTGXTUnrTueHi4DAwNuMxZSsm5xui2Ax3mgxHqf"},
-  {"name":"enable_tx_v1","implemented":1,"pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL"},
+  {"name":"enable_tx_v1","implemented":1,"pubkey":"txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL","hardcode_for_fuzzing":1},
   {"name":"double_disinflation_rate","implemented":1,"pubkey":"ddibiks7RHZR69QXYMCmk4EZNt6WckspTqEEWv6cS38","old":"55oikhjJ2LUi1xdgJ17ueRyHFURZEw32asT3iAKfh7gg"},
   {"name":"remove_inactive_stakes","implemented":1,"pubkey":"RMsTKfD6hZnBhhNvgGBeKNrqCNkeoP3DYYxNtcuWtRg"},
   {"name":"alpenglow","implemented":1,"pubkey":"A1pengvuM6JEcyNuTnMqepBKhwHE3N6PmUrdATGawhJS","old":"A1PeNGc3D8SQmKwdYf4qj1XG7XgWVSuFQaiJSCQj775h","hardcode_for_fuzzing":1,"comment":"the tower to alpenglow migration itself is not supported"},
@@ -308,5 +308,8 @@
   {"name":"remove_runtime_float_ops","implemented":1,"pubkey":"7AzqUCKQjoCKhWDDHgEYkTY8iRwWtuuxHogcmx1UJzR8"},
   {"name":"core_bpf_hash_validation","implemented":1,"pubkey":"FCsQnd4V52NESBhVURWYSWBbmLFzgxEZVC2WngzHzp1u","comment":"firedancer assumes this feature gate is activated for all migrations, which is safe because of the feature-gate schedule ordering"},
   {"name":"replace_ata_with_p_ata","implemented":1,"pubkey":"pata6uFabFDejC1U7rpmFj9s1FhmiPyWk6D51U1ksx3","comment":"core_bpf_hash_validation will be activated first"},
-  {"name":"loaderv3_programdata_size_floor","implemented":1,"pubkey":"8whkDenELnfwYLirBc4Wb4H2Z1z5K7tiykpdxJS7cWg1"}
+  {"name":"loaderv3_programdata_size_floor","implemented":1,"pubkey":"8whkDenELnfwYLirBc4Wb4H2Z1z5K7tiykpdxJS7cWg1"},
+  {"name":"loader_v3_remove_extend_program","implemented":1,"pubkey":"5Ach9H8V5NCNDQg7Md6HnJmVttF3tzHwiWWucnnFd4jz"},
+  {"name":"unbound_loader_v3_instruction_data","implemented":1,"pubkey":"UPbPFtaUVoKZuMEJsDxLfvCNuKavoVapghnzepr1e26"},
+  {"name":"loader_v3_allow_prefunded_programdata","implemented":1,"pubkey":"63Zvc4ixE2NQsP1ef9R5AWQyty96BhRp7NiSuejUmXGM"}
 ]

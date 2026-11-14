@@ -1605,7 +1605,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x09\x63\xab\xd0\x05\x64\xa6\xa5\x74\xcd\xdf\xb3\xc1\xa6\xcf\xb3\xc9\x9e\x1d\x7d\xf1\xdc\x91\xd5\x67\xdf\x68\xeb\x77\x49\x22\xb7"},
                                  /* depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv */
     .name                      = "deprecate_legacy_vote_ixs",
-    .implemented               = 0,
+    .implemented               = 1,
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, partitioned_epoch_rewards_superfeature)>>3,
@@ -2183,7 +2183,8 @@ fd_feature_id_t const ids[] = {
                                  /* LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD */
     .name                      = "define_ltds_fee_only_semantics",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, validate_chained_block_id_2)>>3,
     .id                        = {"\x0d\xbc\x3b\x68\xa2\x90\x42\x94\x71\x68\x24\xf6\xad\x2a\x32\xe9\x49\x30\x42\xa3\x80\x46\x91\x94\x6c\x28\x18\x33\xcd\x6f\x71\x55"},
@@ -2290,7 +2291,8 @@ fd_feature_id_t const ids[] = {
                                  /* txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL */
     .name                      = "enable_tx_v1",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, double_disinflation_rate)>>3,
     .id                        = {"\x09\x62\x6c\xe8\x20\x77\x2c\xf5\x37\x7e\x00\x68\x91\x01\x6f\xcb\xfd\x0b\x53\x67\xeb\xfb\xaa\x01\xe2\xc3\x0e\x6f\xfe\x63\x42\xa7"},
@@ -2423,6 +2425,27 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x76\x05\x3e\x2b\x81\x42\xe6\xb0\xea\x46\x37\x4e\x67\xc6\x47\x63\xc6\x6f\x2c\xce\x1a\x0f\xd4\x2d\x14\x1d\xf1\xa4\x48\x46\x76\x22"},
                                  /* 8whkDenELnfwYLirBc4Wb4H2Z1z5K7tiykpdxJS7cWg1 */
     .name                      = "loaderv3_programdata_size_floor",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, loader_v3_remove_extend_program)>>3,
+    .id                        = {"\x3d\xe5\x55\x0a\x7c\x89\x4e\x6c\xe7\xbb\x25\xcf\xf3\xe6\xb5\x80\x7d\xf6\xb4\xcc\xea\x8a\x6e\x86\x27\x2f\x2a\x5a\x21\x8b\xed\x89"},
+                                 /* 5Ach9H8V5NCNDQg7Md6HnJmVttF3tzHwiWWucnnFd4jz */
+    .name                      = "loader_v3_remove_extend_program",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, unbound_loader_v3_instruction_data)>>3,
+    .id                        = {"\x07\x04\x3a\x46\x0e\x83\xaf\x89\xd8\xa5\x92\x3b\xc6\xd4\x44\xcd\x89\x8f\x77\xbe\xbe\xde\x33\x6a\x05\xd0\x0d\x91\xc7\xfa\x9d\xa3"},
+                                 /* UPbPFtaUVoKZuMEJsDxLfvCNuKavoVapghnzepr1e26 */
+    .name                      = "unbound_loader_v3_instruction_data",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, loader_v3_allow_prefunded_programdata)>>3,
+    .id                        = {"\x4a\xf2\xd2\xe3\x41\x96\xca\xa4\x5a\x0d\xb3\x08\x2f\x48\x79\x13\x37\xc8\xbd\x2c\x0e\xf2\x81\xbd\x89\xb7\x7e\x79\xdb\xb7\x59\xc2"},
+                                 /* 63Zvc4ixE2NQsP1ef9R5AWQyty96BhRp7NiSuejUmXGM */
+    .name                      = "loader_v3_allow_prefunded_programdata",
     .implemented               = 1,
     .cleaned_up                = 0 },
 
@@ -2752,6 +2775,9 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_307 0x6b23805438010ed3UL, .val = &ids[307]
 #define MAP_PERFECT_308 0x539f8a37da9d300cUL, .val = &ids[308]
 #define MAP_PERFECT_309 0xb0e642812b3e0576UL, .val = &ids[309]
+#define MAP_PERFECT_310 0x6c4e897c0a55e53dUL, .val = &ids[310]
+#define MAP_PERFECT_311 0x89af830e463a0407UL, .val = &ids[311]
+#define MAP_PERFECT_312 0xa4ca9641e3d2f24aUL, .val = &ids[312]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -3072,4 +3098,7 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, remove_runtime_float_ops             
 FD_STATIC_ASSERT( offsetof( fd_features_t, core_bpf_hash_validation                                )>>3==307UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, replace_ata_with_p_ata                                  )>>3==308UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, loaderv3_programdata_size_floor                         )>>3==309UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_remove_extend_program                         )>>3==310UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, unbound_loader_v3_instruction_data                      )>>3==311UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_allow_prefunded_programdata                   )>>3==312UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

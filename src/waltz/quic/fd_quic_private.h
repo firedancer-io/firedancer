@@ -4,11 +4,9 @@
 #include "fd_quic.h"
 #include "templ/fd_quic_transport_params.h"
 #include "fd_quic_conn_map.h"
-#include "fd_quic_stream.h"
 #include "log/fd_quic_log_tx.h"
 #include "fd_quic_pkt_meta.h"
 #include "tls/fd_quic_tls.h"
-#include "fd_quic_stream_pool.h"
 #include "fd_quic_pretty_print.h"
 #include "fd_quic_svc_q.h"
 #include <math.h>
@@ -83,7 +81,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_tls_hs_t *      hs_pool;
   fd_quic_tls_hs_cache_t  hs_cache; /* dlist <> dlist_private */
 
-  fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
   fd_quic_pkt_meta_t    * pkt_meta_pool;
   fd_chacha_rng_t         _rng[1];        /* CSPRNG, see fd_quic_rng_ulong */
   long                    rng_reseed_at;  /* rekey _rng at the first refill due at/after this timestamp */
@@ -197,12 +194,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      ushort                    self_udp_port,
                      int                       server );
 
-void
-fd_quic_tx_stream_free( fd_quic_t *        quic,
-                        fd_quic_conn_t *   conn,
-                        fd_quic_stream_t * stream,
-                        int                code );
-
 /* Callbacks provided by fd_quic **************************************/
 
 /* used by quic to receive data from network */
@@ -287,18 +278,6 @@ fd_quic_cb_stream_rx( fd_quic_t *        quic,
 
   if( !quic->cb.stream_rx ) return FD_QUIC_SUCCESS;
   return quic->cb.stream_rx( conn, stream_id, offset, data, data_sz, fin );
-}
-
-static inline void
-fd_quic_cb_stream_notify( fd_quic_t *        quic,
-                          fd_quic_stream_t * stream,
-                          void *             stream_ctx,
-                          int                event ) {
-  quic->metrics.stream_closed_cnt[ event ]++;
-  quic->metrics.stream_active_cnt--;
-
-  if( !quic->cb.stream_notify ) return;
-  quic->cb.stream_notify( stream, stream_ctx, event );
 }
 
 static inline void
@@ -466,13 +445,6 @@ fd_quic_calc_expiry_duration( fd_quic_conn_t * conn, int ack_driven, int is_serv
 
   return duration;
 }
-
-uchar *
-fd_quic_gen_stream_frames( fd_quic_conn_t *             conn,
-                           uchar *                      payload_ptr,
-                           uchar *                      payload_end,
-                           fd_quic_pkt_meta_t   * pkt_meta_tmpl,
-                           fd_quic_pkt_meta_tracker_t * tracker );
 
 ulong
 fd_quic_process_ack_range( fd_quic_conn_t      *      conn,

@@ -476,8 +476,8 @@ struct fd_accdb_shmem_private {
      KEY INVARIANT: descends_set is ONLY consulted when generation >
      root_generation, which means the fork_id has NOT been rooted yet
      and its pool slot is still live.  This is what makes it safe for
-     fork_slot_defer to eagerly clear descends_set bits for retired
-     forks: rooted fork bits are dead (bypassed by the generation fast
+     fd_accdb_attach_child to clear descends_set bits on slot
+     reuse: rooted fork bits are dead (bypassed by the generation fast
      path), and purged fork bits were already 0 in all live forks'
      descends_sets (a purged fork is never an ancestor of a live fork).
      */

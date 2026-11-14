@@ -391,8 +391,7 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong   payload_sz      = ctx->batch_msg[ j ].msg_len;
     struct sockaddr_in * sa = ctx->batch_msg[ j ].msg_hdr.msg_name;
     ulong frame_sz          = payload_sz + hdr_sz;
-    if( FD_UNLIKELY( ctx->lo_ifindex &&
-                     (ctx->batch_msg[ j ].msg_hdr.msg_flags & (MSG_TRUNC|MSG_CTRUNC)) ) ) continue;
+    if( FD_UNLIKELY( ctx->batch_msg[ j ].msg_hdr.msg_flags & (MSG_TRUNC|MSG_CTRUNC) ) ) continue;
     ctx->metrics.rx_bytes_total += frame_sz;
     if( FD_UNLIKELY( sa->sin_family!=AF_INET ) ) {
       /* unreachable */

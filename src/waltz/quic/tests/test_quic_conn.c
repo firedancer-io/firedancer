@@ -125,10 +125,7 @@ main( int argc, char ** argv ) {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
     .handshake_cnt      = 10,
-    .stream_id_cnt      = 10,
-    .stream_pool_cnt    = 400,
     .inflight_frame_cnt = 1024 * 10,
-    .tx_buf_sz          = 1<<14
   };
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
@@ -162,7 +159,8 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_quic_init( client_quic ) );
   FD_TEST( fd_quic_init( server_quic ) );
 
-  uint k = 1;
+  uint  k         = 1;
+  ulong stream_id = FD_QUIC_STREAM_TYPE_UNI_CLIENT;
 
   char buf[512] = "Hello world!\x00-   ";
 
@@ -189,17 +187,8 @@ main( int argc, char ** argv ) {
       case 0:
         FD_LOG_DEBUG(( "sending: %d", (int)k ));
 
-        fd_quic_stream_t * stream = fd_quic_conn_new_stream( client_conn );
-        if( FD_UNLIKELY( !stream ) ) {
-          FD_LOG_WARNING(( "unable to send - no streams available" ));
-          break;
-        }
-
-        int rc = fd_quic_stream_send( stream, buf, sizeof(buf), 1 /* fin */ );
-        if( rc == FD_QUIC_SUCCESS ) {
-          /* successful - stream will begin closing */
-          /* stream and meta will be recycled when quic notifies the stream
-              is closed via my_stream_notify_cb */
+        if( fd_quic_test_stream_send( client_conn, stream_id, buf, sizeof(buf), NULL ) ) {
+          stream_id += 4UL;
           k++;
           if( (k%2) == 0 ) {
             // close client
@@ -208,7 +197,7 @@ main( int argc, char ** argv ) {
             fd_quic_conn_close( client_conn, 0 /* app defined reason code */ );
           }
         } else {
-          FD_LOG_WARNING(( "unable to send - no streams available" ));
+          FD_LOG_WARNING(( "unable to send" ));
         }
         break;
 
@@ -237,6 +226,7 @@ main( int argc, char ** argv ) {
       case 2:
         if( client_complete ) {
           FD_LOG_INFO(( "new connection completed handshake" ));
+          stream_id = FD_QUIC_STREAM_TYPE_UNI_CLIENT;
 
           state = 0;
         }

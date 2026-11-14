@@ -106,13 +106,13 @@
 
 #include "../../util/fd_util_base.h"
 
-/* FD_XSK_UMEM_ALIGN: byte alignment of UMEM area within fd_xsk_t.
+/* FD_XSK_UMEM_ALIGN: byte alignment of UMEM area.
    This requirement is set by the kernel as of Linux 4.18. */
 #define FD_XSK_UMEM_ALIGN (4096UL)
 
 /* fd_xdp_ring_t describes an XSK descriptor ring in the thread group's
    local address space.  All pointers fall into kernel-managed XSK
-   descriptor buffer at [mem;mem+mem_sz) that are valid during the
+   descriptor buffer at [mem;mem+map_sz) that are valid during the
    lifetime of an fd_xsk_t join.  The ring producer and consumer are
    synchronized via incrementing 32-bit sequence numbers that wrap at 2^32. */
 

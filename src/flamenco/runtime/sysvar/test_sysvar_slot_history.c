@@ -30,7 +30,7 @@ test_sysvar_slot_history_validate( void ) {
 
   static uchar empty[ MIN_SZ ] = { 1, 0,0,0,0,0,0,0,0, };
   FD_TEST(  fd_sysvar_slot_history_validate( empty, sizeof(empty) ) );
-  FD_TEST( !fd_sysvar_slot_history_validate( empty, sizeof(empty)-1UL ) );
+  for( ulong sz=0UL; sz<sizeof(empty); sz++ ) FD_TEST( !fd_sysvar_slot_history_validate( empty, sz ) );
 
   static uchar overflow[ 25 ] = { 1, 0xff,0xff,0xff,0xff, 0xff,0xff,0xff,0xff };
   FD_TEST( !fd_sysvar_slot_history_validate( overflow, sizeof(overflow) ) );
@@ -209,7 +209,49 @@ test_sysvar_slot_history_update( fd_wksp_t * wksp ) {
   FD_TEST( fd_sysvar_slot_history_find_slot( view, 105UL )==FD_SLOT_HISTORY_SLOT_FOUND     );
   FD_TEST( fd_sysvar_slot_history_find_slot( view, 106UL )==FD_SLOT_HISTORY_SLOT_FUTURE    );
 
+  /* A full-size None bitvector still follows the existing reset path. */
+  static uchar none[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
+  fd_sysvar_account_update( env->bank, env->accdb, NULL, &fd_sysvar_slot_history_id, none, sizeof(none) );
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
+  sz = slot_history_read( env );
+  FD_TEST( fd_sysvar_slot_history_view( view, slot_history_buf, sz ) );
+  FD_TEST( view->next_slot==106UL );
+  FD_TEST( fd_sysvar_slot_history_find_slot( view, 105UL )==FD_SLOT_HISTORY_SLOT_FOUND );
+  FD_TEST( fd_sysvar_slot_history_find_slot( view, 100UL )==FD_SLOT_HISTORY_SLOT_NOT_FOUND );
+
   test_sysvar_cache_env_destroy( env );
+}
+
+static void
+test_sysvar_slot_history_update_absent( fd_wksp_t * wksp ) {
+  ulong const slots[] = { 0UL, 1234UL, FD_SLOT_HISTORY_MAX_ENTRIES+500UL };
+  for( ulong i=0UL; i<sizeof(slots)/sizeof(slots[0]); i++ ) {
+    test_sysvar_cache_env_t env[1];
+    FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+    env->bank->f.rent = FD_RENT_DEFAULT_PARAMS;
+    env->bank->f.slot = slots[i];
+    FD_TEST( !slot_history_read( env ) );
+    ulong capitalization = env->bank->f.capitalization;
+    fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
+    ulong sz = slot_history_read( env );
+    FD_TEST( sz==FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+    fd_slot_history_view_t view[1];
+    FD_TEST( fd_sysvar_slot_history_view( view, slot_history_buf, sz ) );
+    FD_TEST( view->next_slot==slots[i]+1UL );
+    FD_TEST( view->bits_len==FD_SLOT_HISTORY_MAX_ENTRIES );
+    FD_TEST( fd_sysvar_slot_history_find_slot( view, slots[i] )==FD_SLOT_HISTORY_SLOT_FOUND );
+    FD_TEST( fd_sysvar_slot_history_find_slot( view, slots[i]+1UL )==FD_SLOT_HISTORY_SLOT_FUTURE );
+    if( slots[i]<FD_SLOT_HISTORY_MAX_ENTRIES ) FD_TEST( fd_sysvar_slot_history_find_slot( view, 0UL )==FD_SLOT_HISTORY_SLOT_FOUND );
+    else FD_TEST( fd_sysvar_slot_history_find_slot( view, 0UL )==FD_SLOT_HISTORY_SLOT_TOO_OLD );
+    if( slots[i]>1UL ) FD_TEST( fd_sysvar_slot_history_find_slot( view, slots[i]-1UL )==FD_SLOT_HISTORY_SLOT_NOT_FOUND );
+    fd_acc_t acc = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, fd_sysvar_slot_history_id.uc );
+    ulong balance = fd_ulong_max( fd_rent_exempt_minimum_balance( &env->bank->f.rent, sz ), 1UL );
+    FD_TEST( acc.lamports==balance );
+    FD_TEST( fd_memeq( acc.owner, fd_sysvar_owner_id.uc, 32UL ) );
+    fd_accdb_unread_one( env->accdb, &acc );
+    FD_TEST( env->bank->f.capitalization==capitalization+balance );
+    test_sysvar_cache_env_destroy( env );
+  }
 }
 
 static void
@@ -293,6 +335,7 @@ test_sysvar_slot_history( fd_wksp_t * wksp ) {
   test_sysvar_slot_history_find_slot_synthetic();
   test_sysvar_slot_history_init               ( wksp );
   test_sysvar_slot_history_update             ( wksp );
+  test_sysvar_slot_history_update_absent      ( wksp );
   test_sysvar_slot_history_update_large_gap   ( wksp );
   test_sysvar_slot_history_update_zero_blocks ( wksp );
 }

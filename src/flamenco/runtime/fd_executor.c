@@ -284,8 +284,8 @@ fd_validate_fee_payer( fd_acc_t *        acc,
                        ulong             fee,
                        int               relax_post_exec_min_balance_check ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L364-L367 */
-  if( FD_UNLIKELY( !acc->lamports ) ) return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/transaction_processor.rs#L849-L857 */
+  if( FD_UNLIKELY( !acc->lamports ) ) return FD_RUNTIME_TXN_ERR_INVALID_ACCOUNT_FOR_FEE;
 
   /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/account_loader.rs#L368-L371 */
   int system_account_kind = fd_get_system_account_kind( acc );
@@ -818,27 +818,8 @@ fd_executor_calculate_fee( fd_txn_out_t const * txn_out,
   *ret_priority_fee  = fd_get_prioritization_fee( &txn_out->details.compute_budget );
 }
 
-/* This function creates a rollback account for just the fee payer.
-   Although Agave also sets up rollback accounts for both the fee payer
-   and nonce account here, we already set up the rollback nonce account
-   in earlier sanitization checks.  Here we have to capture the entire
-   fee payer record so that if the transaction fails, the fee payer
-   state can be rolled back to it's state pre-transaction, and then
-   debited any transaction fees.
-
-   Our implementation is slightly different than Agave's in several
-   ways:
-
-    1. The rollback nonce account has already been set up when checking
-       the transaction age
-    2. When the nonce and fee payer accounts are the same...
-      - Agave copies the data from the rollback nonce account into the
-        rollback fee payer account, and then uses that new fee payer
-        account as the rollback account.
-      - We simply set the rent epoch and lamports of the rollback nonce
-        account (since the other fields of the account do not change).
-
-   https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/rollback_accounts.rs#L34-L77 */
+/* Save the fee payer's lamports after fee validation for rollback.
+   The nonce rollback account is set up earlier when checking transaction age. */
 
 static void
 fd_executor_create_rollback_fee_payer_account( fd_txn_out_t * txn_out ) {

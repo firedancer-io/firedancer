@@ -977,73 +977,6 @@ FD_UNIT_TEST( quic_parse_path_challenge ) {
   } while(0);
 }
 
-static int
-in_stream_list( fd_quic_stream_t * stream, fd_quic_stream_t * sentinel ) {
-  fd_quic_stream_t * curr = sentinel->next;
-  while( curr != sentinel && curr ) {
-    if( curr == stream ) return 1;
-    curr = curr->next;
-  }
-  return 0;
-}
-
-/*
-  Tests edge cases for send_streams
-*/
-FD_UNIT_TEST( quic_send_streams ) {
-
-  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
-  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
-  conn->tx_sup_stream_id = 20; /* some large number */
-
-  /* empty stream in send_streams gets moved out */
-  do {
-    fd_quic_stream_t * empty_stream = fd_quic_conn_new_stream( conn );
-    FD_TEST( empty_stream );
-
-    /* manually add to send_streams */
-    FD_QUIC_STREAM_LIST_REMOVE( empty_stream );
-    FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, empty_stream );
-
-    FD_TEST( in_stream_list( empty_stream, conn->send_streams ) );
-
-    uchar buf[10];
-    fd_quic_pkt_meta_t pkt_meta_tmpl = {.enc_level = fd_quic_enc_level_appdata_id};
-
-    fd_quic_gen_stream_frames( conn, buf, buf+sizeof(buf), &pkt_meta_tmpl, &conn->pkt_meta_tracker );
-
-    FD_TEST( !in_stream_list( empty_stream, conn->send_streams ) );
-    FD_TEST( in_stream_list( empty_stream, conn->used_streams ) );
-
-  } while(0);
-
-  /* independent of fin, streams with more data than space stay in send_streams */
-  for( int fin=0; fin<2; fin++ ) {
-    fd_quic_stream_t * big_stream = fd_quic_conn_new_stream( conn );
-    conn->tx_max_data = big_stream->tx_max_stream_data = 100;
-    FD_TEST( big_stream );
-    const char data[] = "SOME BIG STRING TO SEND";
-    fd_quic_stream_send( big_stream, data, sizeof(data), fin );
-
-    FD_TEST( in_stream_list( big_stream, conn->send_streams ) );
-
-    uchar buf[FD_QUIC_MAX_FOOTPRINT( stream_e_frame ) + 2]; /* only 2 bytes for actual data*/
-    fd_quic_pkt_meta_t pkt_meta = {0};
-
-    fd_quic_gen_stream_frames( conn, buf, buf+sizeof(buf), &pkt_meta, &conn->pkt_meta_tracker );
-
-    FD_TEST( in_stream_list( big_stream, conn->send_streams ) );
-    conn->send_streams->next->sentinel = 1; /* rm this one to reset for next test */
-  }
-
-}
-
-static void pretend_stream( fd_quic_stream_t * stream ) {
-  stream->stream_flags |= FD_QUIC_STREAM_FLAGS_UNSENT;
-  stream->tx_buf.head = 1;
-  stream->tx_sent = 0;
-}
-
 FD_UNIT_TEST( quic_inflight_pkt_limit ) {
 
   /* min_inflight reserved AND max enforced */
@@ -1054,17 +987,10 @@ FD_UNIT_TEST( quic_inflight_pkt_limit ) {
     FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
     FD_TEST( conn->used_pkt_meta == 0UL );
 
-    conn->tx_sup_stream_id = 4; /* we'll just use one stream */
-    fd_quic_stream_t * empty_stream = fd_quic_conn_new_stream( conn );
-
     for( int i=0; i<12; i++ ) {
-      empty_stream->upd_pkt_number = ~0UL;
-
-      /* manually add to send_streams */
-      FD_QUIC_STREAM_LIST_REMOVE( empty_stream );
-      pretend_stream( empty_stream );
-      FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, empty_stream );
-      FD_TEST( in_stream_list( empty_stream, conn->send_streams ) );
+      /* one PING packet (one pkt_meta) per service */
+      conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+      conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
 
       ulong conn_max_fails_before = quic->metrics.frame_tx_alloc_cnt[2];
       fd_quic_conn_service( quic, conn, 0 );
@@ -1088,9 +1014,6 @@ FD_UNIT_TEST( quic_inflight_pkt_limit ) {
       .inflight_frame_cnt =   8UL,
       .handshake_cnt      =   1UL,
       .conn_id_cnt        =   4UL,
-      .stream_id_cnt      =   8UL,
-      .tx_buf_sz          = 512UL,
-      .stream_pool_cnt    =  32UL,
     };
 
     quic_limits.min_inflight_frame_cnt_conn = 5UL;
@@ -1678,7 +1601,7 @@ FD_UNIT_TEST( quic_notify_before_first_datagram ) {
   }
 }
 
-FD_UNIT_TEST( quic_datagram_express_tx ) {
+FD_UNIT_TEST( quic_datagram_tx ) {
   fd_quic_t * quic = sandbox->quic;
   quic->config.max_datagram_frame_size = 64UL;
   quic->cb.datagram_rx = test_datagram_rx;
@@ -1754,6 +1677,153 @@ FD_UNIT_TEST( quic_datagram_express_tx ) {
   conn->tx_max_datagram_frame_sz = 1UL+1UL+sizeof(msg)-1UL;
   FD_TEST( !fd_quic_conn_tx_dgram( conn, pkt, sizeof(pkt), msg, sizeof(msg), NULL ) );
   FD_TEST( conn->pkt_number[2]==pkt_num+3UL );
+}
+
+static ulong stream_rx_cnt;
+static ulong stream_rx_id;
+static ulong stream_rx_off;
+static ulong stream_rx_sz;
+static int   stream_rx_fin;
+static uchar stream_rx_buf[ 1200 ];
+
+static int
+test_stream_rx( fd_quic_conn_t * conn FD_PARAM_UNUSED,
+                ulong            stream_id,
+                ulong            offset,
+                uchar const *    data,
+                ulong            data_sz,
+                int              fin ) {
+  FD_TEST( data_sz<=sizeof(stream_rx_buf) );
+  fd_memcpy( stream_rx_buf, data, data_sz );
+  stream_rx_cnt++;
+  stream_rx_id  = stream_id;
+  stream_rx_off = offset;
+  stream_rx_sz  = data_sz;
+  stream_rx_fin = fin;
+  return FD_QUIC_SUCCESS;
+}
+
+FD_UNIT_TEST( quic_stream_tx ) {
+  fd_quic_t * quic = sandbox->quic;
+  quic->cb.stream_rx = test_stream_rx;
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  quic->config.initial_rx_max_stream_data = 1UL<<15;
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  /* Loop the packet back into this connection.  It sends as a client,
+     and conn->server is flipped while it receives (see STREAM_RX), so
+     that it accepts the client-initiated streams it sent. */
+# define STREAM_RX( pkt_sz ) do {                                              \
+    pkt_meta.datagram_sz = (uint)(pkt_sz);                                     \
+    conn->server = 1;                                                          \
+    FD_TEST( fd_quic_process_quic_packet_v1( quic, &pkt_meta, pkt, (pkt_sz) )==(pkt_sz) ); \
+    conn->server = 0;                                                          \
+  } while(0)
+# define TX( stream_id, data, data_sz, opt_pkt_num ) fd_quic_conn_tx_stream( conn, pkt, sizeof(pkt), &used, (stream_id), (data), (data_sz), (opt_pkt_num) )
+# define SEAL( opt_pkt_num ) TX( ULONG_MAX, NULL, 0UL, (opt_pkt_num) )
+  ulong const big_id = 2UL + (1UL<<40); /* stream ID with an 8 byte encoding */
+  conn->peer_cids[0]          = fd_quic_conn_id_new( &conn->our_conn_id, FD_QUIC_CONN_ID_SZ );
+  conn->tx_max_datagram_sz    = 1200U;
+  conn->srx->rx_sup_stream_id = big_id + 4UL;
+
+  uchar pkt[ 1500 ];
+  ulong used = 0UL;
+  uchar const msg[] = { 's', 't', 'r', 'e', 'a', 'm' };
+  ulong const pkt_num = conn->pkt_number[ 2 ]; /* application packet number space */
+
+  /* Peer limits */
+  conn->tx_sup_stream_id               = 2UL + (2UL<<2); /* streams 2 and 6 */
+  conn->tx_initial_max_stream_data_uni = sizeof(msg)-1UL;
+  FD_TEST( TX(  2UL, msg, sizeof(msg), NULL )==ULONG_MAX ); /* stream data limit */
+  conn->tx_initial_max_stream_data_uni = sizeof(msg);
+  FD_TEST( TX(  3UL, msg, sizeof(msg), NULL )==ULONG_MAX ); /* server-initiated */
+  FD_TEST( TX(  0UL, msg, sizeof(msg), NULL )==ULONG_MAX ); /* bidirectional */
+  FD_TEST( TX( 10UL, msg, sizeof(msg), NULL )==ULONG_MAX ); /* stream limit */
+  FD_TEST( fd_quic_conn_tx_stream( conn, pkt, 1UL, &used, 2UL, msg, sizeof(msg), NULL )==ULONG_MAX ); /* pkt too small */
+  FD_TEST( !used );
+  FD_TEST( !SEAL( NULL ) );
+  FD_TEST( conn->pkt_number[2]==pkt_num );
+  FD_TEST( conn->used_pkt_meta==0UL );
+
+  fd_quic_pkt_t pkt_meta = {
+    .ip4 = {{
+      .saddr = FD_QUIC_SANDBOX_PEER_IP4,
+      .daddr = FD_QUIC_SANDBOX_SELF_IP4,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    }},
+    .rcv_time  = sandbox->wallclock,
+    .enc_level = fd_quic_enc_level_appdata_id,
+  };
+
+  /* Two streams, one empty, coalesced into one packet */
+  FD_TEST( !TX( 6UL, msg,  sizeof(msg), NULL ) );
+  FD_TEST( !TX( 2UL, NULL, 0UL,         NULL ) );
+  FD_TEST( used );
+  FD_TEST( conn->pkt_number[2]==pkt_num );
+
+  ulong tx_pkt_num = ULONG_MAX;
+  ulong pkt_sz = SEAL( &tx_pkt_num );
+  FD_TEST( pkt_sz>=FD_QUIC_SHORTEST_PKT && pkt_sz!=ULONG_MAX );
+  FD_TEST( !used );
+  FD_TEST( tx_pkt_num==pkt_num );
+  FD_TEST( conn->pkt_number[2]==pkt_num+1UL );
+  FD_TEST( conn->used_pkt_meta==1UL );
+
+  stream_rx_cnt = 0UL;
+  STREAM_RX( pkt_sz );
+  FD_TEST( stream_rx_cnt==2UL );
+  FD_TEST( stream_rx_id ==2UL ); /* last stream in the packet */
+  FD_TEST( stream_rx_off==0UL );
+  FD_TEST( stream_rx_sz ==0UL );
+  FD_TEST( stream_rx_fin );
+
+  /* A stream that does not fit seals the packet, and is added by the
+     next call */
+  conn->tx_sup_stream_id               = big_id + 4UL;
+  conn->tx_initial_max_stream_data_uni = 1UL<<15;
+  uchar big[ 400 ]; memset( big, 0x5a, sizeof(big) );
+  FD_TEST( !TX( 10UL, big, sizeof(big), NULL ) );
+  FD_TEST( !TX( 14UL, big, sizeof(big), NULL ) );
+  pkt_sz = TX( 18UL, big, sizeof(big), &tx_pkt_num );
+  FD_TEST( pkt_sz && pkt_sz<=1200UL );
+  FD_TEST( !used );
+  FD_TEST( tx_pkt_num==pkt_num+1UL );
+  stream_rx_cnt = 0UL;
+  STREAM_RX( pkt_sz );
+  FD_TEST( stream_rx_cnt==2UL );
+  FD_TEST( stream_rx_id ==14UL );
+  FD_TEST( stream_rx_sz ==sizeof(big) );
+  FD_TEST( !memcmp( stream_rx_buf, big, sizeof(big) ) );
+
+  FD_TEST( !TX( 18UL, big, sizeof(big), NULL ) );
+  pkt_sz = SEAL( &tx_pkt_num );
+  FD_TEST( pkt_sz && pkt_sz<=1200UL );
+  FD_TEST( tx_pkt_num==pkt_num+2UL );
+  stream_rx_cnt = 0UL;
+  STREAM_RX( pkt_sz );
+  FD_TEST( stream_rx_cnt==1UL );
+  FD_TEST( stream_rx_id ==18UL );
+
+  /* Largest stream */
+  uchar max[ FD_QUIC_STREAM_TX_MAX+1UL ]; memset( max, 0xa5, sizeof(max) );
+  FD_TEST( TX( big_id, max, FD_QUIC_STREAM_TX_MAX+1UL, NULL )==ULONG_MAX );
+  FD_TEST( !TX( big_id, max, FD_QUIC_STREAM_TX_MAX, NULL ) );
+  pkt_sz = SEAL( NULL );
+  FD_TEST( pkt_sz && pkt_sz<=1200UL );
+  stream_rx_cnt = 0UL;
+  STREAM_RX( pkt_sz );
+  FD_TEST( stream_rx_cnt==1UL );
+  FD_TEST( stream_rx_id ==big_id );
+  FD_TEST( stream_rx_sz ==FD_QUIC_STREAM_TX_MAX );
+
+  FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
+  quic->cb.stream_rx = NULL;
+# undef SEAL
+# undef TX
+# undef STREAM_RX
 }
 
 /* fd_quic_rng_ulong periodically rekeys the CSPRNG.  Verify that it only
@@ -2198,11 +2268,8 @@ main( int     argc,
     .conn_cnt                    =  4UL,
     .handshake_cnt               =  1UL,
     .conn_id_cnt                 =  4UL,
-    .stream_id_cnt               =  8UL,
     .inflight_frame_cnt          =  8UL * 4,
     .min_inflight_frame_cnt_conn =  7UL, /* for test_quic_inflight_pkt_limit */
-    .tx_buf_sz                   =  512UL,
-    .stream_pool_cnt             =  32UL,
   };
 
   ulong const pkt_cnt = 128UL;

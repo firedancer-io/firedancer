@@ -158,7 +158,6 @@ local link_hashes = {
   [0x01a062] = "replay_out",
   [0xbfa307] = "replay_epoch",
   [0x8b0b77] = "poh_replay",
-  [0x1f1be9] = "txsend_out",
   [0x76c6b3] = "gossip_ciaddr",
   [0x4d1d66] = "gossip_ciseen",
   [0xb343e8] = "gossip_misc",
@@ -175,11 +174,9 @@ local link_hashes = {
   [0xf005bb] = "repair_net",
   [0x629712] = "repair_out",
   [0xfb0d59] = "net_gossvf",
-  [0x287af8] = "net_txsend",
   [0x6a2cc7] = "net_rserve",
   [0xc52ff4] = "net_votor",
   [0x3c9510] = "gossip_net",
-  [0xf7b150] = "txsend_net",
   [0x6a67d3] = "rserve_net",
   [0xd607e8] = "votor_net"
 }
@@ -222,7 +219,7 @@ function tango.dissector (tvb, pinfo, tree)
   if link_name:match("^net_") or link_name:match("_net$") then
     local dissector = Dissector.get("eth_withoutfcs")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "verify_dedup" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "txsend_out" then
+  elseif link_name == "verify_dedup" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" then
     local dissector = Dissector.get("fd_txn_m_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
   elseif link_name == "poh_shred" then
@@ -529,8 +526,7 @@ local source_tpu_enum = {
     [1] = "QUIC",
     [2] = "UDP",
     [3] = "GOSSIP",
-    [4] = "BUNDLE",
-    [5] = "TXSEND"
+    [4] = "BUNDLE"
 }
 local f_source_tpu = ProtoField.uint8("fd_txn_m_t.source_tpu",       "Source TPU", base.DEC, source_tpu_enum)
 local f_payload_sz = ProtoField.uint16("fd_txn_m_t.payload_sz",       "Size of payload")

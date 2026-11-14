@@ -102,9 +102,8 @@ fd_fib4_delete( void * mem );
 
 /* Write APIs ************************************************************/
 
-/* fd_fib4_clear removes all route table entries but the first. Remove all
-   entries in the route hmap. Sets the first route table entry to
-   "throw 0.0.0.0/0 metric ((2<<32)-1)". */
+/* fd_fib4_clear removes all route table entries but the first and clears
+   the route hmap. */
 
 void
 fd_fib4_clear( fd_fib4_t * fib );

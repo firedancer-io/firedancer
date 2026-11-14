@@ -109,6 +109,7 @@ fd_quic_log_buf_delete( void * shmlog ) {
   fd_quic_log_buf_t * log = shmlog;
   if( FD_UNLIKELY( log->magic!=FD_QUIC_LOG_BUF_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
   }
 
   void * mcache_mem = (void *)( (ulong)log + log->abi.mcache_off );

@@ -29,15 +29,17 @@ typedef struct {
 
 typedef struct {
   fd_quic_conn_t *   conn;
-  fd_quic_stream_t * last_stream;
+  ulong              stream_cnt;   /* streams opened on conn */
+  ulong              tx_tot_data;  /* stream bytes sent on conn */
   ulong              reply_budget;
   ulong              rx_events;
+  uchar              reply[ 128 ]; /* reply queued by the stream RX callback */
+  ulong              reply_sz;
 } fuzz_peer_state_t;
 
 typedef enum {
   FUZZ_OP_SERVICE = 0,
   FUZZ_OP_SEND,
-  FUZZ_OP_FIN,
   FUZZ_OP_CLOSE,
   FUZZ_OP_RECONNECT,
   FUZZ_OP_LIMITS,
@@ -59,8 +61,6 @@ typedef struct {
 
 typedef struct {
   uchar  actor;
-  uchar  stream_mode;
-  uchar  fin_mode;
   uchar  payload_mode;
   uchar  burst;
   uchar  service_rounds;
@@ -123,10 +123,7 @@ static fd_quic_limits_t const g_limits = {
   .conn_cnt           = 8UL,
   .handshake_cnt      = 8UL,
   .conn_id_cnt        = 8UL,
-  .stream_id_cnt      = 128UL,
   .inflight_frame_cnt = 4096UL,
-  .stream_pool_cnt    = 2048UL,
-  .tx_buf_sz          = 1UL<<15UL,
 };
 
 static fd_quic_t * g_client_quic = NULL;
@@ -200,8 +197,37 @@ static void
 fuzz_cb_conn_final( fd_quic_conn_t * conn,
                     void *           quic_ctx ) {
   fuzz_peer_state_t * state = (fuzz_peer_state_t *)quic_ctx;
-  if( state->conn==conn ) state->conn = NULL;
-  if( state->last_stream && state->last_stream->conn==conn ) state->last_stream = NULL;
+  if( state->conn==conn ) {
+    state->conn        = NULL;
+    state->stream_cnt  = 0UL;
+    state->tx_tot_data = 0UL;
+  }
+}
+
+/* fuzz_next_stream_id returns the ID of the next stream state->conn
+   would open. */
+
+static inline ulong
+fuzz_next_stream_id( fuzz_peer_state_t const * state ) {
+  ulong stream_type = state->conn->server ? FD_QUIC_STREAM_TYPE_UNI_SERVER : FD_QUIC_STREAM_TYPE_UNI_CLIENT;
+  return stream_type + 4UL*state->stream_cnt;
+}
+
+/* fuzz_stream_tx sends data as a new stream of state->conn.  Returns 1
+   if a packet was sent. */
+
+static int
+fuzz_stream_tx( fuzz_peer_state_t * state,
+                uchar const *       data,
+                ulong               data_sz ) {
+  fd_quic_conn_t * conn = state->conn; /* NULL once a service closed it */
+  if( FD_UNLIKELY( !conn ) ) return 0;
+  if( FD_UNLIKELY( data_sz > conn->tx_max_data - fd_ulong_min( conn->tx_max_data, state->tx_tot_data ) ) ) return 0;
+  if( FD_UNLIKELY( !fd_quic_test_stream_send( conn, fuzz_next_stream_id( state ), data, data_sz, NULL ) ) ) return 0;
+
+  state->stream_cnt++;
+  state->tx_tot_data += data_sz;
+  return 1;
 }
 
 static int
@@ -222,17 +248,40 @@ fuzz_cb_stream_rx( fd_quic_conn_t * conn,
 
   /* Replies are intentionally sparse and bounded to avoid self-amplifying loops. */
   if( FD_LIKELY( offset==0UL && ((data[0]^((uchar)fin))&3u)==0u ) ) {
-    fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
-    if( stream ) {
-      ulong resp_sz = fd_ulong_min( data_sz, 128UL );
-      int   resp_fin = ( fin | (int)(data[0]&1u) ) ? 1 : 0;
-      int rc = fd_quic_stream_send( stream, data, resp_sz, resp_fin );
-      if( rc==FD_QUIC_SUCCESS ) state->last_stream = stream;
-    }
+    /* Sent by fuzz_send_replies: sending here would re-enter the peer's
+       RX callback through the directly connected aio. */
+    state->reply_sz = fd_ulong_min( data_sz, sizeof(state->reply) );
+    fd_memcpy( state->reply, data, state->reply_sz );
     state->reply_budget--;
   }
 
   return FD_QUIC_SUCCESS;
+}
+
+static inline fuzz_peer_state_t *
+fuzz_state_for_actor( uchar actor ) {
+  return actor==FUZZ_ACTOR_SERVER ? &g_server_state : &g_client_state;
+}
+
+/* fuzz_send_replies sends the replies queued by fuzz_cb_stream_rx.  A
+   reply may queue another, bounded by the peers' reply budgets. */
+
+static void
+fuzz_send_replies( void ) {
+  for(;;) {
+    int sent = 0;
+    for( uchar actor=0; actor<2; actor++ ) {
+      fuzz_peer_state_t * state = fuzz_state_for_actor( actor );
+      if( !state->reply_sz ) continue;
+      uchar reply[ sizeof(state->reply) ];
+      ulong reply_sz = state->reply_sz;
+      fd_memcpy( reply, state->reply, reply_sz );
+      state->reply_sz = 0UL;
+      fuzz_stream_tx( state, reply, reply_sz );
+      sent = 1;
+    }
+    if( !sent ) break;
+  }
 }
 
 static void
@@ -244,40 +293,29 @@ fuzz_service_pair( long * now,
     *now += step;
     fd_quic_service( g_client_quic, *now );
     fd_quic_service( g_server_quic, *now );
+    fuzz_send_replies();
   }
   fd_quic_sync_clocks( g_client_quic, g_server_quic, *now );
 }
 
 static inline void
-fuzz_grant_tx_limits( fd_quic_conn_t * conn,
-                      ulong            max_data,
-                      ulong            max_stream_data,
-                      ulong            stream_window ) {
+fuzz_grant_tx_limits( fuzz_peer_state_t * state,
+                      ulong               max_data,
+                      ulong               max_stream_data,
+                      ulong               stream_window ) {
+  fd_quic_conn_t * conn = state->conn;
   if( FD_UNLIKELY( !conn ) ) return;
 
   conn->tx_max_data = fd_ulong_max( conn->tx_max_data, max_data );
   conn->tx_initial_max_stream_data_uni = fd_ulong_max( conn->tx_initial_max_stream_data_uni, max_stream_data );
 
-  ulong sup = conn->tx_next_stream_id + stream_window;
-  if( FD_LIKELY( sup > conn->tx_next_stream_id ) ) {
-    conn->tx_sup_stream_id = fd_ulong_max( conn->tx_sup_stream_id, sup );
-  }
-}
-
-static inline fuzz_peer_state_t *
-fuzz_state_for_actor( uchar actor ) {
-  return actor==FUZZ_ACTOR_SERVER ? &g_server_state : &g_client_state;
+  ulong sup = fuzz_next_stream_id( state ) + stream_window;
+  conn->tx_sup_stream_id = fd_ulong_max( conn->tx_sup_stream_id, sup );
 }
 
 static inline fd_quic_t *
 fuzz_quic_for_actor( uchar actor ) {
   return actor==FUZZ_ACTOR_SERVER ? g_server_quic : g_client_quic;
-}
-
-static inline int
-fuzz_stream_is_valid( fd_quic_stream_t * stream,
-                      fd_quic_conn_t *   conn ) {
-  return !!( stream && stream->conn==conn && stream->stream_id!=FD_QUIC_STREAM_ID_UNUSED );
 }
 
 static inline int
@@ -365,8 +403,6 @@ fuzz_make_send_op( fuzz_cursor_t * cur,
     .kind = FUZZ_OP_SEND,
     .u.send = {
       .actor          = actor,
-      .stream_mode    = (uchar)fuzz_bounded( cur, 4UL ),
-      .fin_mode       = (uchar)fuzz_bounded( cur, 4UL ),
       .payload_mode   = (uchar)fuzz_bounded( cur, 4UL ),
       .burst          = (uchar)( 1U + (uint)fuzz_bounded( cur, burst_bias ? 4UL : 2UL ) ),
       .service_rounds = (uchar)fuzz_bounded( cur, 3UL ),
@@ -446,11 +482,6 @@ fuzz_emit_flow_block( fuzz_program_t * prog,
                       uchar            actor ) {
   fuzz_op_t op = fuzz_make_send_op( cur, actor, 1u );
   if( FD_UNLIKELY( !fuzz_program_emit( prog, &op ) ) ) return;
-
-  if( fuzz_u8( cur ) & 1u ) {
-    op = fuzz_make_actor_op( FUZZ_OP_FIN, actor );
-    if( FD_UNLIKELY( !fuzz_program_emit( prog, &op ) ) ) return;
-  }
 
   op = fuzz_make_service_op( cur, 1u );
   if( FD_UNLIKELY( !fuzz_program_emit( prog, &op ) ) ) return;
@@ -668,51 +699,18 @@ fuzz_fill_payload( uchar *               payload,
   }
 }
 
-static fd_quic_stream_t *
-fuzz_select_stream( fuzz_peer_state_t * state,
-                    fd_quic_conn_t *   conn,
-                    uchar              stream_mode,
-                    ulong              seed ) {
-  fd_quic_stream_t * stream = state->last_stream;
-  int valid = fuzz_stream_is_valid( stream, conn );
-
-  switch( (uint)stream_mode & 3U ) {
-    case 0U: return valid ? stream : fd_quic_conn_new_stream( conn );
-    case 1U: return fd_quic_conn_new_stream( conn );
-    case 2U: return valid ? stream : NULL;
-    case 3U: return valid && (seed & 1UL) ? stream : fd_quic_conn_new_stream( conn );
-    default: return NULL;
-  }
-}
-
-static int
-fuzz_compute_fin( fuzz_op_send_t const * spec,
-                  ulong                  burst_idx ) {
-  switch( (uint)spec->fin_mode & 3U ) {
-    case 0U: return 0;
-    case 1U: return burst_idx+1UL >= (ulong)spec->burst;
-    case 2U: return !!(burst_idx & 1UL);
-    case 3U: return 1;
-    default: return 0;
-  }
-}
-
 static void
 fuzz_execute_send( fuzz_op_send_t const * spec,
                    long *                 now ) {
   fuzz_peer_state_t * state = fuzz_state_for_actor( spec->actor );
-  fd_quic_conn_t * conn = state->conn;
 
-  if( FD_UNLIKELY( !conn ) ) return;
-  if( FD_UNLIKELY( conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return;
+  if( FD_UNLIKELY( !state->conn ) ) return;
+  if( FD_UNLIKELY( state->conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) return;
 
   ulong burst = fd_ulong_max( (ulong)spec->burst, 1UL );
   ulong step_ns = 1000UL + (spec->seed % 4000000UL);
 
   for( ulong burst_idx=0UL; burst_idx<burst; burst_idx++ ) {
-    fd_quic_stream_t * stream = fuzz_select_stream( state, conn, spec->stream_mode, spec->seed ^ burst_idx );
-    if( FD_UNLIKELY( !stream ) ) continue;
-
     ulong payload_span = fd_ulong_max( (ulong)spec->payload_span, 1UL );
     ulong payload_sz = (ulong)spec->payload_base + ((spec->seed >> (int)((burst_idx & 7UL) * 8UL)) % payload_span);
     payload_sz = fd_ulong_max( payload_sz, 1UL );
@@ -721,62 +719,57 @@ fuzz_execute_send( fuzz_op_send_t const * spec,
     uchar payload[ FUZZ_MAX_PAYLOAD_SZ ];
     fuzz_fill_payload( payload, payload_sz, spec, burst_idx );
 
-    int fin = fuzz_compute_fin( spec, burst_idx );
-
     if( FD_LIKELY( payload_sz ) && ((spec->seed ^ burst_idx) & 1UL) ) {
       /* Make it easier to trigger bounded application-level reply behavior. */
-      payload[0] = (uchar)( (payload[0] & 0xfcu) | (uchar)fin );
+      payload[0] = (uchar)( (payload[0] & 0xfcu) | 1u );
     }
 
-    int rc = fd_quic_stream_send( stream, payload, payload_sz, fin );
-    if( FD_UNLIKELY( rc==FD_QUIC_SEND_ERR_FLOW && payload_sz>1UL ) ) {
-      rc = fd_quic_stream_send( stream, payload, fd_ulong_max( payload_sz>>1UL, 1UL ), fin );
+    if( FD_UNLIKELY( !fuzz_stream_tx( state, payload, payload_sz ) && payload_sz>1UL ) ) {
+      fuzz_stream_tx( state, payload, fd_ulong_max( payload_sz>>1UL, 1UL ) );
     }
-
-    if( FD_LIKELY( rc==FD_QUIC_SUCCESS ) ) state->last_stream = stream;
+    fuzz_send_replies();
 
     if( spec->service_rounds ) {
       fuzz_service_pair( now, (long)step_ns, (uint)spec->service_rounds );
     }
-
-    if( FD_UNLIKELY( fin ) ) break;
   }
 }
 
 static void
-fuzz_adjust_limits( fd_quic_conn_t *         conn,
+fuzz_adjust_limits( fuzz_peer_state_t *      state,
                     fuzz_op_limits_t const * spec ) {
+  fd_quic_conn_t * conn = state->conn;
   if( FD_UNLIKELY( !conn ) ) return;
 
-  ulong max_data = conn->tx_tot_data + spec->max_data_inc;
+  ulong tx_tot_data = state->tx_tot_data;
+  ulong max_data = tx_tot_data + spec->max_data_inc;
   ulong stream_data = spec->stream_data;
-  ulong sup = conn->tx_next_stream_id + spec->stream_window;
-  int has_sup = (sup > conn->tx_next_stream_id);
+  ulong sup = fuzz_next_stream_id( state ) + spec->stream_window;
 
   switch( (uint)spec->style & 3U ) {
     case 0U:
       conn->tx_max_data = fd_ulong_max( conn->tx_max_data, max_data );
       conn->tx_initial_max_stream_data_uni = fd_ulong_max( conn->tx_initial_max_stream_data_uni, stream_data );
-      if( FD_LIKELY( has_sup ) ) conn->tx_sup_stream_id = fd_ulong_max( conn->tx_sup_stream_id, sup );
+      conn->tx_sup_stream_id = fd_ulong_max( conn->tx_sup_stream_id, sup );
       break;
 
     case 1U:
-      conn->tx_max_data = fd_ulong_max( conn->tx_tot_data, max_data );
+      conn->tx_max_data = fd_ulong_max( tx_tot_data, max_data );
       conn->tx_initial_max_stream_data_uni = stream_data;
-      if( FD_LIKELY( has_sup ) ) conn->tx_sup_stream_id = sup;
+      conn->tx_sup_stream_id = sup;
       break;
 
     case 2U:
       conn->tx_max_data = max_data;
       conn->tx_initial_max_stream_data_uni = fd_ulong_max( stream_data, 512UL );
-      if( FD_LIKELY( has_sup ) ) conn->tx_sup_stream_id = fd_ulong_max( conn->tx_sup_stream_id, sup + 4UL );
+      conn->tx_sup_stream_id = fd_ulong_max( conn->tx_sup_stream_id, sup + 4UL );
       break;
 
     case 3U:
     default:
-      conn->tx_max_data = fd_ulong_max( conn->tx_max_data, conn->tx_tot_data + (spec->max_data_inc>>1UL) );
+      conn->tx_max_data = fd_ulong_max( conn->tx_max_data, tx_tot_data + (spec->max_data_inc>>1UL) );
       conn->tx_initial_max_stream_data_uni = fd_ulong_max( conn->tx_initial_max_stream_data_uni, stream_data>>1UL );
-      if( FD_LIKELY( has_sup ) ) conn->tx_sup_stream_id = fd_ulong_max( conn->tx_sup_stream_id, sup );
+      conn->tx_sup_stream_id = fd_ulong_max( conn->tx_sup_stream_id, sup );
       break;
   }
 }
@@ -882,14 +875,6 @@ fuzz_execute_op( fuzz_op_t const * op,
       fuzz_execute_send( &op->u.send, now );
       break;
 
-    case FUZZ_OP_FIN: {
-      fuzz_peer_state_t * state = fuzz_state_for_actor( op->u.actor.actor );
-      if( fuzz_stream_is_valid( state->last_stream, state->conn ) ) {
-        fd_quic_stream_fin( state->last_stream );
-      }
-      break;
-    }
-
     case FUZZ_OP_CLOSE: {
       fuzz_peer_state_t * state = fuzz_state_for_actor( op->u.close.actor );
       if( state->conn ) fd_quic_conn_close( state->conn, op->u.close.app_err );
@@ -900,22 +885,20 @@ fuzz_execute_op( fuzz_op_t const * op,
       if( !g_client_state.conn ||
           g_client_state.conn->state==FD_QUIC_CONN_STATE_DEAD ||
           g_client_state.conn->state==FD_QUIC_CONN_STATE_INVALID ) {
-        g_client_state.last_stream = NULL;
-        g_server_state.last_stream = NULL;
         g_client_state.conn = fd_quic_connect( g_client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, *now );
 
         long step_ns = (long)( 1000000UL + (op->u.reconnect.seed % 9000000UL) );
         uint rounds  = (uint)( 2U + (uint)(op->u.reconnect.seed & 3UL) );
         fuzz_service_pair( now, step_ns, rounds );
 
-        fuzz_grant_tx_limits( g_client_state.conn, 1UL<<20UL, 1UL<<15UL, 256UL );
-        fuzz_grant_tx_limits( g_server_state.conn, 1UL<<20UL, 1UL<<15UL, 256UL );
+        fuzz_grant_tx_limits( &g_client_state, 1UL<<20UL, 1UL<<15UL, 256UL );
+        fuzz_grant_tx_limits( &g_server_state, 1UL<<20UL, 1UL<<15UL, 256UL );
       }
       break;
 
     case FUZZ_OP_LIMITS: {
       fuzz_peer_state_t * state = fuzz_state_for_actor( op->u.limits.actor );
-      fuzz_adjust_limits( state->conn, &op->u.limits );
+      fuzz_adjust_limits( state, &op->u.limits );
       break;
     }
 
@@ -1047,8 +1030,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
     fuzz_service_pair( &now, 1000000L, 1U );
   }
 
-  fuzz_grant_tx_limits( g_client_state.conn, 1UL<<20UL, 1UL<<15UL, 256UL );
-  fuzz_grant_tx_limits( g_server_state.conn, 1UL<<20UL, 1UL<<15UL, 256UL );
+  fuzz_grant_tx_limits( &g_client_state, 1UL<<20UL, 1UL<<15UL, 256UL );
+  fuzz_grant_tx_limits( &g_server_state, 1UL<<20UL, 1UL<<15UL, 256UL );
 
   g_client_state.reply_budget = fuzz_bounded( &cur, 32UL );
   g_server_state.reply_budget = fuzz_bounded( &cur, 32UL );

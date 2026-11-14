@@ -1,6 +1,7 @@
 #include "../fd_quic_private.h"
 #include "fd_quic_test_helpers.h"
 #include "../../../disco/fd_clock_tile.h"
+#include "../../../disco/metrics/generated/fd_metrics_enums.h"
 
 static fd_clock_tile_t clock[1];
 
@@ -14,13 +15,6 @@ my_conn_final( fd_quic_conn_t * conn,
   (void)conn;
   (void)quic_ctx;
   conn_final_cnt++;
-}
-
-static void
-my_stream_notify_cb( fd_quic_stream_t * stream,
-                     void *             stream_ctx,
-                     int                notify_type ) {
-  (void)stream; (void)stream_ctx; (void)notify_type;
 }
 
 static int
@@ -118,7 +112,6 @@ main( int     argc,
     .conn_cnt           = 1,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 1,
-    .stream_pool_cnt    = 1,
     .inflight_frame_cnt = 128,
   };
   FD_LOG_NOTICE(( "Creating server QUIC (%lu bytes)", fd_quic_footprint( &server_limits ) ));
@@ -129,10 +122,7 @@ main( int     argc,
     .conn_cnt           = 1,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 1,
-    .stream_id_cnt      = client_burst,
-    .stream_pool_cnt    = client_burst,
     .inflight_frame_cnt = client_burst+16,
-    .tx_buf_sz          = sz
   };
   FD_LOG_NOTICE(( "Creating client QUIC (%lu bytes)", fd_quic_footprint( &client_limits ) ));
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &client_limits, FD_QUIC_ROLE_CLIENT, rng );
@@ -145,11 +135,9 @@ main( int     argc,
   server_quic->cb.conn_new         = my_connection_new;
   server_quic->cb.conn_final       = my_conn_final;
   server_quic->cb.stream_rx        = my_stream_rx_cb;
-  server_quic->cb.stream_notify    = my_stream_notify_cb;
 
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.conn_final       = my_conn_final;
-  client_quic->cb.stream_notify    = my_stream_notify_cb;
 
   server_quic->config.initial_rx_max_stream_data = FRAG_SZ;
 
@@ -201,30 +189,30 @@ main( int     argc,
   FD_TEST( conn_final_cnt==0 );
 
   /* try sending */
-  fd_quic_stream_t * client_stream = fd_quic_conn_new_stream( client_conn );
-  FD_TEST( client_stream );
-
+  ulong rx_event_cnt0 = server_quic->metrics.stream_rx_event_cnt;
+  ulong stream_id = FD_QUIC_STREAM_TYPE_UNI_CLIENT;
   char buf[ FRAG_SZ ] = "Hello world!\x00-   ";
-  int rc = fd_quic_stream_send( client_stream, buf, sz, 1 );
-  FD_LOG_INFO(( "fd_quic_stream_send returned %d", rc ));
+  FD_TEST( fd_quic_test_stream_send( client_conn, stream_id, buf, sz, NULL ) );
+  stream_id += 4UL;
 
   long last_ts = fd_clock_tile_now( clock );
   long rprt_ts = last_ts + (long)1e9;
 
-  long start_ts = last_ts;
+  long  start_ts      = last_ts;
+  ulong send_fail_cnt = 0UL;
+  ulong server_net_rx_pkt_cnt = 0UL;
   long end_ts   = start_ts + (long)(duration * 1e9f);
   while(1) {
     long t = fd_clock_tile_now( clock ); fd_quic_get_state( client_quic )->now = fd_quic_get_state( server_quic )->now = t;
     service_client( client_quic );
     service_server( server_quic );
 
-    client_stream = fd_quic_conn_new_stream( client_conn );
     if( client_conn->state != FD_QUIC_CONN_STATE_ACTIVE ) {
       FD_LOG_NOTICE(( "Early break due to inactive connection"));
       break;
     }
-    else if( !client_stream ) continue;
-    fd_quic_stream_send( client_stream, buf, sz, 1 );
+    if( fd_quic_test_stream_send( client_conn, stream_id, buf, sz, NULL ) ) stream_id += 4UL;
+    else                                                                    send_fail_cnt++;
 
     if( t >= rprt_ts ) {
       FD_TEST( client_quic->metrics.conn_closed_cnt==0 );
@@ -241,6 +229,7 @@ main( int     argc,
                       (double)net_rx_gbps, (double)net_rx_gpps * 1e3,
                       (double)net_tx_gbps, (double)net_tx_gpps * 1e3,
                       (double)rx_tot_sz ));
+      server_net_rx_pkt_cnt += server_quic->metrics.net_rx_pkt_cnt;
       server_quic->metrics.net_rx_byte_cnt = 0;
       server_quic->metrics.net_rx_pkt_cnt  = 0;
       server_quic->metrics.net_tx_byte_cnt = 0;
@@ -253,6 +242,21 @@ main( int     argc,
       if( t > end_ts ) break;
     }
   }
+
+  ulong stream_tx_cnt = (stream_id-FD_QUIC_STREAM_TYPE_UNI_CLIENT)>>2;
+  ulong stream_rx_cnt = server_quic->metrics.stream_rx_event_cnt - rx_event_cnt0;
+  FD_LOG_NOTICE(( "summary: elapsed=%.3f s  streams sent=%lu failed=%lu received=%lu (%.4f%%)",
+                  (double)( fd_clock_tile_now( clock )-start_ts )/1e9,
+                  stream_tx_cnt, send_fail_cnt, stream_rx_cnt,
+                  100.0*(double)stream_rx_cnt/(double)fd_ulong_max( stream_tx_cnt, 1UL ) ));
+  FD_LOG_NOTICE(( "summary: client inflight frames used=%lu  frame alloc ok=%lu pool_empty=%lu conn_limit=%lu",
+                  client_conn->used_pkt_meta,
+                  client_quic->metrics.frame_tx_alloc_cnt[ FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_SUCCESS_IDX    ],
+                  client_quic->metrics.frame_tx_alloc_cnt[ FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_POOL_EMPTY_IDX ],
+                  client_quic->metrics.frame_tx_alloc_cnt[ FD_METRICS_ENUM_PKT_META_ACQUIRE_RESULT_V_CONN_LIMIT_IDX ] ));
+  FD_LOG_NOTICE(( "summary: client net_tx=%lu pkts  server net_rx=%lu pkts  server acks sent=%lu",
+                  client_quic->metrics.net_tx_pkt_cnt, server_net_rx_pkt_cnt,
+                  server_quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ] ));
 
   /* close the connections */
   fd_quic_conn_close( client_conn, 0 );

@@ -453,6 +453,10 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
         uchar * serialization_ptr           = (uchar *)FD_VM_MEM_SLICE_HADDR_ST( vm, FD_VM_MEM_MAP_INPUT_REGION_START, alignof(uchar), 1UL );
         caller_account->serialized_data     = serialization_ptr + fd_ulong_sat_sub( data_vaddr, FD_VM_MEM_MAP_INPUT_REGION_START );
         caller_account->serialized_data_len = FD_LOAD( ulong, data_len );
+      } else if( vm->syscall_parameter_address_restrictions ) {
+        /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L525-L534 */
+        caller_account->serialized_data_len = FD_LOAD( ulong, data_len );
+        caller_account->serialized_data     = (uchar *)FD_VM_MEM_SLICE_HADDR_ST( vm, data_vaddr, alignof(uchar), caller_account->serialized_data_len );
       } else {
         /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L291-L298 */
         VM_SYSCALL_CPI_ACC_INFO_DATA( vm, (account_infos + j), data_haddr );

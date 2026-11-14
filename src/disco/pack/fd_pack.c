@@ -2593,6 +2593,8 @@ fd_pack_microblock_complete( fd_pack_t * pack,
 
     if( FD_LIKELY( !(use->in_use_by & ~FD_PACK_IN_USE_BIT_CLEARED) ) ) acct_uses_remove( pack->acct_in_use, use );
 
+    /* Bundle transactions can have empty account groups. */
+    while( pack->use_by_bank_txn[ bank_tile ][ txn_cnt ]<i+1UL ) txn_cnt++;
     if( FD_UNLIKELY( i+1UL==pack->use_by_bank_txn[ bank_tile ][ txn_cnt ] ) ) {
       txn_cnt++;
       if( FD_LIKELY( best ) ) {

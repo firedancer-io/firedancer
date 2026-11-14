@@ -2609,10 +2609,6 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
                   jsonp_string( gui->http, NULL, "bundle");
                   break;
                 }
-                case FD_TXN_M_TPU_SOURCE_TXSEND: {
-                  jsonp_string( gui->http, NULL, "send");
-                  break;
-                }
                 default: FD_LOG_ERR(("unknown tpu"));
               }
             }
@@ -2721,6 +2717,8 @@ fd_gui_printf_slot_request_detailed( fd_gui_t *            gui,
                   fd_gui_printf_ts_tile_timers( gui, cur_sample_ts, sample );
                   have_sample = 0;
                 }
+                /* Eviction can leave only part of a sample. */
+                if( !have_sample ) memset( sample, 0xFF, sizeof(sample) );
                 cur_sample_ts = row->sample_time_nanos;
                 sample[ row->tile_idx ] = *row;
                 have_sample = 1;

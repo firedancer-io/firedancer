@@ -118,8 +118,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
     .handshake_cnt      = 2,
     .conn_id_cnt        = 4,
     .inflight_frame_cnt = 16UL,
-    .stream_pool_cnt    = 8UL,
-    .tx_buf_sz          = 1UL<<8UL
   };
 
   /* Enable features depending on the last few bits.  The last bits are
@@ -263,10 +261,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   assert( conn->svc_meta.private.prq_idx == FD_QUIC_SVC_PRQ_IDX_INVAL );
   assert( conn->state == FD_QUIC_CONN_STATE_DEAD || conn->state == FD_QUIC_CONN_STATE_INVALID );
 
-  /* freed stream resources */
-  assert( state->stream_pool->cur_cnt == quic_limits.stream_pool_cnt );
-  assert( conn->used_streams->sentinel );
-  assert( conn->send_streams->sentinel );
   assert( !conn->tls_hs );
 
   fd_quic_delete( fd_quic_leave( fd_quic_fini( quic ) ) );
