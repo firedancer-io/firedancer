@@ -7,8 +7,10 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <linux/sockios.h>
 
 extern _Bool fd_sshttp_fuzz;
 
@@ -281,6 +283,126 @@ test_redirect_location( void ) {
   FD_TEST( FD_SSHTTP_ADVANCE_ERROR==redirect_to( http, file ) );
 }
 
+static int
+sock_opt( int fd,
+          int opt ) {
+  int       val    = 0;
+  socklen_t val_sz = sizeof(int);
+  FD_TEST( !getsockopt( fd, SOL_SOCKET, opt, &val, &val_sz ) );
+  return val;
+}
+
+/* A plaintext body socket turns readable only once
+   FD_SSHTTP_SO_RCVLOWAT body bytes are queued.  The mark must drop to
+   what is left of the body, or a tail shorter than it never wakes the
+   caller and the download stalls on a connection the server keeps
+   open. */
+
+static void
+test_body_tail_wakes( void ) {
+  int listener = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( listener!=-1 );
+  struct sockaddr_in addr = {
+    .sin_family = AF_INET,
+    .sin_addr = { .s_addr = fd_uint_bswap( INADDR_LOOPBACK ) },
+  };
+  FD_TEST( !bind( listener, fd_type_pun_const( &addr ), sizeof(addr) ) );
+  FD_TEST( !listen( listener, 1 ) );
+  socklen_t addr_sz = sizeof(addr);
+  FD_TEST( !getsockname( listener, fd_type_pun( &addr ), &addr_sz ) );
+
+  /* A private epoll set, so that only this socket can be ready */
+  int epoll_fd = epoll_create1( 0 );
+  FD_TEST( epoll_fd!=-1 );
+  fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, epoll_fd ) );
+  fd_ip4_port_t peer = { .addr = addr.sin_addr.s_addr, .port = addr.sin_port };
+  FD_TEST( !fd_sshttp_init( http, peer, "", 0, "/snapshot.tar.zst", 17UL, 4UL, 0L ) );
+  int server = accept( listener, NULL, NULL );
+  FD_TEST( server!=-1 );
+  FD_TEST( !fcntl( server, F_SETFL, fcntl( server, F_GETFL, 0 )|O_NONBLOCK ) );
+
+  static uchar buf[ 1UL<<16 ];
+  struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
+  ulong data_len    = 0UL;
+  int   downloading = 0;
+
+  char  request[ 4096 ] = {0};
+  ulong request_len = 0UL;
+  for( ulong i=0UL; !strstr( request, "\r\n\r\n" ); i++ ) {
+    FD_TEST( i<1024UL );
+    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L ) );
+    long n = recv( server, request+request_len, sizeof(request)-1UL-request_len, 0 );
+    if( n>0L ) request_len += (ulong)n;
+    else FD_TEST( n<0L && (errno==EAGAIN || errno==EINTR) );
+    request[ request_len ] = '\0';
+  }
+
+  ulong const tail_sz = 1000UL;
+  ulong const body_sz = FD_SSHTTP_SO_RCVLOWAT+tail_sz;
+  static uchar body[ 2UL*FD_SSHTTP_SO_RCVLOWAT ];
+  FD_TEST( body_sz<=sizeof(body) );
+  char hdr[ 128 ];
+  ulong hdr_len;
+  FD_TEST( fd_cstr_printf_check( hdr, sizeof(hdr), &hdr_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n\r\n", body_sz ) );
+  FD_TEST( (long)hdr_len==send( server, hdr, hdr_len, 0 ) );
+
+  /* The headers set the full low-water mark, which the kernel caps at
+     half the receive buffer */
+  for( ulong i=0UL; http->state!=FD_SSHTTP_STATE_DL; i++ ) {
+    FD_TEST( i<1000000UL );
+    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L ) );
+  }
+  ulong rcvbuf = (ulong)sock_opt( http->sockfd, SO_RCVBUF );
+  FD_TEST( (ulong)sock_opt( http->sockfd, SO_RCVLOWAT )==fd_ulong_min( FD_SSHTTP_SO_RCVLOWAT, rcvbuf/2UL ) );
+
+  /* Everything but the tail, then drain until the socket is empty */
+  ulong sent = 0UL;
+  ulong got  = 0UL;
+  for( ulong i=0UL; got<body_sz-tail_sz; i++ ) {
+    FD_TEST( i<1000000UL );
+    if( sent<body_sz-tail_sz ) {
+      long n = send( server, body+sent, body_sz-tail_sz-sent, 0 );
+      if( n>0L ) sent += (ulong)n;
+      else FD_TEST( n<0L && errno==EAGAIN );
+    }
+    int res = fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L );
+    FD_TEST( res==FD_SSHTTP_ADVANCE_AGAIN || res==FD_SSHTTP_ADVANCE_DATA );
+    if( res==FD_SSHTTP_ADVANCE_DATA ) got += data_len;
+  }
+  FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L ) );
+  FD_TEST( fd_sshttp_rx_parked( http ) );
+  FD_TEST( (ulong)sock_opt( http->sockfd, SO_RCVLOWAT )==tail_sz );
+
+  /* Short of the tail, the socket stays unreadable even with the bytes
+     queued */
+  FD_TEST( (long)(tail_sz-1UL)==send( server, body+sent, tail_sz-1UL, 0 ) );
+  for( ulong i=0UL;; i++ ) {
+    int queued = 0;
+    FD_TEST( !ioctl( http->sockfd, SIOCINQ, &queued ) );
+    if( (ulong)queued==tail_sz-1UL ) break;
+    FD_TEST( i<5000UL );
+    fd_log_sleep( (long)1e6 );
+  }
+  struct epoll_event ev;
+  FD_TEST( 0==epoll_wait( epoll_fd, &ev, 1, 0 ) );
+
+  /* The tail is shorter than FD_SSHTTP_SO_RCVLOWAT and must still wake */
+  FD_TEST( 1L==send( server, body+sent+tail_sz-1UL, 1UL, 0 ) );
+  FD_TEST( 1==epoll_wait( epoll_fd, &ev, 1, 5000 ) );
+  FD_TEST( ev.data.fd==http->sockfd && (ev.events & EPOLLIN) );
+
+  int res;
+  for( ulong i=0UL; (res=fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L ))!=FD_SSHTTP_ADVANCE_DONE; i++ ) {
+    FD_TEST( i<1024UL && res==FD_SSHTTP_ADVANCE_DATA );
+    got += data_len;
+  }
+  FD_TEST( got==body_sz );
+
+  FD_TEST( !close( server ) );
+  FD_TEST( !close( listener ) );
+  FD_TEST( !close( epoll_fd ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -296,6 +418,7 @@ main( int     argc,
   test_eof_immediate();
   test_headers_too_large();
   test_redirect_location();
+  test_body_tail_wakes();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
