@@ -332,7 +332,11 @@ struct fd_sched_block {
      At BLOCK_END every entry has been subtracted and added exactly once.
 
        sub_applied_cnt==add_applied_cnt-add_undone_cnt==entries_cnt */
-  uint                lthash_writable_cnt; /* Up to FD_SCHED_LTHASH_TXN_WRITERS_MAX. */
+  uint                lthash_writable_cnt; /* Writable accounts the block's transactions have declared, counted
+                                              at parse time and at late ALT registration.  Blocks exceeding
+                                              FD_SCHED_LTHASH_TXN_WRITERS_MAX are considered invalid.  Unlike the
+                                              LtHash progress counters below, this counter is a property of the
+                                              block and should not be affected by promotion or demotion. */
   uint                lthash_in_flight_cnt; /* Task count, could be either add or sub. */
   uint                sub_q_head;        /* UINT_MAX if empty.  Linked through entry->q_next. */
   uint                sub_q_tail;
@@ -1714,7 +1718,6 @@ lthash_register( fd_sched_t *           sched,
 
 static void
 lthash_block_init( fd_sched_block_t * block ) {
-  block->lthash_writable_cnt  = 0U;
   block->lthash_in_flight_cnt = 0U;
   block->add_owed_cnt         = 0U;
   block->sub_q_head           = UINT_MAX;
@@ -4027,6 +4030,7 @@ add_block( fd_sched_t * sched,
   block->block_end_done       = 0;
   block->staged               = 0;
   block->state_open           = 0;
+  block->lthash_writable_cnt  = 0U;
   block->lthash_mode_picked   = 0;
   block->lthash_inband        = 0;
   FD_TEST( !block->add_owed_cnt && !block->add_created_cnt && !block->sub_queued_cnt && !block->sub_in_flight_cnt && !block->sub_applied_cnt && !block->lthash_in_flight_cnt && !block->lthash_drained && !block->lthash_draining );
