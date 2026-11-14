@@ -50,6 +50,9 @@ ulong fd_accdb_dbg_compact_scanned; /* bytes compaction stepped over */
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <time.h>
+#include <linux/futex.h>
+#include <sys/syscall.h>
 #include <sys/uio.h>
 
 struct fd_accdb_fork {
@@ -74,6 +77,14 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   /* Doorbell for the parked accdb tile, NULL when nobody parks */
   fd_sleep_t * sleep;
   ulong        sleep_tile_id;
+
+  /* Residual wait parking (efficient mode, fd_accdb_park_init).  A
+     waiter parks on park_word; T2 rings parked waiters via park_sleep.
+     NULL when residual waits spin. */
+  fd_sleep_t * park_sleep;
+  ulong *      park_word;
+  ulong        park_tile_id;
+  long         park_spin_ticks;
 
   fd_accdb_fork_t * fork_pool;
   fork_pool_t fork_shmem_pool[1];
@@ -465,6 +476,10 @@ fd_accdb_new( void *              ljoin,
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->sleep         = sleep;
   accdb->sleep_tile_id = sleep_tile_id;
+  accdb->park_sleep      = NULL;
+  accdb->park_word       = NULL;
+  accdb->park_tile_id    = ULONG_MAX;
+  accdb->park_spin_ticks = 0L;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, shmem->acc_pool, _acc_pool_ele, pool_max ) );
@@ -1025,6 +1040,8 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->scratch_fd = -1;
   accdb->readonly   = 1;
   accdb->residual_ticket = ULONG_MAX;
+  accdb->park_sleep      = NULL;
+  accdb->park_word       = NULL;
   accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->hazard_cnt    = 0UL;
   accdb->shmem = shmem;
@@ -7489,6 +7506,44 @@ fd_accdb_prefetch( fd_accdb_t *          accdb,
   if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
 }
 
+/* idx_residual_park (FG, outside any epoch, efficient mode): sleeps
+   on this tile's sleep word so the accdb tile can run when it shares
+   our CPU.  ring_serve rings our doorbell once done moves and the
+   mwaitx tile turns that into a FUTEX_WAKE.  res_park and done form a
+   Dekker pair (store, fence, load on both sides), so either we see
+   done or T2 sees res_park and rings.  word is 0 before res_park is
+   visible, so mwaitx never drops that ring as for a running tile.  The
+   timeout bounds anything else (no mwaitx, a stray doorbell). */
+
+#define FD_ACCDB_RES_PARK_NS (1000000L) /* 1 ms: lost-wake bound only */
+
+static void
+idx_residual_park( fd_accdb_t *            accdb,
+                   fd_accdb_ring_t const * ring,
+                   ulong                   last ) {
+  ulong * word = accdb->park_word;
+  ulong * park = &accdb->shmem->res_park[ accdb->join_idx ];
+  FD_VOLATILE( *word ) = 0UL;
+  FD_VOLATILE( *park ) = accdb->park_tile_id+1UL;
+  FD_HW_MFENCE();
+  if( FD_LIKELY( FD_VOLATILE_CONST( ring->done )<=last ) ) {
+    struct timespec ts;
+    clock_gettime( CLOCK_MONOTONIC, &ts );
+    long ns = ts.tv_nsec+FD_ACCDB_RES_PARK_NS;
+    ts.tv_sec  += ns/1000000000L;
+    ts.tv_nsec  = ns%1000000000L;
+    for(;;) {
+      /* val 0: the futex seccomp rule of every stem tile */
+      long r = syscall( SYS_futex, (uint *)word, FUTEX_WAIT_BITSET, 0U, &ts, NULL, FUTEX_BITSET_MATCH_ANY );
+      if( FD_LIKELY( !r || errno==ETIMEDOUT || errno==EAGAIN ) ) break;
+      if( FD_UNLIKELY( errno!=EINTR ) ) FD_LOG_ERR(( "futex(FUTEX_WAIT_BITSET) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    accdb->metrics->residual_parks++;
+  }
+  FD_VOLATILE( *park ) = 0UL;
+  FD_VOLATILE( *word ) = 1UL;
+}
+
 /* idx_residual_wait (FG, outside any epoch): pushes every key and
    waits once for T2 to serve the last ticket, then acks it so T2 drops
    protection of what it promoted. */
@@ -7508,7 +7563,12 @@ idx_residual_wait( fd_accdb_t *          accdb,
   }
   long t0 = fd_tickcount();
   if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
-  while( FD_VOLATILE_CONST( ring->done )<=last ) { fd_racesan_hook( "accdb_residual:wait" ); FD_SPIN_PAUSE(); }
+  long spin_end = t0+accdb->park_spin_ticks;
+  while( FD_VOLATILE_CONST( ring->done )<=last ) {
+    fd_racesan_hook( "accdb_residual:wait" );
+    if( FD_UNLIKELY( accdb->park_word && fd_tickcount()>spin_end ) ) idx_residual_park( accdb, ring, last );
+    else                                                             FD_SPIN_PAUSE();
+  }
   accdb->metrics->residual_waits++;
   accdb->metrics->residual_wait_ticks += (ulong)( fd_tickcount()-t0 );
   accdb->residual_ticket = last;
@@ -7733,6 +7793,16 @@ ring_serve( fd_accdb_t *      accdb,
     n++;
     if( !residual && requests_unapplied( accdb ) ) break;
   }
+  if( FD_UNLIKELY( residual && n && accdb->park_sleep ) ) {
+    /* Ring parked waiters (Dekker with idx_residual_park).  One not
+       yet served just re-parks. */
+    FD_HW_MFENCE();
+    ulong cnt = fd_ulong_min( FD_VOLATILE_CONST( accdb->shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
+    for( ulong j=0UL; j<cnt; j++ ) {
+      ulong t = FD_VOLATILE_CONST( accdb->shmem->res_park[ j ] );
+      if( FD_UNLIKELY( t ) ) fd_sleep_ring( accdb->park_sleep, t-1UL );
+    }
+  }
   return n;
 }
 
@@ -7754,6 +7824,18 @@ prot_release( fd_accdb_t * accdb ) {
     }
     shmem->prot_tail++;
   }
+}
+
+void
+fd_accdb_park_init( fd_accdb_t * accdb,
+                    fd_sleep_t * sleep,
+                    ulong        tile_id ) {
+  accdb->park_sleep = sleep;
+  if( FD_UNLIKELY( !sleep || tile_id==ULONG_MAX ) ) return; /* T2, or no waiter role */
+  FD_TEST( tile_id<FD_SLEEP_TILE_MAX );
+  accdb->park_tile_id    = tile_id;
+  accdb->park_word       = &sleep->tile[ tile_id ].word;
+  accdb->park_spin_ticks = (long)( (double)FD_SLEEP_PARK_MIN_NS*sleep->tick_per_ns );
 }
 
 int
