@@ -683,6 +683,45 @@ FD_UNIT_TEST( test_batch ) {
   fd_ssparse_batch_enable( p, 0 );
 }
 
+FD_UNIT_TEST( test_terminator ) {
+  /* Agave stops at the first zero-lamport, zero-pubkey account.  Bytes
+     after it are ignored even if they do not parse as accounts. */
+  fd_ssparse_t p[1];
+  ulong n    = FD_SSPARSE_ACC_BATCH_MAX;
+  ulong avsz = n * 136UL;
+  ulong off;
+  uchar acc[1088];
+
+  for( int batch=0; batch<2; batch++ ) {
+    fd_memset( acc, 0, sizeof(acc) );
+    for( ulong i=0; i<n; i++ ) build_account_header( acc+i*136UL, 0UL, 0 );
+    fd_memset( acc+2*136UL, 0, 136UL );                     /* terminator */
+    FD_STORE( ulong, acc+3*136UL+8UL, FD_RUNTIME_ACC_SZ_MAX+1UL ); /* garbage after */
+    off = 0UL;
+    off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",                (uchar const *)"1.2.0", 5UL );
+    off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100",          (uchar const *)"\xAB",  1UL );
+    off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/0.0",           acc, avsz );
+    off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/status_cache", (uchar const *)"\xCD",  1UL );
+    off = append_eof( tar_buf, sizeof(tar_buf), off );
+
+    fd_ssparse_init( p );
+    fd_ssparse_batch_enable( p, batch );
+    ulong hdr_cnt = 0UL;
+    uchar const * data = tar_buf; ulong data_sz = off; int res;
+    do {
+      fd_ssparse_advance_result_t result[1];
+      res = fd_ssparse_advance( p, data, data_sz, result );
+      FD_TEST( res!=FD_SSPARSE_ADVANCE_ERROR );
+      if( res==FD_SSPARSE_ADVANCE_APPENDVEC       ) fd_ssparse_appendvec_parse( p );
+      if( res==FD_SSPARSE_ADVANCE_ACCOUNT_HEADER  ) hdr_cnt++;
+      if( res==FD_SSPARSE_ADVANCE_ACCOUNT_BATCH   ) hdr_cnt += result->account_batch.batch_cnt;
+      data += result->bytes_consumed; data_sz -= result->bytes_consumed;
+    } while( res!=FD_SSPARSE_ADVANCE_DONE );
+    FD_TEST( hdr_cnt==2UL );
+    fd_ssparse_batch_enable( p, 0 );
+  }
+}
+
 FD_UNIT_TEST( test_parse_name_edge_cases ) {
   fd_ssparse_t p[1];
   uchar dummy[256];

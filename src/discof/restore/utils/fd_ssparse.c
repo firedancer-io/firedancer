@@ -327,6 +327,16 @@ advance_next_tar( fd_ssparse_t *               ssparse,
   return FD_SSPARSE_ADVANCE_AGAIN;
 }
 
+static inline int
+is_terminator( uchar const * hdr ) {
+  ulong lamports = fd_ulong_load_8_fast( hdr+48UL );
+  ulong pk0      = fd_ulong_load_8_fast( hdr+16UL );
+  ulong pk1      = fd_ulong_load_8_fast( hdr+24UL );
+  ulong pk2      = fd_ulong_load_8_fast( hdr+32UL );
+  ulong pk3      = fd_ulong_load_8_fast( hdr+40UL );
+  return !(lamports | pk0 | pk1 | pk2 | pk3);
+}
+
 static int
 advance_account_batch( fd_ssparse_t *                ssparse,
                        uchar const *                 data,
@@ -356,6 +366,11 @@ advance_account_batch( fd_ssparse_t *                ssparse,
     if( FD_UNLIKELY( !memcmp( acc_hdr+64UL, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) ) ) {
       if( FD_UNLIKELY( idx==0UL  ) ) return FD_SSPARSE_ADVANCE_AGAIN; /* At the front of the batch, abort */
       else                           break; /* otherwise, break early.  */
+    }
+
+    if( FD_UNLIKELY( is_terminator( acc_hdr ) ) ) {
+      if( FD_UNLIKELY( idx==0UL  ) ) return FD_SSPARSE_ADVANCE_AGAIN;
+      else                           break;
     }
 
     ulong         acc_data_sz = fd_ulong_load_8_fast( acc_hdr+8 );
@@ -434,6 +449,11 @@ advance_account_header( fd_ssparse_t *                ssparse,
 
   uchar const * hdr = ssparse->account.header;
   if( FD_LIKELY( consume==136UL ) ) hdr = data;
+
+  if( FD_UNLIKELY( is_terminator( hdr ) ) ) {
+    ssparse->state = FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE;
+    return FD_SSPARSE_ADVANCE_AGAIN;
+  }
 
   result->account_header.data_len = fd_ulong_load_8_fast( hdr+8UL );
   if( FD_UNLIKELY( result->account_header.data_len>FD_RUNTIME_ACC_SZ_MAX ) ) {
