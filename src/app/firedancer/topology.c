@@ -1155,6 +1155,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "admin_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_admin",  0UL                                                );
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_hist",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_votor",  0UL                                                );
     /**/               fd_topob_tile_in (   topo, "failov",  0UL,          "metric_in", "votor_failov",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/               fd_topob_tile_out(   topo, "failov",  0UL,                       "failov_sign",   0UL                                                );
