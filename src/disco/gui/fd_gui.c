@@ -777,7 +777,6 @@ fd_gui_network_stats_snap_egress( fd_topo_t const *        topo,
       if( FD_UNLIKELY( !strcmp( link_name, "shred_net"  ) ) ) cur->out.turbine += bytes;
       if( FD_UNLIKELY( !strcmp( link_name, "repair_net" ) ) ) cur->out.repair  += bytes;
       if( FD_UNLIKELY( !strcmp( link_name, "rserve_net" ) ) ) cur->out.rserve  += bytes;
-      if( FD_UNLIKELY( !strcmp( link_name, "txsend_net" ) ) ) cur->out.tpu     += bytes;
       if( FD_UNLIKELY( !strcmp( link_name, "votor_net"  ) ) ) cur->out.votor   += bytes;
     }
   }

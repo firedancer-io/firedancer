@@ -443,13 +443,13 @@ after_frag( fd_event_tile_t *   ctx,
       fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
       FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
 
-      int protocol = 0;
+      int protocol = (int)txnm->source_tpu;
       switch( txnm->source_tpu ) {
-        case FD_TXN_M_TPU_SOURCE_QUIC:   protocol = 1; break;
-        case FD_TXN_M_TPU_SOURCE_UDP:    protocol = 2; break;
-        case FD_TXN_M_TPU_SOURCE_GOSSIP: protocol = 3; break;
-        case FD_TXN_M_TPU_SOURCE_BUNDLE: protocol = 4; break;
-        case FD_TXN_M_TPU_SOURCE_TXSEND: protocol = 5; break;
+        case FD_TXN_M_TPU_SOURCE_QUIC:
+        case FD_TXN_M_TPU_SOURCE_UDP:
+        case FD_TXN_M_TPU_SOURCE_GOSSIP:
+        case FD_TXN_M_TPU_SOURCE_BUNDLE:
+          break;
         default:
           FD_LOG_ERR(( "unexpected source_tpu %u", txnm->source_tpu ));
       }

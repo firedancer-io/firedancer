@@ -2609,10 +2609,6 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
                   jsonp_string( gui->http, NULL, "bundle");
                   break;
                 }
-                case FD_TXN_M_TPU_SOURCE_TXSEND: {
-                  jsonp_string( gui->http, NULL, "send");
-                  break;
-                }
                 default: FD_LOG_ERR(("unknown tpu"));
               }
             }
