@@ -1985,6 +1985,51 @@ fd_votor_pool_add_block( fd_votor_pool_t *     self,
   return FD_VOTOR_POOL_SUCCESS;
 }
 
+/* cert_epoch_info returns the epoch info add_cert checks a cert at slot
+   against, or NULL with *err set if slot is out of range. */
+
+static fd_epoch_info_t const *
+cert_epoch_info( fd_votor_pool_t const * self,
+                 ulong                   slot,
+                 int *                   err ) {
+  ulong slot_far_in_future = fd_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - FD_VOTOR_REWARD_SLOT_DELTA;
+  if( FD_UNLIKELY( slot<fd_finality_tracker_first_unpruned_slot( self->finality_tracker ) ) ) { *err = FD_VOTOR_POOL_ERR_SLOT_TOO_OLD; return NULL; }
+  if( FD_UNLIKELY( slot>=slot_far_in_future                                            ) ) { *err = FD_VOTOR_POOL_ERR_SLOT_TOO_NEW; return NULL; }
+
+  slot_states_t const *   states     = self->slot_states;
+  fd_epoch_info_t const * epoch_info = fd_ptr_if( slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
+  if( FD_UNLIKELY( !epoch_info ) ) *err = fd_int_if( slot<states->curr_epoch_slot, FD_VOTOR_POOL_ERR_SLOT_TOO_OLD, FD_VOTOR_POOL_ERR_SLOT_TOO_NEW );
+  return epoch_info;
+}
+
+/* slot_state_has_cert returns 1 if state already holds a cert of kind
+   (for notar fallback, of block_hash). */
+
+FD_FN_PURE static int
+slot_state_has_cert( slot_state_t const *    state,
+                     uint                    kind,
+                     fd_block_hash_t const * block_hash ) {
+  switch( kind ) {
+  case FD_CERT_KIND_FINAL:          return state->certs.final.slot!=ULONG_MAX;
+  case FD_CERT_KIND_FAST_FINAL:     return state->certs.fast_final.slot!=ULONG_MAX;
+  case FD_CERT_KIND_NOTAR:          return state->certs.notar.slot!=ULONG_MAX;
+  case FD_CERT_KIND_NOTAR_FALLBACK: return slot_state_is_notar_fallback( state, block_hash );
+  case FD_CERT_KIND_SKIP:           return state->certs.skip.slot!=ULONG_MAX;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+}
+
+int
+fd_votor_pool_cert_is_dup( fd_votor_pool_t const * self,
+                           uint                    kind,
+                           ulong                   slot,
+                           fd_block_hash_t const * block_hash ) {
+  int err;
+  if( FD_UNLIKELY( !cert_epoch_info( self, slot, &err ) ) ) return 0;
+  slot_state_t const * state = slot_state_query( self, slot );
+  return state && slot_state_has_cert( state, kind, block_hash ); /* a new slot state has no certs */
+}
+
 int
 fd_votor_pool_add_cert( fd_votor_pool_t * self,
                         fd_cert_t const * cert,
@@ -1993,27 +2038,14 @@ fd_votor_pool_add_cert( fd_votor_pool_t * self,
   ulong slot = fd_cert_slot( cert );
   fd_bls_set_null( bad );
 
-  ulong slot_far_in_future = fd_finality_tracker_first_unpruned_slot( self->finality_tracker ) + self->slot_max - FD_VOTOR_REWARD_SLOT_DELTA;
-  if( FD_UNLIKELY( slot<fd_finality_tracker_first_unpruned_slot( self->finality_tracker ) ) ) return FD_VOTOR_POOL_ERR_SLOT_TOO_OLD;
-  if( FD_UNLIKELY( slot>=slot_far_in_future                                            ) ) return FD_VOTOR_POOL_ERR_SLOT_TOO_NEW;
-
-  slot_states_t const *   states     = self->slot_states;
-  fd_epoch_info_t const * epoch_info = fd_ptr_if( slot>=states->next_epoch_slot, states->next_epoch_info, fd_ptr_if( slot>=states->curr_epoch_slot, states->curr_epoch_info, states->prev_epoch_info ) );
-  if( FD_UNLIKELY( !epoch_info ) ) return fd_int_if( slot<states->curr_epoch_slot, FD_VOTOR_POOL_ERR_SLOT_TOO_OLD, FD_VOTOR_POOL_ERR_SLOT_TOO_NEW );
+  int                     err;
+  fd_epoch_info_t const * epoch_info = cert_epoch_info( self, slot, &err );
+  if( FD_UNLIKELY( !epoch_info ) ) return err;
 
   slot_state_t * state = slot_state( self, slot );
-  int duplicate = 0;
-  switch( cert->kind ) {
-  case FD_CERT_KIND_FINAL:          duplicate = state->certs.final.slot!=ULONG_MAX;                                break;
-  case FD_CERT_KIND_FAST_FINAL:     duplicate = state->certs.fast_final.slot!=ULONG_MAX;                           break;
-  case FD_CERT_KIND_NOTAR:          duplicate = state->certs.notar.slot!=ULONG_MAX;                                break;
-  case FD_CERT_KIND_NOTAR_FALLBACK: duplicate = slot_state_is_notar_fallback( state, fd_cert_block_hash( cert ) ); break;
-  case FD_CERT_KIND_SKIP:           duplicate = state->certs.skip.slot!=ULONG_MAX;                                 break;
-  default:                          FD_LOG_CRIT(( "unreachable" ));
-  }
-  if( FD_UNLIKELY( duplicate ) ) return FD_VOTOR_POOL_ERR_DUPLICATE;
+  if( FD_UNLIKELY( slot_state_has_cert( state, cert->kind, fd_cert_block_hash( cert ) ) ) ) return FD_VOTOR_POOL_ERR_DUPLICATE;
 
-  int err = FD_CERT_VERIFY_SUCCESS;
+  err = FD_CERT_VERIFY_SUCCESS;
   if( FD_LIKELY( !verified ) ) err = fd_cert_verify( cert, epoch_info );
   self->slot_states->bls_verify_cnt += (ulong)( !verified && err!=FD_CERT_VERIFY_ERR_THRESHOLD );
   if( FD_UNLIKELY( err ) ) return FD_VOTOR_POOL_ERR_CERT_VERIFY;

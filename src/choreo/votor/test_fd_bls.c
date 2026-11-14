@@ -176,6 +176,27 @@ test_agg_bitmap_errors( void ) {
   FD_STORE( ushort, bad+1UL, (ushort)(FD_BLS_SET_MAX+1UL) );
   FD_TEST( fd_bls_agg_pair_de( b, f, &bit_cnt, bad, sz3 )==FD_BLS_DE_ERR_SZ );
 
+  /* fd_bls_agg_de_check returns what the decoders return */
+
+  for( ulong i=0UL; i<20000UL; i++ ) {
+    ulong n = fd_ulong_hash( i ) % (FD_BLS_AGG_PAIR_SER_MAX+1UL);
+    for( ulong j=0UL; j<n; j++ ) bad[ j ] = (uchar)fd_ulong_hash( i*1000UL+j );
+    if( n>0UL ) bad[ 0 ] = (uchar)( bad[ 0 ]%3U );
+    if( n>2UL && (i&1UL) ) FD_STORE( ushort, bad+1UL, (ushort)( (i&2UL) ? 8UL*(n-3UL)-(i%8UL) : 5UL*(n-3UL)-(i%5UL) ) ); /* mostly consistent */
+    ulong c2, c3, d2 = ULONG_MAX, d3 = ULONG_MAX;
+    FD_TEST( fd_bls_agg_de_check( 0, &c2, bad, n )==fd_bls_agg_de     ( dst,  &d2, bad, n ) );
+    FD_TEST( fd_bls_agg_de_check( 1, &c3, bad, n )==fd_bls_agg_pair_de( b, f, &d3, bad, n ) );
+    if( d2!=ULONG_MAX ) FD_TEST( c2==d2 );
+    if( d3!=ULONG_MAX ) FD_TEST( c3==d3 );
+  }
+
+  /* base2 padding bits past bit_cnt are ignored */
+
+  sz = fd_bls_agg_ser( agg, buf );
+  buf[ sz-1UL ] |= (uchar)0xe0;
+  FD_TEST( fd_bls_agg_de( dst, &bit_cnt, buf, sz )==FD_BLS_DE_SUCCESS );
+  FD_TEST( fd_bls_set_eq( dst->set, agg->set ) );
+
   FD_LOG_NOTICE(( "signer set bitmap error paths pass" ));
 }
 
