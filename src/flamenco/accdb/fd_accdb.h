@@ -696,6 +696,19 @@ void
 fd_accdb_fork_thaw( fd_accdb_t *       accdb,
                     fd_accdb_fork_id_t fork_id );
 
+/* fd_accdb_park_init makes residual index waits park instead of spin
+   (efficient mode).  A joiner that waits on the accdb tile passes its
+   own tile id: after a short spin it sleeps on its sleep word until
+   the accdb tile serves it, so the accdb tile can run on a shared CPU.
+   The accdb tile passes ULONG_MAX: it rings parked waiters.  Without
+   it (performance mode) waits spin.  Never for a tile with an eventfd
+   doorbell (tile->sleep_eventfd). */
+
+void
+fd_accdb_park_init( fd_accdb_t *              accdb,
+                    struct fd_sleep_private * sleep,
+                    ulong                     tile_id );
+
 /* fd_accdb_idx_busy returns non-zero while the accdb tile has index
    requests or pool pressure to serve. */
 

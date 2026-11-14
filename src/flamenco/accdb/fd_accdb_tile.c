@@ -184,6 +184,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, FD_ACCDB_SCRATCH_FD, external_epoch_cnt, external_epoch_slots, NULL, 0UL, 1, FD_ACCDB_IDX_FD_RW, FD_ACCDB_STAGE_FD, NULL ) );
   FD_TEST( ctx->accdb );
+  /* ring joiners parked on a residual index wait */
+  if( FD_UNLIKELY( topo->sleep_obj_id!=ULONG_MAX ) ) fd_accdb_park_init( ctx->accdb, fd_sleep_join( fd_topo_obj_laddr( topo, topo->sleep_obj_id ) ), ULONG_MAX );
 
   ulong progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX );
   ctx->progcache_enabled = ( progcache_obj_id!=ULONG_MAX );

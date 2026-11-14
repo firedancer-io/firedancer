@@ -741,6 +741,7 @@ struct fd_accdb_shmem_private {
   fd_accdb_ring_t ring_res [1];
   fd_accdb_ring_t ring_hint[1];
   ulong res_ack[ FD_ACCDB_MAX_JOINERS ]; /* joiner: last ticket re-walked */
+  ulong res_park[ FD_ACCDB_MAX_JOINERS ]; /* joiner: sleep tile id+1 while parked on a residual wait, 0 = not parked */
 
   ulong idx_ovl_npage;
   ulong idx_ovl_seq_off;
