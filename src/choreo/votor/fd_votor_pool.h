@@ -151,6 +151,17 @@ fd_votor_pool_add_cert( fd_votor_pool_t * self,
                         int               verified,
                         fd_bls_set_t *    bad );
 
+/* fd_votor_pool_cert_is_dup returns 1 if fd_votor_pool_add_cert would
+   return FD_VOTOR_POOL_ERR_DUPLICATE for a cert of kind at slot (with
+   block_hash, NULL for the kinds without one), 0 otherwise.  Does not
+   change the pool. */
+
+int
+fd_votor_pool_cert_is_dup( fd_votor_pool_t const * self,
+                           uint                    kind,
+                           ulong                   slot,
+                           fd_block_hash_t const * block_hash );
+
 /* Definition 12. Pool::add_vote
 
    verified: the vote's sig is known to be in G2 (our own signed vote).

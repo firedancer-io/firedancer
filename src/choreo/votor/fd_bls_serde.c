@@ -98,17 +98,35 @@ bitmap_hdr( fd_bls_agg_serde_t * serde,
 }
 
 static int
-base2_de( fd_bls_agg_t *             agg,
-          fd_bls_agg_serde_t const * serde ) {
+base2_check( fd_bls_agg_serde_t const * serde ) {
   ulong bit_cnt = (ulong)serde->bit_cnt;
   FAIL( bit_cnt>FD_BLS_SET_MAX,                                            SZ    );
   FAIL( serde->payload_sz!=FD_BLS_AGG_SER_SZ( bit_cnt )-FD_BLS_AGG_HDR_SZ, INVAL );
+  return FD_BLS_DE_SUCCESS;
+}
+
+static int
+base3_check( fd_bls_agg_serde_t const * serde ) {
+  ulong bit_cnt = (ulong)serde->bit_cnt;
+  FAIL( bit_cnt>FD_BLS_SET_MAX,                                                 SZ    );
+  FAIL( serde->payload_sz!=FD_BLS_AGG_PAIR_SER_SZ( bit_cnt )-FD_BLS_AGG_HDR_SZ, INVAL );
+  return FD_BLS_DE_SUCCESS;
+}
+
+static int
+base2_de( fd_bls_agg_t *             agg,
+          fd_bls_agg_serde_t const * serde ) {
+  ulong bit_cnt = (ulong)serde->bit_cnt;
+  int   err     = base2_check( serde );
+  if( FD_UNLIKELY( err ) ) return err;
 
   memset( agg, 0, sizeof(fd_bls_agg_t) ); /* zero is the point at infinity */
 
-  for( ulong i=0UL; i<bit_cnt; i++ ) {
-    if( FD_LIKELY( (serde->payload[ i>>3 ] >> (i&7U)) & 1U ) ) fd_bls_set_insert( agg->set, i );
-  }
+  /* bit i is bit i%8 of byte i/8, as in the little endian set words */
+  FD_STATIC_ASSERT( sizeof(agg->set)>=(FD_BLS_SET_MAX+7UL)/8UL, fd_bls_serde );
+  uchar * set = (uchar *)agg->set;
+  fd_memcpy( set, serde->payload, serde->payload_sz );
+  if( FD_LIKELY( bit_cnt&7UL ) ) set[ bit_cnt>>3 ] = (uchar)( set[ bit_cnt>>3 ] & ( (1U<<(bit_cnt&7UL))-1U ) );
   return FD_BLS_DE_SUCCESS;
 }
 
@@ -117,9 +135,9 @@ base3_de( fd_bls_agg_t *             agg,
           fd_bls_agg_t *             agg_fb,
           fd_bls_agg_serde_t const * serde ) {
   ulong bit_cnt   = (ulong)serde->bit_cnt;
-  ulong chunk_cnt = FD_BLS_AGG_PAIR_SER_SZ( bit_cnt )-FD_BLS_AGG_HDR_SZ;
-  FAIL( bit_cnt>FD_BLS_SET_MAX, SZ );
-  FAIL( serde->payload_sz!=chunk_cnt, INVAL );
+  ulong chunk_cnt = serde->payload_sz;
+  int   err       = base3_check( serde );
+  if( FD_UNLIKELY( err ) ) return err;
 
   memset( agg,  0, sizeof(fd_bls_agg_t) ); /* zero is the point at infinity */
   memset( agg_fb, 0, sizeof(fd_bls_agg_t) );
@@ -174,5 +192,23 @@ fd_bls_agg_pair_de( fd_bls_agg_t * agg,
     return base3_de( agg, agg_fb, serde );
   default:
     return FD_BLS_DE_ERR_INVAL;
+  }
+}
+
+int
+fd_bls_agg_de_check( int           pair,
+                     ulong *       bit_cnt,
+                     uchar const * buf,
+                     ulong         buf_sz ) {
+  fd_bls_agg_serde_t serde[1];
+
+  int err = bitmap_hdr( serde, buf, buf_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  *bit_cnt = serde->bit_cnt;
+
+  switch( serde->version ) {
+  case BASE2_BITMAP: return base2_check( serde );
+  case BASE3_BITMAP: return pair ? base3_check( serde ) : FD_BLS_DE_ERR_INVAL;
+  default:           return FD_BLS_DE_ERR_INVAL;
   }
 }
