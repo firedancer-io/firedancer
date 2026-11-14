@@ -252,9 +252,11 @@ failover_preflight( fd_adminctl_t * adminctl,
   fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT };
   if( FD_UNLIKELY( args->failover.takeover ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER;
   if( FD_UNLIKELY( args->failover.force    ) ) req.flags |= FD_ADMINCTL_FAILOVER_FLAG_FORCE;
-  fd_sha512_t sha512[ 1 ];
-  FD_TEST( fd_sha512_join( fd_sha512_new( sha512 ) ) );
-  fd_ed25519_public_from_private( req.target, keypair, sha512 );
+  if( keypair ) {
+    fd_sha512_t sha512[ 1 ];
+    FD_TEST( fd_sha512_join( fd_sha512_new( sha512 ) ) );
+    fd_ed25519_public_from_private( req.target, keypair, sha512 );
+  }
   fd_adminctl_failover_resp_t resp;
   ulong result = failover_request( adminctl, &req, NULL, &resp );
   if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) fail_result( failover_cmd_name( args ), result, FD_ADMINCTL_RESULT_SUCCESS );
@@ -267,7 +269,7 @@ failover_cmd_fn( args_t *   args,
   fd_adminctl_t * adminctl = adminctl_client_attach( config, args->failover.name );
   char const *    cmd      = failover_cmd_name( args );
   uchar const *   keypair  = args->failover.keypair_path[ 0 ] ? failover_keypair_load( args->failover.keypair_path ) : NULL;
-  if( keypair ) failover_preflight( adminctl, args, keypair );
+  failover_preflight( adminctl, args, keypair );
   failover_confirm( args );
 
   fd_adminctl_failover_req_t req;

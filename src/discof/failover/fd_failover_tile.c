@@ -4,6 +4,7 @@
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/hex/fd_hex.h"
 #include "../../util/fd_version.h"
@@ -37,6 +38,7 @@
 #define FD_FAILOVER_REQUEST_RETRIES    (3UL)
 #define FD_FAILOVER_FORCE_WAIT_NANOS   FD_FAILOVER_GOSSIP_FRESH_NANOS
 #define FD_FAILOVER_STEP_CNT           (8UL)
+#define FD_FAILOVER_LEADER_WARN_SLOTS  FD_FAILOVER_DEADLINE_SLOTS
 
 /* apply_control's result for a pending command */
 #define FD_FAILOVER_CMD_PENDING (ULONG_MAX)
@@ -297,6 +299,13 @@ struct fd_failover_tile_ctx {
   int         hist_fresh;     /* a history frame arrived and is not handled yet */
   ulong       hist_seen_seq;  /* seq of the last votor_hist frag taken in, ULONG_MAX before any */
 
+  /* Leader schedule input. */
+  ulong                      epoch_in_idx;
+  fd_wksp_t *                epoch_in_mem;
+  ulong                      epoch_in_chunk0;
+  ulong                      epoch_in_wmark;
+  fd_multi_epoch_leaders_t * mleaders;
+
   /* Votor history and adoption bounds. */
   fd_votor_hist_msg_t hist;             /* the votor_hist frame copied in during_frag */
   ulong               adopt_anchor;     /* finality anchor of the history being adopted, SLOT_NULL when none */
@@ -330,6 +339,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_failover_tile_ctx_t), sizeof(fd_failover_tile_ctx_t)  );
   l = FD_LAYOUT_APPEND( l, fd_failover_channel_align(),     fd_failover_channel_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(),  fd_multi_epoch_leaders_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -358,8 +368,11 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_failover_tile_ctx_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_failover_tile_ctx_t), sizeof(fd_failover_tile_ctx_t)  );
   void *                   channel_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_failover_channel_align(),     fd_failover_channel_footprint() );
+  void *                   mleaders    = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(),  fd_multi_epoch_leaders_footprint() );
   /* Start idle with no handoff or promotion in progress. */
   fd_memset( ctx, 0, sizeof(fd_failover_tile_ctx_t) );
+  ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders ) );
+  FD_TEST( ctx->mleaders );
   /* No admin switch is pending at boot. */
   ctx->id_switch.pending_key = FD_FAILOVER_SWITCH_KEY_CNT;
   ctx->deadline_slot         = FD_FAILOVER_SLOT_NULL;
@@ -445,6 +458,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->hist_in_idx   = ULONG_MAX;
   ctx->admin_in_idx  = ULONG_MAX;
   ctx->adopt_in_idx  = ULONG_MAX;
+  ctx->epoch_in_idx  = ULONG_MAX;
   ctx->target_since  = fd_failover_clock();
   ctx->adopt_out_idx = fd_topo_find_tile_out_link( topo, tile, "failov_votor", 0UL );
   if( FD_LIKELY( ctx->adopt_out_idx!=ULONG_MAX ) ) {
@@ -493,6 +507,13 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->hist_in_wmark  = fd_dcache_compact_wmark ( ctx->hist_in_mem, link->dcache, link->mtu );
       continue;
     }
+    if( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) {
+      ctx->epoch_in_idx    = i;
+      ctx->epoch_in_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->epoch_in_chunk0 = fd_dcache_compact_chunk0( ctx->epoch_in_mem, link->dcache );
+      ctx->epoch_in_wmark  = fd_dcache_compact_wmark ( ctx->epoch_in_mem, link->dcache, link->mtu );
+      continue;
+    }
     /* The keyguard client reads sign_failov itself. */
     if( FD_LIKELY( !strcmp( link->name, "sign_failov" ) ) ) continue;
     FD_LOG_ERR(( "unexpected input link name %s", link->name ));
@@ -534,7 +555,7 @@ before_frag( fd_failover_tile_ctx_t * ctx,
   if( FD_LIKELY( in_idx==ctx->gossip_in_idx ) ) {
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO && sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
-  if( FD_LIKELY( in_idx==ctx->hist_in_idx ) ) {
+  if( FD_LIKELY( in_idx==ctx->hist_in_idx || in_idx==ctx->epoch_in_idx ) ) {
     return 0;
   }
   if( FD_UNLIKELY( in_idx==ctx->admin_in_idx ) ) {
@@ -574,6 +595,13 @@ during_frag( fd_failover_tile_ctx_t * ctx,
       return;
     }
     fd_memcpy( &ctx->bus_req, msg, sizeof(fd_failover_bus_msg_t) );
+    return;
+  }
+  if( FD_UNLIKELY( in_idx==ctx->epoch_in_idx ) ) {
+    if( FD_UNLIKELY( chunk<ctx->epoch_in_chunk0 || chunk>ctx->epoch_in_wmark ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->epoch_in_chunk0, ctx->epoch_in_wmark ));
+    }
+    on_epoch_msg( ctx, fd_chunk_to_laddr_const( ctx->epoch_in_mem, chunk ) );
     return;
   }
   if( FD_UNLIKELY( in_idx==ctx->hist_in_idx ) ) {

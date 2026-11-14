@@ -33,6 +33,7 @@ stem_init( void ) {
 }
 
 static uchar                  ch_mem[ 32UL<<20 ] __attribute__((aligned(128)));
+static uchar                  ml_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
 static fd_failover_tile_ctx_t ctl[ 1 ];
 
 #define OUR_BOOT_ID (1000UL)
@@ -71,6 +72,8 @@ controller_init( int holds ) {
   ctx->own_gossip.port       = fd_ushort_bswap( OWN_GOSSIP_PORT );
   ctx->channel               = fd_failover_channel_join( fd_failover_channel_new( ch_mem ) );
   FD_TEST( ctx->channel );
+  ctx->mleaders              = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ml_mem ) );
+  FD_TEST( ctx->mleaders );
   ctx->channel->self_hello = ctx->hello;
   ctx->session.state       = fd_failover_channel_state( ctx->channel );
   return ctx;

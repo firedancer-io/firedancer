@@ -421,6 +421,24 @@ on_votor_hist_msg( fd_failover_tile_ctx_t *    ctx,
   } while(0)
 
 static void
+on_epoch_msg( fd_failover_tile_ctx_t *    ctx,
+              fd_epoch_info_msg_t const * msg ) {
+  fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
+  fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
+}
+
+static void
+warn_leader_window( fd_failover_tile_ctx_t * ctx,
+                    uchar const *            target ) {
+  if( FD_UNLIKELY( ctx->replay_slot==FD_FAILOVER_SLOT_NULL ) ) return;
+  ulong from = ctx->replay_slot+1UL;
+  ulong slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, from, (fd_pubkey_t const *)target );
+  if( FD_LIKELY( slot==ULONG_MAX || slot-from>=FD_FAILOVER_LEADER_WARN_SLOTS ) ) return;
+  if( FD_UNLIKELY( slot==from ) ) LOG_CMD_STEP( ctx, "WARNING: the failover identity currently is leading slot %lu now, a handoff would skip the rest of the leader window", slot );
+  else                            LOG_CMD_STEP( ctx, "WARNING: the failover identity will lead slot %lu, %lu slots from now, a handoff now risks skipping that leader window", slot, slot-from );
+}
+
+static void
 on_gossip_contact_info_msg( fd_failover_tile_ctx_t * ctx,
                      long                     now ) {
   uint addr = ctx->gossip_socket.addr;
@@ -1207,6 +1225,7 @@ run_handoff_cmd( fd_failover_tile_ctx_t *           ctx,
   ctx->request.id = ctx->handoff_base+(++ctx->handoff_cnt);
   if( FD_UNLIKELY( !ctx->request.id ) ) ctx->request.id = ++ctx->handoff_cnt;
   ctx->session.close_after_send = 0;
+  warn_leader_window( ctx, ctx->hello.staked_pubkey );
   uint addr = stage_request( ctx, req, now );
   if( FD_LIKELY( addr ) ) {
     LOG_CMD_STEP( ctx, "handoff %lu: requesting handoff from the machine running the identity at `" FD_IP4_ADDR_FMT ":%hu` using %s",
@@ -1248,13 +1267,17 @@ run_promote_cmd( fd_failover_tile_ctx_t *           ctx,
 }
 
 static ulong
-run_preflight_cmd( fd_failover_tile_ctx_t const *     ctx,
+run_preflight_cmd( fd_failover_tile_ctx_t *           ctx,
                    fd_adminctl_failover_req_t const * req ) {
-  if( fd_memeq( req->target, ctx->hello.staked_pubkey, 32UL ) ) return FD_ADMINCTL_RESULT_SUCCESS;
-  if( FD_UNLIKELY( is_switch_pending( ctx ) || ( ctx->action!=FD_FAILOVER_ACTION_IDLE && !is_request_paused( ctx ) ) ) ) {
-    return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
+  if( !fd_memeq( req->target, ctx->hello.staked_pubkey, 32UL ) ) {
+    if( FD_UNLIKELY( is_switch_pending( ctx ) || ( ctx->action!=FD_FAILOVER_ACTION_IDLE && !is_request_paused( ctx ) ) ) ) {
+      return FD_FAILOVER_CONTROL_RESULT_IN_PROGRESS;
+    }
+    if( FD_UNLIKELY( holds_identity( ctx ) && ctx->own_voted ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER;
+  } else if( holds_identity( ctx ) ) {
+    return FD_ADMINCTL_RESULT_SUCCESS;
   }
-  if( FD_UNLIKELY( holds_identity( ctx ) && ctx->own_voted ) ) return FD_FAILOVER_CONTROL_RESULT_HOLDS_OTHER;
+  warn_leader_window( ctx, req->target );
   return FD_ADMINCTL_RESULT_SUCCESS;
 }
 
@@ -1330,5 +1353,10 @@ serve_bus_request( fd_failover_tile_ctx_t * ctx,
   }
   if( FD_UNLIKELY( result==FD_FAILOVER_CONTROL_RESULT_ALREADY_HOLDS ) ) FD_LOG_NOTICE(( "`%s` done, this machine already runs the identity", cmd_name ));
   else if( FD_UNLIKELY( result!=FD_ADMINCTL_RESULT_SUCCESS ) ) FD_LOG_WARNING(( "`%s` refused (result %#lx)", cmd_name, result ));
+  /* A settled command's steps go out before its result. */
+  ctx->cmd_nonce     = ctx->bus_req.nonce;
+  ctx->cmd_step_tail = step_head;
+  while( ctx->cmd_step_tail!=ctx->cmd_step_head ) publish_cmd_step( ctx, stem );
+  ctx->cmd_nonce = 0UL;
   publish_bus_result( ctx, stem, ctx->bus_req.nonce, result );
 }

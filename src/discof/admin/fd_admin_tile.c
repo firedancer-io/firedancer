@@ -1479,6 +1479,9 @@ failover_request( fd_admin_tile_ctx_t * ctx,
   int force     = !!(req.flags & FD_ADMINCTL_FAILOVER_FLAG_FORCE);
   int takeover  = !!(req.flags & FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER);
   int preflight = req.cmd==FD_ADMINCTL_FAILOVER_CMD_PREFLIGHT;
+  if( preflight && fd_mem_iszero( req.target, 32UL ) ) {
+    fd_memcpy( req.target, ctx->failover_pubkey, 32UL );
+  }
   char const * invalid = NULL;
   if(      req.cmd>=FD_ADMINCTL_FAILOVER_CMD_CNT )                                           invalid = "unknown command";
   else if( req.flags & ~(FD_ADMINCTL_FAILOVER_FLAG_YES|FD_ADMINCTL_FAILOVER_FLAG_FORCE|FD_ADMINCTL_FAILOVER_FLAG_TAKEOVER) ) invalid = "unknown flags";
