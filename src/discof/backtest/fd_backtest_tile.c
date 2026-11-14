@@ -13,7 +13,6 @@
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
 
-#include <stdlib.h> /* exit(2) */
 #include <errno.h>
 #include <fcntl.h>  /* open(2) */
 
@@ -61,6 +60,7 @@ struct fd_backt_tile {
   int snapshot_done;
   uint reasm_ready      : 1; /* reasm root is set, so we can start publishing FECs to replay */
   uint source_exhausted : 1;
+  uint finished         : 1;
 
   fd_backt_src_t * src;
 
@@ -348,7 +348,8 @@ publish_shred_version( fd_backt_tile_t *   ctx,
   fd_stem_publish( stem, ctx->ipecho_out_idx, shred_version, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
 }
 
-/* Log the run summary, drain telemetry and exit the process. */
+/* Log the run summary, drain telemetry and stop the tile.  The main
+   thread exits the process once the tile status reaches shutdown. */
 
 static void
 finish( fd_backt_tile_t * ctx,
@@ -395,7 +396,12 @@ finish( fd_backt_tile_t * ctx,
       FD_SPIN_PAUSE();
     }
   }
-  exit(0);
+  ctx->finished = 1;
+}
+
+static int
+should_shutdown( fd_backt_tile_t * ctx ) {
+  return ctx->finished;
 }
 
 static inline int
@@ -536,7 +542,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       int reached_end_slot  = msg->slot>=ctx->end_slot;
       int drained_exhausted = ctx->source_exhausted && !ctx->shreds_cnt && msg->slot>=ctx->prev_slot;
-      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) finish( ctx, msg->slot, msg->completion_time_nanos );
+      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) { finish( ctx, msg->slot, msg->completion_time_nanos ); return 0; }
 
       int root_advanced = root_slot!=ctx->prev_root;
       ctx->prev_root    = root_slot;
@@ -731,6 +737,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_BEFORE_CREDIT   before_credit
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 
 #include "../../disco/stem/fd_stem.c"
 
