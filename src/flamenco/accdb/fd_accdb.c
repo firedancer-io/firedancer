@@ -7064,6 +7064,52 @@ fd_accdb_prefetch( fd_accdb_t *          accdb,
   if( FD_LIKELY( accdb->sleep ) ) fd_sleep_ring( accdb->sleep, accdb->sleep_tile_id );
 }
 
+/* fd_accdb_fetch: one residual wait for every key an FG joiner would
+   otherwise wait on one at a time. */
+
+int
+fd_accdb_fetch_enabled( fd_accdb_t const * accdb ) {
+  return idx_enabled( accdb ) && !accdb->readonly && accdb->bkt->fd<0;
+}
+
+void
+fd_accdb_fetch( fd_accdb_t *          accdb,
+                fd_accdb_fork_id_t    fork_id,
+                ulong                 cnt,
+                uchar const * const * pubkeys ) {
+  if( FD_LIKELY( !fd_accdb_fetch_enabled( accdb ) ) ) return;
+  FD_TEST( FD_VOLATILE_CONST( *accdb->my_epoch_slot )==ULONG_MAX );
+  while( cnt ) {
+    ulong         batch = fd_ulong_min( cnt, FD_ACCDB_MAX_ACQUIRE_CNT );
+    uchar const * miss_keys[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+    ushort        miss_ovl [ FD_ACCDB_MAX_ACQUIRE_CNT ];
+    ulong         miss_cnt = 0UL;
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+    FD_HW_MFENCE();
+    uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+    fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+    for( ulong i=0UL; i<batch; i++ ) {
+      ulong  hash = fd_hash32( pubkeys[ i ], accdb->shmem->seed );
+      int    known;
+      ushort ovl_f;
+      idx_resolve( accdb, fork, fork_id.val, root_generation, pubkeys[ i ], hash, 0, 0, &known, &ovl_f );
+      if( FD_LIKELY( ovl_f==USHORT_MAX && ( known || !idx_maybe_bucket( accdb, pubkeys[ i ] ) ) ) ) continue;
+      miss_ovl [ miss_cnt   ] = ovl_f;
+      miss_keys[ miss_cnt++ ] = pubkeys[ i ];
+    }
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+    if( FD_UNLIKELY( miss_cnt ) ) {
+      idx_residual_wait( accdb, miss_cnt, miss_keys, miss_ovl );
+      idx_residual_ack( accdb );
+      accdb->metrics->fetch_batched += miss_cnt-1UL;
+    }
+    pubkeys += batch;
+    cnt     -= batch;
+  }
+}
+
 /* idx_residual_park (FG, outside any epoch, efficient mode): sleeps
    on this tile's sleep word so the accdb tile can run when it shares
    our CPU.  ring_serve rings our doorbell once done moves and the
