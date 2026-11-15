@@ -11,6 +11,12 @@ struct fd_genesis_client_peer {
   int writing;
   ulong request_bytes_sent;
   ulong response_bytes_read;
+
+  /* header_len is the length of the response headers once they have
+     been parsed, and zero before that.  content_length is valid when
+     header_len is non-zero. */
+  ulong header_len;
+  ulong content_length;
   uchar response[ 10UL*1024UL*1024UL ]; /* 10 MiB max response */
 };
 

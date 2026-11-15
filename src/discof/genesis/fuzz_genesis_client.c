@@ -71,6 +71,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   client->peers[0].writing = 1;
   client->peers[0].request_bytes_sent = 0UL;
   client->peers[0].response_bytes_read = 0UL;
+  client->peers[0].header_len = 0UL;
   for( ulong i=1UL; i<FD_TOPO_GOSSIP_ENTRYPOINTS_MAX; i++ ) {
     client->pollfds[i].fd = -1;
   }
