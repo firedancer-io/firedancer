@@ -7,6 +7,10 @@ sign( fd_vote_t const * self,
       uchar const *     public_key,
       ushort            shred_version,
       fd_bls_sig_t *    sig ) {
+  if( FD_UNLIKELY( !sign_fn ) ) { /* unsigned, the caller signs it later */
+    memset( sig, 0, sizeof(fd_bls_sig_t) );
+    return;
+  }
   uchar buf[ FD_VOTE_SIGNING_SER_MAX ];
   ulong sz = fd_vote_signing_ser( self->kind, fd_vote_slot( self ), fd_vote_block_hash( self ), shred_version, buf );
   sign_fn( sign_ctx, sig, public_key, buf, sz );

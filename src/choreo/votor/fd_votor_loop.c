@@ -9,6 +9,7 @@
 
 struct vote_event {
   uchar     reason;
+  uchar     bls_key[ FD_BLS_PUB_COMPRESSED_SZ ]; /* signs vote */
   fd_vote_t vote;
 };
 typedef struct vote_event vote_event_t;
@@ -133,9 +134,13 @@ state_mut( fd_votor_loop_t * self,
 static void
 push_vote( fd_votor_loop_t * self,
            fd_vote_t         vote,
+           uchar const *     bls_key,
            uchar             reason ) {
   FD_TEST( !vote_events_full( self->vote_events ) );
-  vote_events_push( self->vote_events, (vote_event_t){ .reason = reason, .vote = vote } );
+  vote_event_t * event = vote_events_peek_insert( vote_events_insert( self->vote_events ) );
+  event->reason = reason;
+  event->vote   = vote;
+  memcpy( event->bls_key, bls_key, FD_BLS_PUB_COMPRESSED_SZ );
 }
 
 FD_FN_PURE static epoch_bls_key_t const *
@@ -350,7 +355,6 @@ fd_votor_loop_init( fd_votor_loop_t *     self,
                     ushort                shred_version,
                     fd_bls_sign_fn        sign_fn,
                     void *                sign_ctx ) {
-  FD_TEST( sign_fn );
   self->now                     = now;
   self->root                    = root->slot;
   self->shred_version           = shred_version;
@@ -460,7 +464,7 @@ try_final( fd_votor_loop_t *       self,
     state_mut( self, slot )->retired = 1;
     if( FD_UNLIKELY( !epoch->has_bls_key || slot<self->catchup_vote_slot ) ) return;
     fd_vote_t vote = fd_vote_construct_final( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, (ushort)epoch->rank, self->shred_version );
-    push_vote( self, vote, BLOCK_NOTARIZED );
+    push_vote( self, vote, epoch->bls_key, BLOCK_NOTARIZED );
   }
 }
 
@@ -490,7 +494,7 @@ try_notar( fd_votor_loop_t *       self,
 
   if( FD_LIKELY( slot>=self->catchup_vote_slot ) ) {
     fd_vote_t vote = fd_vote_construct_notar( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, &hash, (ushort)epoch->rank, self->shred_version );
-    push_vote( self, vote, reason );
+    push_vote( self, vote, epoch->bls_key, reason );
   }
 
   slot_state_ele_t * state = state_mut( self, slot );
@@ -524,7 +528,7 @@ try_skip_window( fd_votor_loop_t * self,
     if( FD_UNLIKELY( s<self->catchup_vote_slot ) ) continue;
 
     fd_vote_t vote = fd_vote_construct_skip( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, s, (ushort)epoch->rank, self->shred_version );
-    push_vote( self, vote, reason );
+    push_vote( self, vote, epoch->bls_key, reason );
   }
 }
 
@@ -708,7 +712,7 @@ fd_votor_loop_handle_pool_event( fd_votor_loop_t *             self,
     if( FD_UNLIKELY( !epoch->has_bls_key ) ) break;
     if( FD_LIKELY( slot>=self->catchup_vote_slot ) ) {
       fd_vote_t vote = fd_vote_construct_notar_fallback( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, hash, (ushort)epoch->rank, self->shred_version );
-      push_vote( self, vote, SAFE_TO_NOTAR );
+      push_vote( self, vote, epoch->bls_key, SAFE_TO_NOTAR );
     }
     try_skip_window( self, slot, SAFE_TO_NOTAR );
     state_mut( self, slot )->bad_window = 1;
@@ -723,7 +727,7 @@ fd_votor_loop_handle_pool_event( fd_votor_loop_t *             self,
     if( FD_UNLIKELY( !epoch->has_bls_key ) ) break;
     if( FD_LIKELY( slot>=self->catchup_vote_slot ) ) {
       fd_vote_t vote = fd_vote_construct_skip_fallback( self->bls_sign_fn, self->bls_sign_ctx, epoch->bls_key, slot, (ushort)epoch->rank, self->shred_version );
-      push_vote( self, vote, SAFE_TO_SKIP );
+      push_vote( self, vote, epoch->bls_key, SAFE_TO_SKIP );
     }
     try_skip_window( self, slot, SAFE_TO_SKIP );
     state_mut( self, slot )->bad_window = 1;
@@ -798,14 +802,25 @@ fd_votor_loop_next_skip_timeout( fd_votor_loop_t const * self ) {
 }
 
 int
+fd_votor_loop_poll_vote_key( fd_votor_loop_t * self,
+                             fd_vote_t *       vote,
+                             uchar *           reason,
+                             uchar             bls_key[ static FD_BLS_PUB_COMPRESSED_SZ ] ) {
+  if( FD_LIKELY( vote_events_empty( self->vote_events ) ) ) return 0;
+  vote_event_t const * event = vote_events_peek_remove_const( self->vote_events );
+  *vote   = event->vote;
+  *reason = event->reason;
+  memcpy( bls_key, event->bls_key, FD_BLS_PUB_COMPRESSED_SZ );
+  vote_events_remove( self->vote_events );
+  return 1;
+}
+
+int
 fd_votor_loop_poll_vote( fd_votor_loop_t * self,
                          fd_vote_t *       vote,
                          uchar *           reason ) {
-  if( FD_LIKELY( vote_events_empty( self->vote_events ) ) ) return 0;
-  vote_event_t event = vote_events_pop( self->vote_events );
-  *vote   = event.vote;
-  *reason = event.reason;
-  return 1;
+  uchar bls_key[ FD_BLS_PUB_COMPRESSED_SZ ];
+  return fd_votor_loop_poll_vote_key( self, vote, reason, bls_key );
 }
 
 /* advance_root raises the finality anchor to slot and prunes below it, if

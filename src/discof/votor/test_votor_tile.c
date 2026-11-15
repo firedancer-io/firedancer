@@ -516,6 +516,15 @@ test_auth_vtr_keyswitch_clear( void ) {
 
   keyswitch->param = FD_KEYSWITCH_PARAM_AV_CLEAR;
   fd_keyswitch_state( keyswitch, FD_KEYSWITCH_STATE_SWITCH_PENDING );
+
+  /* A vote signing request in flight may use a voter's key, so the
+     clear, after which the sign tiles drop the keys, waits for it. */
+
+  ctx.vote_sign_cnt = 1UL;
+  during_housekeeping( &ctx );
+  FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING && ctx.auth_vtr_path_cnt==2UL );
+  ctx.vote_sign_cnt = 0UL;
+
   during_housekeeping( &ctx );
   FD_TEST( keyswitch->state==FD_KEYSWITCH_STATE_COMPLETED );
   FD_TEST( ctx.auth_vtr_path_cnt==0UL );
@@ -1216,13 +1225,11 @@ test_id_keyswitch( void ) {
   FD_TEST( fd_pubkey_eq( &ctx.id_key, &old_id ) && peer->tx_conn==old_conn );
   FD_TEST( before_frag( &ctx, 0UL, 0UL, net_sig ) );
 
-  /* Halted, the tile signs nothing more, so block 2's vote carries the
-     identity signature the send path drops, and the queued vote goes
-     out. */
+  /* Halted, the tile requests a signature only for the vote queued
+     before the halt, which goes out as the old identity, and none for
+     block 2's vote. */
 
-  fd_bls_sig_t halted_sig;
-  sign_vote( &ctx, &halted_sig, bls_keys[0], NULL, 0UL );
-  FD_TEST( fd_bls_sig_is_inf( &halted_sig ) );
+  FD_TEST( ctx.vote_sign_halt==1UL );
 
   block = (fd_block_info_t){0};
   block.parent = b1;
@@ -1234,6 +1241,15 @@ test_id_keyswitch( void ) {
   FD_TEST( fd_vote_slot( &vote )==1UL && fd_vote_rank( &vote )==0UL );
   FD_TEST( fd_votor_loop_poll_vote( ctx.votor, &vote, &reason ) && fd_vote_slot( &vote )==2UL );
   FD_TEST( !fd_votor_loop_metrics( ctx.votor ).vote_events_cnt );
+  ctx.vote_sign_halt = 0UL; /* slot 1's vote was taken */
+  FD_TEST( !request_vote_sign( &ctx, NULL, &vote, 0, bls_keys[0] ) );
+
+  /* A signing request in flight holds the switch until it returns. */
+
+  ctx.vote_sign_cnt = 1UL;
+  during_housekeeping( &ctx );
+  FD_TEST( ctx.id_keyswitch->state==FD_KEYSWITCH_STATE_SWITCH_PENDING );
+  ctx.vote_sign_cnt = 0UL;
 
   /* The other voters skip slot 1, which the old identity notarized, so
      the pool queues a safe-to-skip decided with the old rank.  Votor
@@ -1380,25 +1396,26 @@ test_id_keyswitch( void ) {
   fd_votor_loop_delete( fd_votor_loop_leave( ctx.votor ) );
 }
 
+/* Votes are signed asynchronously: request_vote_sign sends the vote's
+   signing preimage on votor_bls with the key's sig encoding and a ring
+   tag, and vote_sign_pop matches each reply, in order, to its vote.
+   The signed vote is the one fd_vote_construct_* builds synchronously,
+   byte for byte on the wire. */
+
 static void
 test_sign_bls_request( void ) {
   static fd_votor_tile_t ctx;
   static auth_vtr_t      auth_vtr_mem[ 1UL<<AUTH_VTR_LG_SLOT_CNT ];
-  static uchar request_mcache_mem [ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
-  static uchar response_mcache_mem[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
-  static uchar request_data [ FD_VOTE_SIGNING_SER_MAX ] __attribute__((aligned(FD_CHUNK_ALIGN)));
-  static uchar response_data[ FD_BLS_SIG_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar           request_mcache_mem[ FD_MCACHE_FOOTPRINT( 128UL, 0UL ) ] __attribute__((aligned(FD_MCACHE_ALIGN)));
+  static uchar           request_data[ 128UL*FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  memset( &ctx, 0, sizeof(fd_votor_tile_t) );
+  ctx.vote_history_fd_dir = -1;
 
-  fd_keyguard_client_t * client = ctx.keyguard_client;
-  client->request        = fd_mcache_join( fd_mcache_new( request_mcache_mem, 128UL, 0UL, 0UL ) );
-  client->response       = fd_mcache_join( fd_mcache_new( response_mcache_mem, 128UL, 0UL, 0UL ) );
-  FD_TEST( client->request && client->response );
-  client->request_depth  = 128UL;
-  client->response_depth = 128UL;
-  client->request_mem    = (fd_wksp_t *)request_data;
-  client->response_mem   = (fd_wksp_t *)response_data;
-  client->request_mtu    = sizeof(request_data);
-  client->response_mtu   = sizeof(response_data);
+  fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
+  build_stakes( stakes, 3UL, 10UL );
+  ctx.curr_epoch_info = test_epoch( stakes, 3UL, 1 );
+  ctx.curr_epoch_slot = 0UL;
+  ctx.next_epoch_slot = ULONG_MAX;
 
   /* The identity's key, then authorized voters 0, 1 and 2. */
 
@@ -1408,34 +1425,90 @@ test_sign_bls_request( void ) {
   build_bls_keys( bls_keys, secs, pubs, 4UL );
   init_keys( &ctx, auth_vtr_mem, bls_keys, 4UL );
 
+  fd_frag_meta_t *  mcache          = fd_mcache_join( fd_mcache_new( request_mcache_mem, 128UL, 0UL, 0UL ) );
+  FD_TEST( mcache );
+  fd_frag_meta_t *  mcaches[1]      = { mcache };
+  ulong             seqs[1]         = { 0UL };
+  ulong             depths[1]       = { 128UL };
+  ulong             cr_avail[1]     = { ULONG_MAX };
+  ulong             min_cr_avail[1] = { ULONG_MAX };
+  int               reliable[1]     = { 0 };
+  fd_stem_context_t stem[1]         = {{ .mcaches = mcaches, .seqs = seqs, .depths = depths, .cr_avail = cr_avail, .min_cr_avail = min_cr_avail, .out_reliable = reliable }};
+  ctx.vote_sign_max        = 4UL;
+  ctx.vote_sign_out_idx    = 0UL;
+  ctx.vote_sign_out_mem    = request_data;
+  ctx.vote_sign_out_chunk0 = 0UL;
+  ctx.vote_sign_out_wmark  = 127UL;
+  ctx.vote_sign_out_chunk  = 0UL;
+
+  fd_block_hash_t hash; memset( &hash, 0x42, sizeof(fd_block_hash_t) );
   for( ulong i=0UL; i<4UL; i++ ) {
     ulong request_sig = FD_KEYGUARD_SIGN_TYPE_BLS;
     if( i ) request_sig |= (1UL<<32) | ((i-1UL)<<33);
 
-    for( uchar tag=1U; tag<=5U; tag++ ) {
-      uchar payload[43];
-      memset( payload, 0x42, sizeof(payload) );
-      payload[0] = tag;
-      ulong payload_sz = ( tag==1U || tag==4U ) ? 43UL : 11UL;
-      ulong seq        = client->request_seq;
+    /* Each kind is constructed unsigned, as the loop queues it, and
+       synchronously signed, as the wire must carry it.  All are in
+       flight before the first reply. */
 
-      /* Prepublish the signer's response so the blocking callback can
-         run here.  Inspect the request it publishes below. */
-      fd_bls_sig_t expected_sig;
-      fd_bls_sec_sign( &secs[i], payload, payload_sz, &expected_sig );
-      fd_bls_sig_ser( &expected_sig, response_data );
-      fd_mcache_publish( client->response, 128UL, seq, request_sig, 0UL, FD_BLS_SIG_SZ, 0UL, 0UL, 0UL );
+    fd_vote_t want[5] = {
+      fd_vote_construct_notar         ( sec_sign_bls, &secs[i], NULL, 7UL, &hash, (ushort)2, (ushort)1 ),
+      fd_vote_construct_final         ( sec_sign_bls, &secs[i], NULL, 7UL,        (ushort)2, (ushort)1 ),
+      fd_vote_construct_skip          ( sec_sign_bls, &secs[i], NULL, 7UL,        (ushort)2, (ushort)1 ),
+      fd_vote_construct_notar_fallback( sec_sign_bls, &secs[i], NULL, 7UL, &hash, (ushort)2, (ushort)1 ),
+      fd_vote_construct_skip_fallback ( sec_sign_bls, &secs[i], NULL, 7UL,        (ushort)2, (ushort)1 )
+    };
+    fd_vote_t unsigned_[5] = {
+      fd_vote_construct_notar         ( NULL, NULL, NULL, 7UL, &hash, (ushort)2, (ushort)1 ),
+      fd_vote_construct_final         ( NULL, NULL, NULL, 7UL,        (ushort)2, (ushort)1 ),
+      fd_vote_construct_skip          ( NULL, NULL, NULL, 7UL,        (ushort)2, (ushort)1 ),
+      fd_vote_construct_notar_fallback( NULL, NULL, NULL, 7UL, &hash, (ushort)2, (ushort)1 ),
+      fd_vote_construct_skip_fallback ( NULL, NULL, NULL, 7UL,        (ushort)2, (ushort)1 )
+    };
+    ulong batch[3] = { 0UL, 1UL, 5UL }; /* the notar alone, then a full ring of 4 */
+    for( ulong b=0UL; b<2UL; b++ ) {
+      ulong seq0 = seqs[ 0 ];
+      for( ulong j=batch[ b ]; j<batch[ b+1UL ]; j++ ) {
+        FD_TEST( fd_bls_sig_is_inf( fd_vote_sig( &unsigned_[ j ] ) ) );
+        FD_TEST( request_vote_sign( &ctx, stem, &unsigned_[ j ], (uchar)j, bls_keys[i] ) );
+      }
+      FD_TEST( ctx.vote_sign_cnt==batch[ b+1UL ]-batch[ b ] );
+      for( ulong j=batch[ b ]; j<batch[ b+1UL ]; j++ ) {
+        fd_vote_t const *      v       = &want[ j ];
+        ulong                  req_seq = seq0+j-batch[ b ];
+        fd_frag_meta_t const * request = mcache+fd_mcache_line_idx( req_seq, 128UL );
+        FD_TEST( fd_frag_meta_seq_query( request )==req_seq );
+        FD_TEST( ( request->sig & ((1UL<<VOTE_SIGN_TAG_SHIFT)-1UL) )==request_sig );
+        uchar preimage[ FD_VOTE_SIGNING_SER_MAX ];
+        ulong preimage_sz = fd_vote_signing_ser( v->kind, fd_vote_slot( v ), fd_vote_block_hash( v ), 1, preimage );
+        FD_TEST( request->sz==preimage_sz && !memcmp( request_data+request->chunk*FD_CHUNK_SZ, preimage, preimage_sz ) );
 
-      fd_bls_sig_t sig;
-      sign_vote( &ctx, &sig, bls_keys[i], payload, payload_sz );
-      fd_frag_meta_t const * request = client->request+fd_mcache_line_idx( seq, 128UL );
-      FD_TEST( fd_frag_meta_seq_query( request )==seq );
-      FD_TEST( request->sig==request_sig );
-      FD_TEST( request->sz==payload_sz );
-      FD_TEST( !memcmp( request_data, payload, payload_sz ) );
-      FD_TEST( fd_bls_agg_verify( payload, payload_sz, &pubs[i], &sig ) );
+        /* The sign tile's reply, sig echoed. */
+        fd_bls_sig_t reply;
+        fd_bls_sec_sign( &secs[i], preimage, preimage_sz, &reply );
+        fd_bls_sig_ser( &reply, ctx.vote_sign_buf );
+        FD_TEST( vote_sign_pop( &ctx, request->sig )==(uchar)j );
+
+        uchar got_ser [ FD_VOTE_SER_MAX ];
+        uchar want_ser[ FD_VOTE_SER_MAX ];
+        ulong got_sz  = fd_vote_ser( &ctx.scratch.vote, got_ser );
+        ulong want_sz = fd_vote_ser( v, want_ser );
+        FD_TEST( got_sz==want_sz && !memcmp( got_ser, want_ser, got_sz ) );
+        FD_TEST( fd_bls_agg_verify( preimage, preimage_sz, &pubs[i], fd_vote_sig( &ctx.scratch.vote ) ) );
+      }
+      FD_TEST( !ctx.vote_sign_cnt );
     }
   }
+
+  /* An unsendable vote, or one whose key is no longer held, is not
+     requested. */
+
+  ulong seq = seqs[ 0 ];
+  fd_vote_t vote = fd_vote_construct_skip( NULL, NULL, NULL, 7UL, (ushort)3, (ushort)1 ); /* unranked */
+  FD_TEST( !request_vote_sign( &ctx, stem, &vote, 0, bls_keys[0] ) );
+  vote = fd_vote_construct_skip( NULL, NULL, NULL, 7UL, (ushort)2, (ushort)1 );
+  uchar unknown[ FD_BLS_PUB_COMPRESSED_SZ ]; memset( unknown, 0x11, sizeof(unknown) );
+  FD_TEST( !request_vote_sign( &ctx, stem, &vote, 0, unknown ) );
+  FD_TEST( seqs[ 0 ]==seq && !ctx.vote_sign_cnt );
 }
 
 static uchar          peers_mem        [ 1UL<<20 ] __attribute__((aligned(128)));
@@ -1817,6 +1890,7 @@ static fd_epoch_info_t *
 hist_setup( fd_votor_tile_t * ctx ) {
   memset( ctx, 0, sizeof(fd_votor_tile_t) );
   ctx->vote_history_fd_dir = -1;
+  ctx->vote_sign_max       = VOTE_SIGN_MAX;
   ctx->id_keyswitch        = fd_keyswitch_join( fd_keyswitch_new( id_keyswitch_mem, FD_KEYSWITCH_STATE_UNLOCKED ) );
   FD_TEST( ctx->id_keyswitch );
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
@@ -2015,6 +2089,7 @@ test_park( void ) {
   ctx->mleaders    = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem ) );
   FD_TEST( ctx->pool && ctx->votor && ctx->peers && ctx->reconn_prq && ctx->mleaders );
   ctx->id_key.uc[ 0 ] = 1; /* a valid key, unranked: we are unstaked */
+  ctx->vote_sign_max  = VOTE_SIGN_MAX;
   for( ulong i=0UL; i<REWARD_VOTE_MAX; i++ ) ctx->reward_votes[ i ].slot = ULONG_MAX;
   ctx->next_leader_slot = ULONG_MAX;
   ctx->ns_per_slot      = 400000000L;
@@ -2987,6 +3062,7 @@ test_failover_off( void ) {
   memset( &ctx, 0, sizeof(fd_votor_tile_t) );
   memset( topo, 0, sizeof(fd_topo_t)       );
   memset( tile, 0, sizeof(fd_topo_tile_t)  );
+  ctx.vote_sign_max = VOTE_SIGN_MAX;
 
   fd_vote_stake_weight_t stakes[ TEST_VOTER_MAX ];
   build_stakes( stakes, 3UL, 10UL );
