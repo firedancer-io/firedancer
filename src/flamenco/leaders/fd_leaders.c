@@ -376,7 +376,9 @@ fd_epoch_leaders_new( void  *                  shmem,
   FD_STATIC_ASSERT( sizeof(fd_geo_neighbor_t)<=sizeof(fd_geo_cluster_t),                          geo_scratch );
   FD_STATIC_ASSERT( sizeof(ulong)+sizeof(fd_geo_cluster_t)+2UL*sizeof(uint)<=sizeof(fd_pubkey_t), geo_scratch );
 
-  FD_TEST( laddr+fd_wsample_footprint( pub_cnt, 0 )<=(ulong)wsample_mem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
+  /* The region at laddr must hold both the wsample object and the
+     pubkeys, and it must fit in the footprint starting at shmem. */
+  FD_TEST( laddr+fd_ulong_max( 32UL*pub_cnt, FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) )<=(ulong)shmem+fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
 
   /* Create and seed ChaCha20Rng */
   fd_chacha_rng_t _rng[1];

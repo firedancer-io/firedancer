@@ -104,6 +104,33 @@ main( int     argc,
     fd_epoch_leaders_delete( fd_epoch_leaders_leave( leaders ) );
   }
 
+  /* Build schedules at the end of leaders_buf, so each one gets exactly
+     its footprint, for validator counts around the points where the
+     wsample tree grows a level. */
+  {
+    static fd_vote_stake_weight_t many_stakes[ 730UL ];
+    for( ulong i=0UL; i<730UL; i++ ) {
+      many_stakes[ i ].stake = (730UL-i)*1000000000UL;
+      memset( many_stakes[ i ].id_key.uc,   0, 32UL ); FD_STORE( ulong, many_stakes[ i ].id_key.uc,   i+1UL );
+      memset( many_stakes[ i ].vote_key.uc, 0, 32UL ); FD_STORE( ulong, many_stakes[ i ].vote_key.uc, i+1UL );
+    }
+    ulong const pub_cnts [] = { 1UL, 2UL, 8UL, 9UL, 10UL, 80UL, 81UL, 82UL, 728UL, 729UL, 730UL };
+    ulong const slot_cnts[] = { 1UL, 4UL, 5UL, 1000UL };
+    for( ulong i=0UL; i<sizeof(pub_cnts)/sizeof(ulong); i++ ) {
+      for( ulong j=0UL; j<sizeof(slot_cnts)/sizeof(ulong); j++ ) {
+        ulong footprint = fd_epoch_leaders_footprint( pub_cnts[ i ], slot_cnts[ j ] );
+        FD_TEST( footprint && footprint<=sizeof(leaders_buf) );
+        FD_TEST( fd_ulong_is_aligned( footprint, FD_EPOCH_LEADERS_ALIGN ) );
+        uchar * mem = leaders_buf + sizeof(leaders_buf) - footprint;
+        FD_TEST( mem == fd_epoch_leaders_new( mem, 1UL, 0UL, slot_cnts[ j ], pub_cnts[ i ], many_stakes, 0 ) );
+        leaders = fd_epoch_leaders_join( mem );
+        FD_TEST( leaders );
+        for( ulong slot=0UL; slot<slot_cnts[ j ]; slot++ ) FD_TEST( fd_epoch_leaders_get( leaders, slot ) );
+        fd_epoch_leaders_delete( fd_epoch_leaders_leave( leaders ) );
+      }
+    }
+  }
+
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
