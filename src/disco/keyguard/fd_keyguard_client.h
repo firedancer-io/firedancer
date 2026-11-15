@@ -25,6 +25,7 @@
         specifically formatted for that role. */
 
 #include "../../tango/fd_tango_base.h"
+#include "fd_keyguard.h"
 #include "../sleep/fd_sleep.h"
 
 #define FD_KEYGUARD_CLIENT_ALIGN (128UL)
@@ -122,6 +123,20 @@ fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
                                  ulong                  authority_idx,
                                  uchar const *          sign_data,
                                  ulong                  sign_data_len );
+
+/* fd_keyguard_ag_vote_sig returns the frag sig of an Alpenglow BLS vote
+   signing request for authority_idx, as in
+   fd_keyguard_client_ag_vote_sign.  It uses bits [0,37), the sign tile
+   echoes the rest back untouched, so an asynchronous caller can tag the
+   request in them. */
+
+static inline ulong
+fd_keyguard_ag_vote_sig( ulong authority_idx ) {
+  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<FD_KEYGUARD_AUTH_VOTERS_MAX, "unexpected authorized voter index" );
+  ulong sig = (ulong)FD_KEYGUARD_SIGN_TYPE_BLS;
+  if( authority_idx!=ULONG_MAX ) sig |= (1UL << 32) | (authority_idx << 33);
+  return sig;
+}
 
 /* fd_keyguard_client_bls_pubkey returns the compressed BLS public key
    held by the sign tile.  authority_idx is ULONG_MAX for the identity,
