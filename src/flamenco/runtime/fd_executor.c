@@ -1387,6 +1387,14 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   err = fd_executor_validate_account_locks( txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
+  /* Index mode: one wait on the accdb tile for every account below that
+     lives only in the on-disk index, not one per metadata read. */
+  if( FD_UNLIKELY( fd_accdb_fetch_enabled( runtime->accdb ) ) ) {
+    uchar const * keys[ MAX_TX_ACCOUNT_LOCKS ];
+    for( ushort i=0; i<txn_out->accounts.cnt; i++ ) keys[ i ] = txn_out->accounts.keys[ i ].uc;
+    fd_accdb_fetch( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.cnt, keys );
+  }
+
   /* If the transaction will fail, only acquire the fee payer and the
      potential nonce account (first account of the first instruction). */
   fd_txn_t const * txn       = TXN( txn_in->txn );
