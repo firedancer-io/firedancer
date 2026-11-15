@@ -127,13 +127,7 @@ fd_keyguard_client_ag_vote_sign( fd_keyguard_client_t * client,
                                  ulong                  authority_idx,
                                  uchar const *          sign_data,
                                  ulong                  sign_data_len ) {
-  FD_CHECK_CRIT( authority_idx==ULONG_MAX || authority_idx<FD_KEYGUARD_AUTH_VOTERS_MAX, "unexpected authorized voter index" );
-
-  /* Same encoding as fd_keyguard_client_vote_txn_sign. */
-
-  ulong sig = (ulong)FD_KEYGUARD_SIGN_TYPE_BLS;
-  if( authority_idx!=ULONG_MAX ) sig |= (1UL << 32) | (authority_idx << 33);
-  fd_keyguard_client_sign_sz( client, signature, FD_BLS_SIG_SZ, sign_data, sign_data_len, sig );
+  fd_keyguard_client_sign_sz( client, signature, FD_BLS_SIG_SZ, sign_data, sign_data_len, fd_keyguard_ag_vote_sig( authority_idx ) );
 }
 
 void

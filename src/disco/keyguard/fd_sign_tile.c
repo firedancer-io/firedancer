@@ -574,6 +574,11 @@ unprivileged_init_sensitive( fd_topo_t const *      topo,
       FD_TEST( !strcmp( out_link->name, "sign_votor" ) );
       FD_TEST( in_link->mtu==FD_KEYGUARD_SIGN_REQ_MTU );
       FD_TEST( out_link->mtu==FD_BLS_SIG_SZ );
+    } else if( !strcmp(in_link->name, "votor_bls" ) ) {
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_VOTOR;
+      FD_TEST( !strcmp( out_link->name, "bls_votor" ) );
+      FD_TEST( in_link->mtu==43UL ); /* FD_VOTE_SIGNING_SER_MAX */
+      FD_TEST( out_link->mtu==FD_BLS_SIG_SZ );
     } else if( !strcmp(in_link->name, "failov_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_FAILOV;
       FD_TEST( !strcmp( out_link->name, "sign_failov" ) );

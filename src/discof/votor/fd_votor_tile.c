@@ -47,6 +47,7 @@
 #define IN_KIND_REPLAY (4)
 #define IN_KIND_SIGN   (5)
 #define IN_KIND_FAILOV (6)
+#define IN_KIND_VSIGN  (7) /* vote signatures, bls_votor */
 
 #define OUT_IDX_VOTOR (0UL)
 #define OUT_IDX_NET   (1UL)
@@ -79,6 +80,23 @@
 #define VOTE_TOO_NEW (40UL) /* lookahead at most 40 slots from highest ParentReady, Agave's MAX_VOTE_SLOT_DISTANCE_FROM_PARENT_READY */
 
 #define SER_MAX (FD_VOTE_SER_MAX>FD_CERT_SER_MAX ? FD_VOTE_SER_MAX : FD_CERT_SER_MAX)
+
+/* Votes are signed asynchronously over votor_bls / bls_votor, a link
+   pair of their own so the blocking keyguard client on votor_sign /
+   sign_votor never sees a vote reply.  The sign tile answers in order,
+   so requests wait in a ring, and each request sig carries its ring
+   sequence above the bits fd_keyguard_ag_vote_sig uses, which the
+   reply echoes and is checked against. */
+
+#define VOTE_SIGN_MAX       (128UL) /* outstanding requests, at most the bls link depths */
+#define VOTE_SIGN_TAG_SHIFT (40)    /* request sig bits above fd_keyguard_ag_vote_sig's */
+
+struct vote_sign {
+  ulong     req_sig;
+  uchar     reason;
+  fd_vote_t vote;    /* unsigned until the reply */
+};
+typedef struct vote_sign vote_sign_t;
 
 static fd_quic_limits_t quic_client_limits = {
   .conn_cnt                    = QUIC_CLIENT_CONN_MAX,
@@ -262,6 +280,22 @@ struct fd_votor_tile {
   ulong                auth_vtr_path_cnt;
   fd_keyswitch_t *     auth_vtr_keyswitch;
   fd_keyguard_client_t keyguard_client[1];
+
+  /* Asynchronous vote signing, see vote_sign_t */
+
+  ulong       vote_sign_max;  /* ring capacity, 0 disables voting */
+  ulong       vote_sign_seq;  /* requests sent */
+  ulong       vote_sign_cnt;  /* requests awaiting a reply, the oldest at vote_sign_seq-vote_sign_cnt */
+  ulong       vote_sign_halt; /* queued votes decided before the identity switch halt, which still go out */
+  vote_sign_t vote_sign[ VOTE_SIGN_MAX ];
+  uchar       vote_sign_buf[ FD_BLS_SIG_SZ ];
+  ulong       vote_sign_out_idx;
+  void *      vote_sign_out_mem;
+  ulong       vote_sign_out_chunk0;
+  ulong       vote_sign_out_wmark;
+  ulong       vote_sign_out_chunk;
+  ulong       vote_sign_in_chunk0;
+  ulong       vote_sign_in_wmark;
 
   /* Vote history */
 
@@ -1190,24 +1224,6 @@ update_own_bls_key( fd_votor_tile_t * ctx ) {
   }
 }
 
-static void
-sign_vote( void *         signer_ctx,
-           fd_bls_sig_t * sig,
-           uchar const *  public_key,
-           uchar const *  payload,
-           ulong          payload_sz ) {
-  fd_votor_tile_t * ctx = signer_ctx;
-  if( FD_UNLIKELY( ctx->keyswitch_state ) ) {
-    memset( sig, 0, sizeof(fd_bls_sig_t) );
-    return;
-  }
-  auth_vtr_t const * auth_vtr = auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( public_key ), NULL );
-  if( FD_UNLIKELY( !auth_vtr ) ) FD_LOG_CRIT(( "no key derives the requested BLS public key" ));
-  uchar sig_bytes[ FD_BLS_SIG_SZ ];
-  fd_keyguard_client_ag_vote_sign( ctx->keyguard_client, sig_bytes, auth_vtr->paths_idx, payload, payload_sz );
-  if( FD_UNLIKELY( fd_bls_sig_de( sig, sig_bytes ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
-}
-
 /* write_vote_history writes out an Agave-compatible vote history file.
    Firedancer only writes out a single slot, the wait-to-vote slot.
 
@@ -1957,7 +1973,7 @@ handle_replay( fd_votor_tile_t *           ctx,
       /* Without ipecho's shred version, init must be deferred. */
       if( FD_LIKELY( ctx->shred_version ) ) {
         long now = fd_clock_tile_now( ctx->clock );
-        fd_votor_loop_init( ctx->votor, &block_id, now, ctx->ns_per_slot, ctx->shred_version, sign_vote, ctx );
+        fd_votor_loop_init( ctx->votor, &block_id, now, ctx->ns_per_slot, ctx->shred_version, NULL, NULL ); /* votes are signed in request_vote_sign */
         ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, block_id.slot );
         if( FD_LIKELY( wfs ) ) fd_votor_loop_arm_skip_timeouts( ctx->votor, now );
       }
@@ -2071,7 +2087,13 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
   /* Important invariant is that the sign tile has already been updated
      and that the votor is fully in sync with the sign tile. */
 
-  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+  /* The sign tiles drop the authorized voters' keys once a clear
+     completes, so it waits until every vote decided before it has been
+     signed. */
+
+  int av_pending = fd_keyswitch_state_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING;
+  int av_drain   = fd_keyswitch_param_query( ctx->auth_vtr_keyswitch )==FD_KEYSWITCH_PARAM_AV_CLEAR && ( fd_votor_loop_metrics( ctx->votor ).vote_events_cnt || ctx->vote_sign_cnt );
+  if( FD_UNLIKELY( av_pending && !av_drain ) ) {
     ulong          param = fd_keyswitch_param_query( ctx->auth_vtr_keyswitch );
     auth_vtr_key_t bls_key;
     if( FD_LIKELY( param==FD_KEYSWITCH_PARAM_AV_ADD ) ) {
@@ -2107,14 +2129,18 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
   /* Identity key switch.  The admin tile halts votor right after replay
      but there may be frags in flight.  Votor needs to consume up to and
      including the latest recorded replay message.  Votor also needs to
-     wait for all outgoing votes to drain as well, and for queued pool
-     events, which the pool decided with the old identity's rank. */
+     wait for all outgoing votes to drain as well, signing requests
+     included, so no old identity signature arrives after the switch, and
+     for queued pool events, which the pool decided with the old
+     identity's rank. */
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->id_keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     if( FD_UNLIKELY( fd_seq_lt( ctx->replay_in_seq, fd_keyswitch_param_query( ctx->id_keyswitch ) ) ) ) return;
 
-    /* Halt signing at first. */
+    /* Halt signing at first.  The votes already queued were decided as
+       the old identity, so they are still signed. */
 
+    if( FD_LIKELY( ctx->keyswitch_state==FD_KEYSWITCH_STATE_UNLOCKED ) ) ctx->vote_sign_halt = fd_votor_loop_metrics( ctx->votor ).vote_events_cnt;
     ctx->keyswitch_state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
 
     /* If votes and pool events drained close quic conns and update
@@ -2125,7 +2151,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
        built while halted is signed, so none decided under the old
        identity goes out. */
 
-    if( FD_LIKELY( !fd_votor_loop_metrics( ctx->votor ).vote_events_cnt &&
+    if( FD_LIKELY( !fd_votor_loop_metrics( ctx->votor ).vote_events_cnt && !ctx->vote_sign_cnt &&
                    ( !ctx->init || !fd_votor_pool_metrics( ctx->pool ).pool_events_cnt ) ) ) {
 
       /* Save the votes drained since the halt as the old identity.  The
@@ -2212,6 +2238,7 @@ during_housekeeping( fd_votor_tile_t * ctx ) {
       ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, fd_ulong_max( fd_ulong_max( ctx->curr_epoch_slot, next_window ), ctx->vote_history_slot ), &ctx->id_key );
       if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_switched( ctx );
       ctx->keyswitch_state  = FD_KEYSWITCH_STATE_COMPLETED;
+      ctx->vote_sign_halt   = 0UL;
       fd_keyswitch_state( ctx->id_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     }
   }
@@ -2374,6 +2401,143 @@ metrics_write( fd_votor_tile_t * ctx ) {
   FD_MHIST_COPY      ( VOTOR, SERVER_PKT_RX_DURATION_NANOS,        ctx->quic_server->metrics.receive_duration        );
 }
 
+/* vote_sendable returns whether vote, ours, may go out: its epoch is
+   known and ranks it, and it is past the vote history and catch-up
+   floors. */
+
+static int
+vote_sendable( fd_votor_tile_t const * ctx,
+               fd_vote_t const *       vote ) {
+  ulong                   vote_slot  = fd_vote_slot( vote );
+  fd_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
+  return epoch_info && fd_vote_rank( vote )<epoch_info->validator_cnt && vote_slot>=ctx->vote_history_slot && vote_slot>=ctx->catchup_vote_slot;
+}
+
+/* request_vote_sign asks the sign tile to sign vote, unsigned, with
+   bls_key, and returns 1, or returns 0 if the vote may not go out.  The
+   vote history is written first, so it covers every vote that leaves.
+   The caller ensures the ring has room. */
+
+static int
+request_vote_sign( fd_votor_tile_t *   ctx,
+                   fd_stem_context_t * stem,
+                   fd_vote_t const *   vote,
+                   uchar               reason,
+                   uchar const *       bls_key ) {
+  int halted = ctx->keyswitch_state && !ctx->vote_sign_halt; /* halted for an identity switch, nothing decided since is signed */
+  ctx->vote_sign_halt -= (ulong)( ctx->keyswitch_state && ctx->vote_sign_halt );
+  if( FD_UNLIKELY( halted || !vote_sendable( ctx, vote ) ) ) return 0;
+  auth_vtr_t const * auth_vtr = auth_vtr_query_const( ctx->auth_vtr, *(auth_vtr_key_t const *)fd_type_pun_const( bls_key ), NULL );
+  if( FD_UNLIKELY( !auth_vtr ) ) { /* its authorized voter was removed after the vote was decided */
+    FD_LOG_WARNING(( "not sending vote in slot %lu, its BLS key is no longer held", fd_vote_slot( vote ) ));
+    return 0;
+  }
+  FD_TEST( ctx->vote_sign_cnt<ctx->vote_sign_max );
+
+  if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
+
+  vote_sign_t * pending = &ctx->vote_sign[ ctx->vote_sign_seq%ctx->vote_sign_max ];
+  pending->req_sig = fd_keyguard_ag_vote_sig( auth_vtr->paths_idx ) | ( ctx->vote_sign_seq<<VOTE_SIGN_TAG_SHIFT );
+  pending->reason  = reason;
+  pending->vote    = *vote;
+  ulong sz = fd_vote_signing_ser( vote->kind, fd_vote_slot( vote ), fd_vote_block_hash( vote ), fd_vote_shred_version( vote ), fd_chunk_to_laddr( ctx->vote_sign_out_mem, ctx->vote_sign_out_chunk ) );
+  fd_stem_publish( stem, ctx->vote_sign_out_idx, pending->req_sig, ctx->vote_sign_out_chunk, sz, 0UL, 0UL, 0UL );
+  ctx->vote_sign_out_chunk = fd_dcache_compact_next( ctx->vote_sign_out_chunk, sz, ctx->vote_sign_out_chunk0, ctx->vote_sign_out_wmark );
+  ctx->vote_sign_seq++;
+  ctx->vote_sign_cnt++;
+  return 1;
+}
+
+/* vote_sign_pop matches the signature in vote_sign_buf, sig its frag
+   sig, to the oldest request, the sign tile answering in order, and
+   copies the request's vote, now signed, to ctx->scratch.vote.  Returns
+   the vote's reason. */
+
+static uchar
+vote_sign_pop( fd_votor_tile_t * ctx,
+               ulong             sig ) {
+  if( FD_UNLIKELY( !ctx->vote_sign_cnt ) ) FD_LOG_CRIT(( "unexpected vote signature from the sign tile" ));
+  if( FD_UNLIKELY( ctx->keyswitch_state==FD_KEYSWITCH_STATE_COMPLETED ) ) FD_LOG_CRIT(( "vote signature across an identity switch" ));
+  vote_sign_t * pending = &ctx->vote_sign[ (ctx->vote_sign_seq-ctx->vote_sign_cnt)%ctx->vote_sign_max ];
+  if( FD_UNLIKELY( sig!=pending->req_sig ) ) FD_LOG_CRIT(( "vote signature out of order (sig %lx, expected %lx)", sig, pending->req_sig ));
+  ctx->vote_sign_cnt--;
+
+  fd_bls_sig_t bls_sig;
+  if( FD_UNLIKELY( fd_bls_sig_de( &bls_sig, ctx->vote_sign_buf ) ) ) FD_LOG_CRIT(( "sign tile returned an invalid BLS signature" ));
+  ctx->scratch.vote = pending->vote;
+  fd_vote_set_sig( &ctx->scratch.vote, &bls_sig );
+  return pending->reason;
+}
+
+/* send_vote broadcasts our signed vote in ctx->scratch.vote and adds it
+   to the pool. */
+
+static void
+send_vote( fd_votor_tile_t *   ctx,
+           fd_stem_context_t * stem,
+           uchar               reason ) {
+  long  now       = fd_clock_tile_now( ctx->clock );
+  ulong vote_slot = fd_vote_slot( &ctx->scratch.vote );
+  int   sent      = vote_sendable( ctx, &ctx->scratch.vote ) && !fd_bls_sig_is_inf( fd_vote_sig( &ctx->scratch.vote ) );
+  if( FD_LIKELY( sent ) ) {
+    long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
+
+    uint                kind                 = ctx->scratch.vote.kind;
+    fd_pubkey_t const * reward_leader_pubkey = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, vote_slot+FD_VOTOR_REWARD_SLOT_DELTA );
+    peer_t const *      leader               = NULL;
+    if( FD_LIKELY(    reward_leader_pubkey
+                   && !fd_pubkey_eq( reward_leader_pubkey, &ctx->id_key )
+                   && (kind==FD_VOTE_KIND_NOTAR || kind==FD_VOTE_KIND_SKIP) ) ) {
+      leader = peers_query( ctx->peers, *reward_leader_pubkey, NULL );
+    }
+    if( FD_LIKELY( leader ) ) {
+      reward_vote_t * rv = &ctx->reward_votes[ vote_slot%REWARD_VOTE_MAX ];
+      rv->slot     = vote_slot;
+      rv->retry_ts = now;
+      rv->backoff  = 0L;
+      rv->tx_cnt   = 0UL;
+      rv->conn     = NULL;
+      rv->vote     = ctx->scratch.vote;
+      peer_t const * peer = reward_leader( ctx, rv, now );
+      if( FD_LIKELY( peer ) ) publish_reward_vote( ctx, stem, rv, peer, now ); /* the reward leader first, tracked so its ACK clears the retry */
+    }
+
+    if( FD_LIKELY( active_conn_cnt( ctx ) ) ) {
+      ulong ser_sz = fd_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
+      for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
+        peer_t const * peer = &ctx->peers[ slot ];
+        if( FD_LIKELY(    peers_key_inval( peer->id_key )
+                       || !peer->tx_conn
+                       || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE
+                       || peer==leader ) ) continue;
+        quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
+      }
+    }
+
+    long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
+    uchar quorum_reached;
+    int   err = fd_votor_pool_add_vote( ctx->pool, &ctx->scratch.vote, 1, ctx->scratch.bad, &quorum_reached );
+    if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
+    reward_cert_t * rc = &ctx->reward_certs[ vote_slot%FD_VOTOR_SLOTS_PER_WINDOW ];
+    if( FD_UNLIKELY( err==FD_VOTOR_POOL_SUCCESS && rc->slot==vote_slot && ( ctx->scratch.vote.kind==FD_VOTE_KIND_NOTAR || ctx->scratch.vote.kind==FD_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
+
+    int result;
+    switch( err ) {
+    case FD_VOTOR_POOL_SUCCESS:                result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED;                                                                                                                         break;
+    case FD_VOTOR_POOL_ERR_SLOT_TOO_OLD:       result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD;                                                                                                                    break;
+    case FD_VOTOR_POOL_ERR_SLOT_TOO_NEW:       result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW;                                                                                                                    break;
+    case FD_VOTOR_POOL_ERR_DUPLICATE:          result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_DUPLICATE;                                                                                                                        break;
+    case FD_VOTOR_POOL_ERR_SLASHABLE:          result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLASHABLE;                                                                                                                        break;
+    default:
+      FD_LOG_CRIT(( "unhandled kind" ));
+    }
+    report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, (uchar)( kind+FD_VOTE_SERDE_TAG_NOTAR ), result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+reason, aggregation_start_time, broadcast_start_time, leader );
+    if( FD_UNLIKELY( leader && ( !leader->tx_conn || leader->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, (uchar)( kind+FD_VOTE_SERDE_TAG_NOTAR ), result, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION, 0L, 0L, leader );
+  }
+
+  if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_after_vote( ctx, stem, vote_slot, sent );
+}
+
 /* after_credit is the tile's event loop.  Each step handles at most
    one item per pass, at most 9 votor_out frags in all:
 
@@ -2381,7 +2545,8 @@ metrics_write( fd_votor_tile_t * ctx ) {
    2. retry un-acked reward votes
    3. republish reward certs new votes widened (one per tile loop)
    4. poll pool, repair, timeout events (can result in new votes, one per tile loop)
-   5. broadcast new votes (one per tile loop)
+   5. request a signature for a new vote (one per tile loop), after_frag
+      broadcasts it once signed
    6. standstill re-broadcast */
 
 static inline void
@@ -2625,72 +2790,16 @@ after_credit( fd_votor_tile_t *   ctx,
     *charge_busy = 1;
   }
 
-  /* 5. Broadcast new votes. */
+  /* 5. Request signatures for new votes.  A full ring leaves them
+     queued in the loop until replies free it. */
 
   uchar reason;
-  if( FD_UNLIKELY( !pool_event && !repair_event && fd_votor_loop_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) ) ) {
-    ulong                   vote_slot  = fd_vote_slot( &ctx->scratch.vote );
-    fd_epoch_info_t const * epoch_info = fd_ptr_if( vote_slot>=ctx->next_epoch_slot, ctx->next_epoch_info, fd_ptr_if( vote_slot>=ctx->curr_epoch_slot, ctx->curr_epoch_info, ctx->prev_epoch_info ) );
-    ulong                   rank       = fd_vote_rank( &ctx->scratch.vote );
+  uchar bls_key[ FD_BLS_PUB_COMPRESSED_SZ ];
+  if( FD_UNLIKELY( !pool_event && !repair_event && ctx->vote_sign_cnt<ctx->vote_sign_max &&
+                   fd_votor_loop_poll_vote_key( ctx->votor, &ctx->scratch.vote, &reason, bls_key ) ) ) {
+    ulong vote_slot = fd_vote_slot( &ctx->scratch.vote );
     ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, vote_slot );
-    int sent = epoch_info && rank<epoch_info->validator_cnt && vote_slot>=ctx->vote_history_slot && vote_slot>=ctx->catchup_vote_slot && !fd_bls_sig_is_inf( fd_vote_sig( &ctx->scratch.vote ) );
-    if( FD_LIKELY( sent ) ) {
-      if( FD_LIKELY( ctx->vote_history_fd_dir!=-1 ) ) write_vote_history( ctx );
-      long  broadcast_start_time = fd_clock_tile_now( ctx->clock );
-
-      uint                kind                 = ctx->scratch.vote.kind;
-      fd_pubkey_t const * reward_leader_pubkey = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, vote_slot+FD_VOTOR_REWARD_SLOT_DELTA );
-      peer_t const *      leader               = NULL;
-      if( FD_LIKELY(    reward_leader_pubkey
-                     && !fd_pubkey_eq( reward_leader_pubkey, &ctx->id_key )
-                     && (kind==FD_VOTE_KIND_NOTAR || kind==FD_VOTE_KIND_SKIP) ) ) {
-        leader = peers_query( ctx->peers, *reward_leader_pubkey, NULL );
-      }
-      if( FD_LIKELY( leader ) ) {
-        reward_vote_t * rv = &ctx->reward_votes[ vote_slot%REWARD_VOTE_MAX ];
-        rv->slot     = vote_slot;
-        rv->retry_ts = now;
-        rv->backoff  = 0L;
-        rv->tx_cnt   = 0UL;
-        rv->conn     = NULL;
-        rv->vote     = ctx->scratch.vote;
-        peer_t const * peer = reward_leader( ctx, rv, now );
-        if( FD_LIKELY( peer ) ) publish_reward_vote( ctx, stem, rv, peer, now ); /* the reward leader first, tracked so its ACK clears the retry */
-      }
-
-      if( FD_LIKELY( active_conn_cnt( ctx ) ) ) {
-        ulong ser_sz = fd_vote_ser( &ctx->scratch.vote, ctx->scratch.ser );
-        for( ulong slot=0UL; slot<peers_slot_cnt( ctx->peers ); slot++ ) {
-          peer_t const * peer = &ctx->peers[ slot ];
-          if( FD_LIKELY(    peers_key_inval( peer->id_key )
-                         || !peer->tx_conn
-                         || peer->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE
-                         || peer==leader ) ) continue;
-          quic_client_datagram_tx( ctx, stem, peer->tx_conn, ctx->scratch.ser, ser_sz );
-        }
-      }
-
-      long  aggregation_start_time = fd_clock_tile_now( ctx->clock );
-      uchar quorum_reached;
-      int   err = fd_votor_pool_add_vote( ctx->pool, &ctx->scratch.vote, 1, ctx->scratch.bad, &quorum_reached );
-      if( FD_UNLIKELY( !fd_bls_set_is_null( ctx->scratch.bad ) ) ) ban_bad_ranks( ctx, ctx->scratch.bad, vote_slot );
-      reward_cert_t * rc = &ctx->reward_certs[ vote_slot%FD_VOTOR_SLOTS_PER_WINDOW ];
-      if( FD_UNLIKELY( err==FD_VOTOR_POOL_SUCCESS && rc->slot==vote_slot && ( ctx->scratch.vote.kind==FD_VOTE_KIND_NOTAR || ctx->scratch.vote.kind==FD_VOTE_KIND_SKIP ) ) ) rc->dirty = 1;
-
-      int result;
-      switch( err ) {
-      case FD_VOTOR_POOL_SUCCESS:                result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_ACCEPTED;                                                                                                                         break;
-      case FD_VOTOR_POOL_ERR_SLOT_TOO_OLD:       result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_OLD;                                                                                                                    break;
-      case FD_VOTOR_POOL_ERR_SLOT_TOO_NEW:       result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLOT_TOO_NEW;                                                                                                                    break;
-      case FD_VOTOR_POOL_ERR_DUPLICATE:          result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_DUPLICATE;                                                                                                                        break;
-      case FD_VOTOR_POOL_ERR_SLASHABLE:          result = FD_EVENT_ALPENGLOW_VOTE_PROCESSING_RESULT_SLASHABLE;                                                                                                                        break;
-      default:
-        FD_LOG_CRIT(( "unhandled kind" ));
-      }
-      report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, (uchar)( kind+FD_VOTE_SERDE_TAG_NOTAR ), result, quorum_reached, FD_EVENT_ALPENGLOW_VOTE_REASON_BLOCK_REPLAYED+reason, aggregation_start_time, broadcast_start_time, leader );
-      if( FD_UNLIKELY( leader && ( !leader->tx_conn || leader->tx_conn->state!=FD_QUIC_CONN_STATE_ACTIVE ) ) ) report_alpenglow_vote( ctx, NULL, &ctx->scratch.vote, (uchar)( kind+FD_VOTE_SERDE_TAG_NOTAR ), result, 0, FD_EVENT_ALPENGLOW_VOTE_REASON_REWARD_NO_CONNECTION, 0L, 0L, leader );
-    }
-    if( FD_UNLIKELY( ctx->failover_enabled ) ) failover_after_vote( ctx, stem, vote_slot, sent );
+    if( FD_UNLIKELY( !request_vote_sign( ctx, stem, &ctx->scratch.vote, reason, bls_key ) && ctx->failover_enabled ) ) failover_after_vote( ctx, stem, vote_slot, 0 );
     *opt_poll_in = 0;
     *charge_busy = 1;
   }
@@ -2759,10 +2868,12 @@ before_frag( fd_votor_tile_t * ctx,
       ctx->init = !!ctx->next_epoch_info;
     }
     return 1;
+  case IN_KIND_VSIGN:
+    return 0;
   case IN_KIND_FAILOV:
     /* Drain votes and pool events produced under the current identity
        before changing the history or removing its rank. */
-    if( FD_UNLIKELY( ctx->init && ( fd_votor_loop_metrics( ctx->votor ).vote_events_cnt || fd_votor_pool_metrics( ctx->pool ).pool_events_cnt ) ) ) return -1;
+    if( FD_UNLIKELY( ctx->init && ( fd_votor_loop_metrics( ctx->votor ).vote_events_cnt || ctx->vote_sign_cnt || fd_votor_pool_metrics( ctx->pool ).pool_events_cnt ) ) ) return -1;
     return 0;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
@@ -2798,6 +2909,11 @@ during_frag( fd_votor_tile_t * ctx,
   case IN_KIND_FAILOV:
     failover_adopt_copy( ctx, in_idx, chunk, sz );
     break;
+  case IN_KIND_VSIGN:
+    if( FD_UNLIKELY( sz!=FD_BLS_SIG_SZ || chunk<ctx->vote_sign_in_chunk0 || chunk>ctx->vote_sign_in_wmark ) )
+      FD_LOG_CRIT(( "bls_votor chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->vote_sign_in_chunk0, ctx->vote_sign_in_wmark ));
+    fd_memcpy( ctx->vote_sign_buf, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), FD_BLS_SIG_SZ );
+    break;
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -2826,7 +2942,7 @@ after_frag( fd_votor_tile_t *   ctx,
     int wfs = wfs_is_ready( ctx ); /* config only, so the assignment below cannot change it */
     if( FD_UNLIKELY( !ctx->shred_version && fd_votor_pool_finalized_slot( ctx->pool )!=ULONG_MAX ) ) {
       long now = fd_clock_tile_now( ctx->clock );
-      fd_votor_loop_init( ctx->votor, &ctx->boot_block_id, now, ctx->ns_per_slot, (ushort)sig, sign_vote, ctx );
+      fd_votor_loop_init( ctx->votor, &ctx->boot_block_id, now, ctx->ns_per_slot, (ushort)sig, NULL, NULL );
       ctx->highest_vote_or_lead_slot = fd_ulong_max( ctx->highest_vote_or_lead_slot, ctx->boot_block_id.slot );
       if( FD_LIKELY( wfs ) ) fd_votor_loop_arm_skip_timeouts( ctx->votor, now );
     }
@@ -2855,6 +2971,11 @@ after_frag( fd_votor_tile_t *   ctx,
   case IN_KIND_FAILOV:
     failover_adopt_response( ctx, sig, stem );
     break;
+  case IN_KIND_VSIGN: {
+    uchar reason = vote_sign_pop( ctx, sig );
+    send_vote( ctx, stem, reason );
+    break;
+  }
   default:
     FD_LOG_ERR(( "unexpected in_kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -3065,6 +3186,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "replay_slot"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "sign_votor"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "failov_votor" ) ) ) ctx->in_kind[ i ] = IN_KIND_FAILOV;
+    else if( FD_LIKELY( !strcmp( link->name, "bls_votor"    ) ) ) ctx->in_kind[ i ] = IN_KIND_VSIGN;
     else FD_LOG_ERR(( "votor tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( link->mtu ) ) ctx->in[ i ].mem = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -3114,6 +3236,28 @@ unprivileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "failed to construct keyguard client" ));
   }
   load_keys( ctx, tile->votor.authorized_voter_paths_cnt );
+
+  /* At most one vote signing request per bls link slot is outstanding,
+     so neither side of the unreliable links can be overrun. */
+
+  ulong vsign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "bls_votor", tile->kind_id );
+  ulong vsign_out_idx = fd_topo_find_tile_out_link( topo, tile, "votor_bls", tile->kind_id );
+  FD_TEST( vsign_in_idx!=ULONG_MAX && vsign_out_idx!=ULONG_MAX );
+  fd_topo_link_t const * vsign_in  = &topo->links[ tile->in_link_id [ vsign_in_idx  ] ];
+  fd_topo_link_t const * vsign_out = &topo->links[ tile->out_link_id[ vsign_out_idx ] ];
+  FD_TEST( vsign_out->mtu>=FD_VOTE_SIGNING_SER_MAX && vsign_in->mtu>=FD_BLS_SIG_SZ );
+  ctx->vote_sign_max        = fd_ulong_min( VOTE_SIGN_MAX, fd_ulong_min( vsign_in->depth, vsign_out->depth ) );
+  ctx->vote_sign_seq        = 0UL;
+  ctx->vote_sign_cnt        = 0UL;
+  ctx->vote_sign_halt       = 0UL;
+  ctx->vote_sign_out_idx    = vsign_out_idx;
+  ctx->vote_sign_out_mem    = topo->workspaces[ topo->objs[ vsign_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->vote_sign_out_chunk0 = fd_dcache_compact_chunk0( ctx->vote_sign_out_mem, vsign_out->dcache );
+  ctx->vote_sign_out_wmark  = fd_dcache_compact_wmark ( ctx->vote_sign_out_mem, vsign_out->dcache, vsign_out->mtu );
+  ctx->vote_sign_out_chunk  = ctx->vote_sign_out_chunk0;
+  fd_wksp_t * vsign_in_mem  = topo->workspaces[ topo->objs[ vsign_in->dcache_obj_id ].wksp_id ].wksp;
+  ctx->vote_sign_in_chunk0  = fd_dcache_compact_chunk0( vsign_in_mem, vsign_in->dcache );
+  ctx->vote_sign_in_wmark   = fd_dcache_compact_wmark ( vsign_in_mem, vsign_in->dcache, vsign_in->mtu );
 
   ctx->auth_vtr_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );
   FD_TEST( ctx->auth_vtr_keyswitch );

@@ -1,5 +1,6 @@
 #include "fd_votor_loop.c"
 #include "fd_vote_history_serde.h"
+#include "fd_vote_serde.h"
 #include "test_fd_cert_builder.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 
@@ -910,6 +911,57 @@ test_stale_window_fires_on_late_clock( void ) {
   teardown_votor( votor );
 }
 
+/* With no sign_fn votes queue unsigned with the key that signs them.
+   The slot is voted at queue time, so a timeout while the notar waits
+   for its signature does not skip it, and signing the unsigned vote
+   gives the vote the loop signs itself. */
+
+static void
+test_deferred_sign( void ) {
+  create_validators();
+  fd_votor_loop_t * votor = fd_votor_loop_join( fd_votor_loop_new( scratch, TEST_SLOT_MAX, 42UL ) );
+  FD_TEST( votor );
+  fd_block_id_t root = genesis_block_id();
+  fd_votor_loop_init             ( votor, &root, 0L, TEST_NS_PER_SLOT, TEST_SHRED_VERSION, NULL, NULL );
+  fd_votor_loop_arm_skip_timeouts( votor, 0L );
+  fd_votor_loop_advance_epoch    ( votor, TEST_NS_PER_SLOT, 0UL, 0UL, g_bls_selector[0] );
+
+  fd_block_info_t block = {0};
+  random_hash( &block.hash );
+  block.parent = root;
+  fd_votor_loop_process_replay( votor, 1UL, &block );
+
+  /* Slot 1's notar is queued and unsigned, and its timeout fires before
+     the caller takes it: the rest of the window is skipped, not slot 1. */
+
+  handle_timeouts( votor, TEST_WINDOW_ELAPSED_NS );
+  fd_vote_t vote;
+  uchar     reason;
+  uchar     bls_key[ FD_BLS_PUB_COMPRESSED_SZ ];
+  FD_TEST( fd_votor_loop_poll_vote_key( votor, &vote, &reason, bls_key ) );
+  FD_TEST( vote.kind==FD_VOTE_KIND_NOTAR && fd_vote_slot( &vote )==1UL && fd_bls_sig_is_inf( fd_vote_sig( &vote ) ) );
+  FD_TEST( !memcmp( bls_key, g_bls_selector[0], FD_BLS_PUB_COMPRESSED_SZ ) );
+
+  fd_bls_sig_t sig;
+  uchar msg[ FD_VOTE_SIGNING_SER_MAX ];
+  ulong msg_sz = fd_vote_signing_ser( vote.kind, fd_vote_slot( &vote ), fd_vote_block_hash( &vote ), fd_vote_shred_version( &vote ), msg );
+  capture_sign_fn( NULL, &sig, bls_key, msg, msg_sz );
+  fd_vote_set_sig( &vote, &sig );
+  fd_vote_t want = fd_vote_construct_notar( capture_sign_fn, NULL, g_bls_selector[0], 1UL, &block.hash, 0, TEST_SHRED_VERSION );
+  uchar got_ser [ FD_VOTE_SER_MAX ];
+  uchar want_ser[ FD_VOTE_SER_MAX ];
+  ulong got_sz = fd_vote_ser( &vote, got_ser );
+  FD_TEST( got_sz==fd_vote_ser( &want, want_ser ) && !memcmp( got_ser, want_ser, got_sz ) );
+
+  for( ulong slot=2UL; slot<FD_VOTOR_SLOTS_PER_WINDOW; slot++ ) {
+    FD_TEST( fd_votor_loop_poll_vote_key( votor, &vote, &reason, bls_key ) );
+    FD_TEST( vote.kind==FD_VOTE_KIND_SKIP && fd_vote_slot( &vote )==slot && fd_bls_sig_is_inf( fd_vote_sig( &vote ) ) );
+  }
+  FD_TEST_NO_MSG( votor );
+
+  teardown_votor( votor );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -940,6 +992,7 @@ main( int     argc,
   test_arm_cannot_reanchor_timeouts();
   test_init_does_not_arm();
   test_stale_window_fires_on_late_clock();
+  test_deferred_sign();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

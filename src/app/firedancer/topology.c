@@ -10,6 +10,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/replay/fd_sched.h"
 #include "../../discof/votor/fd_votor_tile.h"
+#include "../../choreo/votor/fd_vote_serde.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../ballet/bls/fd_bls.h"
 #include "../../discof/failover/fd_failover_bus.h"
@@ -469,6 +470,8 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "votor_sign"  );
   fd_topob_wksp( topo, "sign_votor"  );
+  fd_topob_wksp( topo, "votor_bls"   );
+  fd_topob_wksp( topo, "bls_votor"   );
 
   if( FD_LIKELY( failover_enabled ) ) {
     fd_topob_wksp( topo, "failov_sign" );
@@ -1243,7 +1246,9 @@ fd_topo_initialize( config_t * config ) {
   /**/               fd_topob_link( topo, "votor_out",     "votor_out",     8192UL,                                   sizeof(fd_votor_msg_t),                        FD_VOTOR_OUT_BURST );
   /**/               fd_topob_link( topo, "votor_net",     "net_votor",     32768UL,                                  FD_NET_MTU,                                    FD_VOTOR_NET_BURST ); /* as shred_net: fan-out publishes as it goes and rides depth, burst covers only the deferred aio flush */
   /**/               fd_topob_link( topo, "votor_sign",    "votor_sign",    128UL,                                    FD_KEYGUARD_SIGN_REQ_MTU,                      1UL ); /* TLS 1.3 CertificateVerify payload or vote history file body */
-  /**/               fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    FD_BLS_SIG_SZ,                                 1UL ); /* ed25519 sig (TLS) or BLS sig (vote) */
+  /**/               fd_topob_link( topo, "sign_votor",    "sign_votor",    128UL,                                    FD_BLS_SIG_SZ,                                 1UL ); /* ed25519 sig (TLS, vote history) or BLS pubkey */
+  /**/               fd_topob_link( topo, "votor_bls",     "votor_bls",     128UL,                                    FD_VOTE_SIGNING_SER_MAX,                       1UL ); /* BLS vote signing preimage */
+  /**/               fd_topob_link( topo, "bls_votor",     "bls_votor",     128UL,                                    FD_BLS_SIG_SZ,                                 1UL ); /* BLS vote sig */
   FOR(net_tile_cnt)  fd_topos_net_rx_link( topo, "net_votor", i, config->net.ingress_buffer_size );
 
   /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "replay_slot",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -1275,6 +1280,10 @@ fd_topo_initialize( config_t * config ) {
   /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_sign",    0UL                                                  );
   /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "sign_votor",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/               fd_topob_tile_out(   topo, "sign",   0UL,                       "sign_votor",    0UL                                                  );
+  /**/               fd_topob_tile_in (   topo, "sign",   0UL,          "metric_in", "votor_bls",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  /**/               fd_topob_tile_out(   topo, "votor",  0UL,                       "votor_bls",     0UL                                                  );
+  /**/               fd_topob_tile_in (   topo, "votor",  0UL,          "metric_in", "bls_votor",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* Polled because vote signing is asynchronous */
+  /**/               fd_topob_tile_out(   topo, "sign",   0UL,                       "bls_votor",     0UL                                                  );
 
   /* Grant the admin tile access to every keyswitch object in the
      topology for add authorized voters and set identity. */
