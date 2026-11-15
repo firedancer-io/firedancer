@@ -3446,10 +3446,48 @@ test_idx_fifo_rewrite( void ) {
   test_teardown( t2, fd );
 }
 
+static void
+collect_modified( void *      ctx,
+                  uchar const pubkey[ 32 ] ) {
+  ulong * seen = ctx;
+  FD_TEST( pubkey[ 0 ]<2U );
+  ulong bit = 1UL<<pubkey[ 0 ];
+  FD_TEST( !(*seen & bit) );
+  *seen |= bit;
+}
+
+static void
+test_for_each_modified( int index_mode ) {
+  int fd;
+  fd_accdb_t * accdb = index_mode
+    ? test_setup_idx( &fd, 4096UL, 1024UL, 16UL, 64UL )
+    : test_setup( &fd, 4096UL, 16UL, 64UL, 8192UL, 1UL<<30UL );
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  ulong seen = 0UL;
+  fd_accdb_for_each_modified( accdb, root, collect_modified, &seen );
+  FD_TEST( seen==0UL );
+  accdb_write( accdb, root, pubkey0, 100UL, NULL, 0UL, owner2 );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  accdb_write( accdb, child, pubkey1, 200UL, NULL, 0UL, owner2 );
+  accdb_write( accdb, child, pubkey0, 300UL, NULL, 0UL, owner2 );
+  accdb_write( accdb, child, pubkey0, 400UL, NULL, 0UL, owner2 );
+  fd_accdb_for_each_modified( accdb, root, collect_modified, &seen );
+  FD_TEST( seen==1UL );
+  seen = 0UL;
+  fd_accdb_for_each_modified( accdb, child, collect_modified, &seen );
+  FD_TEST( seen==3UL );
+  if( index_mode ) { close( test_idx_fd ); test_idx_fd = -1; }
+  test_teardown( accdb, fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  FD_LOG_NOTICE(( "test_for_each_modified ..." ));
+  test_for_each_modified( 0 );
+  test_for_each_modified( 1 );
 
   FD_LOG_NOTICE(( "test_basic ..." ));
   test_basic();
