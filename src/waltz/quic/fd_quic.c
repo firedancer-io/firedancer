@@ -2972,8 +2972,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
                   long             now ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
   if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
-    /* connection shouldn't have been scheduled,
-       and is now removed, so just continue */
+    /* connection shouldn't have been scheduled */
     FD_LOG_CRIT(( "Invalid conn in schedule" ));
     return 1;
   }
