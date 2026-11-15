@@ -47,7 +47,8 @@ fd_votor_loop_delete( void * mem );
 /* fd_votor_loop_init starts votor at root, a finalized block that is
    treated as notarized (Section 2.9).  It does not arm the root
    window's skip timeouts; call fd_votor_loop_arm_skip_timeouts for
-   that. */
+   that.  A NULL sign_fn queues votes unsigned, for the caller to sign
+   (see fd_votor_loop_poll_vote_key). */
 
 void
 fd_votor_loop_init( fd_votor_loop_t *     self,
@@ -134,6 +135,17 @@ int
 fd_votor_loop_poll_vote( fd_votor_loop_t * self,
                          fd_vote_t *       vote,
                          uchar *           reason );
+
+/* fd_votor_loop_poll_vote_key is fd_votor_loop_poll_vote that also
+   returns the compressed BLS key the vote is signed with.  Its slot is
+   marked voted when the vote is queued, so no conflicting vote can be
+   queued while the caller signs it. */
+
+int
+fd_votor_loop_poll_vote_key( fd_votor_loop_t * self,
+                             fd_vote_t *       vote,
+                             uchar *           reason,
+                             uchar             bls_key[ static FD_BLS_PUB_COMPRESSED_SZ ] );
 
 /* fd_votor_loop_failover_set_vote_bound stops us voting at or below
    bound, which only moves up.  fd_votor_loop_failover_get_vote_bound

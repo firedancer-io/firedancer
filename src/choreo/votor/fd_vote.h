@@ -12,7 +12,10 @@
 
 /* public_key is the canonical compressed BLS key selector.  payload is
    the exact consensus preimage; the signer must not include public_key
-   in the signed bytes. */
+   in the signed bytes.  A NULL sign_fn leaves a constructed vote
+   unsigned, its sig the identity, which never verifies, until the
+   caller signs its fd_vote_signing_ser and sets it with
+   fd_vote_set_sig. */
 
 typedef void
 (* fd_bls_sign_fn)( void *         ctx,
@@ -114,6 +117,21 @@ fd_vote_sig( fd_vote_t const * self ) {
   case FD_VOTE_KIND_SKIP:           return &self->skip.sig;
   case FD_VOTE_KIND_NOTAR_FALLBACK: return &self->notar_fallback.sig;
   case FD_VOTE_KIND_SKIP_FALLBACK:  return &self->skip_fallback.sig;
+  default:                          FD_LOG_CRIT(( "unreachable" ));
+  }
+}
+
+/* fd_vote_set_sig sets the signature of a vote built unsigned. */
+
+static inline void
+fd_vote_set_sig( fd_vote_t *          self,
+                 fd_bls_sig_t const * sig ) {
+  switch( self->kind ) {
+  case FD_VOTE_KIND_NOTAR:          self->notar.sig          = *sig; break;
+  case FD_VOTE_KIND_FINAL:          self->final.sig          = *sig; break;
+  case FD_VOTE_KIND_SKIP:           self->skip.sig           = *sig; break;
+  case FD_VOTE_KIND_NOTAR_FALLBACK: self->notar_fallback.sig = *sig; break;
+  case FD_VOTE_KIND_SKIP_FALLBACK:  self->skip_fallback.sig  = *sig; break;
   default:                          FD_LOG_CRIT(( "unreachable" ));
   }
 }
