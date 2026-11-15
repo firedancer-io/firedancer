@@ -15,7 +15,8 @@ chain attacks in build tooling or dependencies.
 ## Documentation
 If you are an operator or looking to run the validator, see the Getting
 Started guide in the [Firedancer
-docs](https://docs.firedancer.io/)
+docs](https://docs.firedancer.io/). The documentation sources live in
+[`book/`](book/) in this repository.
 
 ## Releases
 If you are an operator looking to run the validator, see the [Releases
