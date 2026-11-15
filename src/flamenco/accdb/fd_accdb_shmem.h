@@ -59,6 +59,7 @@ struct fd_accdb_metrics {
   ulong residual_waits;
   ulong residual_wait_ticks;
   ulong residual_parks;
+  ulong fetch_batched;  /* residual waits saved by fd_accdb_fetch */
   ulong prefetch_pushed;
   ulong prefetch_dropped;
   ulong promoted;

@@ -707,6 +707,8 @@ add_block( fd_sched_t * sched,
 
 FD_WARN_UNUSED static int
 fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx );
+static void
+alut_fetch_ahead( fd_sched_t * sched, fd_sched_block_t const * block, fd_sched_alut_ctx_t * alut_ctx );
 
 FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx );
@@ -2631,6 +2633,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
 
   block->fec_completed_ns = fec->completed_ns;
 
+  alut_fetch_ahead( sched, block, fec->alut_ctx );
   int err = fd_sched_parse( sched, block, fec->alut_ctx );
 
   if( FD_UNLIKELY( err!=FD_SCHED_DEAD_REASON_NONE ) ) {
@@ -4281,6 +4284,56 @@ fd_sched_block_verify_ticks( fd_sched_t * sched,
 
 /* CHECK that it is safe to read at least n more bytes. */
 #define CHECK_LEFT( n ) CHECK( (n)<=(sched->fec_buf_sz-sched->fec_buf_soff) )
+
+/* alut_fetch_ahead (index mode): walks the parse buffer the way
+   fd_sched_parse will and has the accdb tile bring every lookup table
+   the FEC set's transactions name into RAM with one wait, instead of
+   one wait per transaction during the parse.  A hint only: anything
+   the walk misses is resolved by the parse as before. */
+
+#define FD_SCHED_ALUT_FETCH_MAX (256UL)
+
+static void
+alut_fetch_ahead( fd_sched_t *             sched,
+                  fd_sched_block_t const * block,
+                  fd_sched_alut_ctx_t *    alut_ctx ) {
+  if( FD_LIKELY( !alut_ctx || !alut_ctx->accdb || sched->bypass_alut_resolution || !fd_accdb_fetch_enabled( alut_ctx->accdb ) ) ) return;
+  uchar const * keys[ FD_SCHED_ALUT_FETCH_MAX ];
+  ulong         cnt       = 0UL;
+  ulong         txns_rem  = block->txns_rem;
+  ulong         mblks_rem = block->mblks_rem;
+  int           sob       = block->fec_sob;
+  uint          off       = sched->fec_buf_soff;
+  fd_txn_t *    txn       = fd_type_pun( sched->txn );
+  while( cnt<FD_SCHED_ALUT_FETCH_MAX ) {
+    uchar const * p   = sched->fec_buf+off;
+    ulong         rem = sched->fec_buf_sz-off;
+    if( txns_rem ) {
+      ulong pay_sz = 0UL;
+      if( FD_UNLIKELY( !fd_txn_parse_core( p, rem, txn, NULL, &pay_sz ) || !pay_sz ) ) break;
+      if( txn->transaction_version==FD_TXN_V0 ) {
+        fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( txn );
+        for( ulong i=0UL; i<txn->addr_table_lookup_cnt && cnt<FD_SCHED_ALUT_FETCH_MAX; i++ ) keys[ cnt++ ] = p+luts[ i ].addr_off;
+      }
+      off += (uint)pay_sz;
+      txns_rem--;
+    } else if( mblks_rem ) {
+      if( FD_UNLIKELY( rem<sizeof(fd_microblock_hdr_t) ) ) break;
+      txns_rem = FD_LOAD( fd_microblock_hdr_t, p ).txn_cnt;
+      off += (uint)sizeof(fd_microblock_hdr_t);
+      mblks_rem--;
+    } else if( sob ) {
+      if( FD_UNLIKELY( rem<sizeof(ulong) ) ) break;
+      mblks_rem = FD_LOAD( ulong, p );
+      if( FD_UNLIKELY( !mblks_rem ) ) break; /* block marker */
+      off += (uint)sizeof(ulong);
+      sob  = 0;
+    } else {
+      break;
+    }
+  }
+  if( FD_LIKELY( cnt ) ) fd_accdb_fetch( alut_ctx->accdb, alut_ctx->fork_id, cnt, keys );
+}
 
 /* Consume as much as possible from the buffer.  By the end of this
    function, there could be residual data left over in the buffer.  That
