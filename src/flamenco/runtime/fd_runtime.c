@@ -812,6 +812,13 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
   fd_alut_interp_new( interp, out_accts_alt, txn, payload, hashes, slot );
 
   fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
+
+  /* Index mode: one wait for every table that lives only on disk */
+  if( FD_UNLIKELY( fd_accdb_fetch_enabled( accdb ) ) ) {
+    uchar const * keys[ FD_TXN_ADDR_TABLE_LOOKUP_MAX ];
+    for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) keys[ i ] = payload+addr_luts[ i ].addr_off;
+    fd_accdb_fetch( accdb, fork_id, txn->addr_table_lookup_cnt, keys );
+  }
   for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
     fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
     fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );

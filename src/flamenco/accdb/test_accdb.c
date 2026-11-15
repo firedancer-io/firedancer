@@ -3637,6 +3637,99 @@ test_idx_residual_park( int with_waker ) {
   test_teardown( t2, fd );
 }
 
+/* fd_accdb_fetch: one residual wait covers every cold key, later
+   reads match a cold read without waiting, and a fetch on another
+   fork, of absent keys, or skipped altogether changes no result. */
+
+static void
+test_idx_fetch( void ) {
+  int fd;
+  fd_accdb_t * t2 = test_setup_idx( &fd, 8192UL, 1024UL, 256UL, 64UL );
+  void * fg_mem[ 2 ];
+  fd_accdb_t * fg[ 2 ];
+  for( ulong k=0UL; k<2UL; k++ ) {
+    fg_mem[ k ] = aligned_alloc( fd_accdb_align(), fd_accdb_footprint( 256UL, 0 ) );
+    fg[ k ] = fd_accdb_join( fd_accdb_new( fg_mem[ k ], test_shmem_mem, fd, -1, 0UL, NULL, NULL, 0UL, 0, -1, -1, NULL ) );
+    FD_TEST( fg[ k ] );
+  }
+  FD_TEST( fd_accdb_fetch_enabled( fg[ 0 ] ) && !fd_accdb_fetch_enabled( t2 ) );
+
+  uchar d[ 40 ];
+  fd_accdb_fork_id_t tip = fd_accdb_attach_child( t2, SENTINEL );
+  ulong n = 600UL;
+  uchar key[ 32 ];
+  for( ulong i=0UL; i<n; i+=8UL ) {
+    fd_accdb_fork_id_t c = fd_accdb_attach_child( t2, tip );
+    for( ulong j=i; j<i+8UL && j<n; j++ ) {
+      memset( key, 0, 32 ); FD_STORE( ulong, key, j+1UL ); key[ 31 ] = 0x7C;
+      memset( d, (int)j, sizeof(d) );
+      accdb_write( t2, c, key, 10UL+j, d, sizeof(d), owner2 );
+    }
+    fd_accdb_advance_root( t2, c );
+    drain_background( t2 );
+    tip = c;
+  }
+  tip = test_root_n( t2, tip, FD_ACCDB_DEMOTE_AGE+2UL );
+  for( ulong i=0UL; i<256UL; i++ ) drain_background( t2 );
+
+  uchar cold[ 600 ][ 32 ]; ulong cold_cnt = 0UL;
+  for( ulong j=0UL; j<n; j++ ) {
+    memset( key, 0, 32 ); FD_STORE( ulong, key, j+1UL ); key[ 31 ] = 0x7C;
+    if( !test_is_hot( key ) ) memcpy( cold[ cold_cnt++ ], key, 32 );
+  }
+  FD_TEST( cold_cnt>=48UL );
+  ulong h = cold_cnt/2UL; /* fetched: [0,h), cold: [h,2h) */
+
+  test_background_ctx_t bg = { .accdb = t2, .stop = 0 };
+  pthread_t thr;
+  FD_TEST( !pthread_create( &thr, NULL, run_background, &bg ) );
+
+  /* A child fork with an unrooted version of cold[ 0 ] (fetch on the
+     tip must not hide it) */
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( t2, tip );
+  memset( d, 0xAB, sizeof(d) );
+  accdb_write( fg[ 1 ], child, cold[ 0 ], 7777UL, d, sizeof(d), owner3 ); /* t2 is the background thread's join */
+
+  /* h cold keys, 8 never-written keys, 1 duplicate: one wait */
+  uchar absent[ 8 ][ 32 ];
+  uchar const * pk[ 320 ]; ulong pk_cnt = 0UL;
+  for( ulong i=0UL; i<h; i++ ) pk[ pk_cnt++ ] = cold[ i ];
+  for( ulong i=0UL; i<8UL; i++ ) { memset( absent[ i ], 0xD1, 32 ); FD_STORE( ulong, absent[ i ], i ); pk[ pk_cnt++ ] = absent[ i ]; }
+  pk[ pk_cnt++ ] = cold[ 1 ];
+  fd_accdb_fetch( fg[ 0 ], tip, pk_cnt, pk );
+  FD_TEST( fd_accdb_metrics( fg[ 0 ] )->residual_waits==1UL );
+  fd_accdb_fetch( fg[ 0 ], tip, pk_cnt, pk ); /* all resolvable now */
+  FD_TEST( fd_accdb_metrics( fg[ 0 ] )->residual_waits==1UL );
+
+  /* Fetched (fg[ 0 ]) and unfetched cold (fg[ 1 ]) reads agree */
+  for( ulong i=0UL; i<2UL*h; i++ ) {
+    ulong j = FD_LOAD( ulong, cold[ i ] )-1UL;
+    ulong l0, l1, n0, n1; uchar o0[ 32 ], o1[ 32 ], d0[ 40 ], d1[ 40 ];
+    FD_TEST( accdb_read( fg[ i<h ? 0 : 1 ], tip, cold[ i ], &l0, d0, &n0, o0 ) );
+    FD_TEST( accdb_read( fg[ i<h ? 1 : 0 ], tip, cold[ i ], &l1, d1, &n1, o1 ) );
+    FD_TEST( l0==10UL+j && l0==l1 && n0==n1 && !memcmp( d0, d1, n0 ) && !memcmp( o0, o1, 32 ) );
+    FD_TEST( fd_accdb_lamports( fg[ 0 ], tip, cold[ i ] )==10UL+j );
+  }
+  for( ulong i=0UL; i<8UL; i++ ) FD_TEST( !fd_accdb_exists( fg[ 0 ], tip, absent[ i ] ) );
+  /* the tip fetch does not shadow the child's own version */
+  FD_TEST( fd_accdb_lamports( fg[ 0 ], child, cold[ 0 ] )==7777UL );
+  FD_TEST( fd_accdb_lamports( fg[ 0 ], tip,   cold[ 0 ] )==10UL+FD_LOAD( ulong, cold[ 0 ] )-1UL );
+
+  /* More keys than one acquire: batched, still exact */
+  uchar const * big[ 400 ];
+  for( ulong i=0UL; i<400UL; i++ ) big[ i ] = cold[ i%cold_cnt ];
+  ulong w0 = fd_accdb_metrics( fg[ 1 ] )->residual_waits;
+  fd_accdb_fetch( fg[ 1 ], tip, 400UL, big );
+  FD_TEST( fd_accdb_metrics( fg[ 1 ] )->residual_waits-w0<=( 400UL+FD_ACCDB_MAX_ACQUIRE_CNT-1UL )/FD_ACCDB_MAX_ACQUIRE_CNT );
+  for( ulong i=0UL; i<400UL; i++ ) FD_TEST( fd_accdb_lamports( fg[ 1 ], tip, big[ i ] )==10UL+FD_LOAD( ulong, big[ i ] )-1UL );
+
+  FD_VOLATILE( bg.stop ) = 1;
+  FD_TEST( !pthread_join( thr, NULL ) );
+  for( ulong k=0UL; k<2UL; k++ ) free( fg_mem[ k ] );
+  close( test_idx_fd );
+  test_teardown( t2, fd );
+}
+
 /* Overflow tier at its worst case with a tiny pool: a star of frozen
    sibling leaves, each at the per-slot write cap, overflows RAM into
    ovl (none has a child).  Readers on every leaf see their own version
@@ -4314,6 +4407,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_idx_prefetch_and_residual ..." ));
   test_idx_prefetch_and_residual();
+
+  FD_LOG_NOTICE(( "test_idx_fetch ..." ));
+  test_idx_fetch();
 
   FD_LOG_NOTICE(( "test_idx_residual_park ..." ));
   test_idx_residual_park( 1 );

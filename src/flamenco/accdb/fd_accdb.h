@@ -684,6 +684,24 @@ fd_accdb_prefetch( fd_accdb_t *          accdb,
                    uchar const * const * pubkeys,
                    int                   warm );
 
+/* fd_accdb_fetch brings every key of pubkeys that lives only in the
+   on-disk index into RAM with a single wait on the accdb tile, for a
+   joiner about to read them one by one (index mode, joiners without
+   an index fd; no-op otherwise).  Purely a hint: later reads resolve
+   every key again.  Call outside any acquire. */
+
+void
+fd_accdb_fetch( fd_accdb_t *          accdb,
+                fd_accdb_fork_id_t    fork_id,
+                ulong                 cnt,
+                uchar const * const * pubkeys );
+
+/* fd_accdb_fetch_enabled returns 1 if fd_accdb_fetch can wait, so a
+   caller can skip gathering keys. */
+
+int
+fd_accdb_fetch_enabled( fd_accdb_t const * accdb );
+
 /* fd_accdb_fork_freeze parks fork: the caller promises no release
    targets it until fd_accdb_fork_thaw (block complete, or nothing in
    flight).  In index mode a parked fork may move to the on-disk
