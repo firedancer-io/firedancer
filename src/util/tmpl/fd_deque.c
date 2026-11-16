@@ -134,9 +134,7 @@
 #error "DEQUE_MAX must be positive"
 #endif
 
-#if FD_TMPL_USE_HANDHOLDING
 #include "../log/fd_log.h"
-#endif
 
 /* Implementation *****************************************************/
 
@@ -198,10 +196,8 @@ FD_FN_CONST static inline ulong DEQUE_(footprint)( void ) { return sizeof (DEQUE
 
 static inline void *
 DEQUE_(new)( void * shmem ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !shmem                                                ) ) FD_LOG_CRIT(( "NULL shmem" ));
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, DEQUE_(align)() ) ) ) FD_LOG_CRIT(( "unaligned shmem" ));
-# endif
+  FD_DCHECK_CRIT( !!shmem,                                              "NULL shmem"      );
+  FD_DCHECK_CRIT( fd_ulong_is_aligned( (ulong)shmem, DEQUE_(align)() ), "unaligned shmem" );
   DEQUE_(private_t) * hdr = (DEQUE_(private_t) *)shmem;
   /* These values are large enough that underflow/overflow will never
      happen in practical usage.  For example, it would take hundreds of
@@ -226,10 +222,8 @@ static inline void * DEQUE_(leave) ( DEQUE_T * deque ) { return (void *)DEQUE_(p
 
 static inline void *
 DEQUE_(delete)( void * shdeque ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !shdeque                                                ) ) FD_LOG_CRIT(( "NULL shdeque" ));
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shdeque, DEQUE_(align)() ) ) ) FD_LOG_CRIT(( "unaligned shdeque" ));
-# endif
+  FD_DCHECK_CRIT( !!shdeque,                                              "NULL shdeque"      );
+  FD_DCHECK_CRIT( fd_ulong_is_aligned( (ulong)shdeque, DEQUE_(align)() ), "unaligned shdeque" );
   return shdeque;
 }
 
@@ -262,9 +256,7 @@ DEQUE_(full)( DEQUE_T const * deque ) {
 static inline DEQUE_T *
 DEQUE_(push_head)( DEQUE_T * deque,
                    DEQUE_T   ele ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( DEQUE_(full)( deque ) ) ) FD_LOG_CRIT(( "cannot push to full deque" ));
-# endif
+  FD_DCHECK_CRIT( !DEQUE_(full)( deque ), "cannot push to full deque" );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   hdr->start--;
   hdr->deque[ DEQUE_(private_slot)( hdr->start ) ] = ele;
@@ -274,9 +266,7 @@ DEQUE_(push_head)( DEQUE_T * deque,
 static inline DEQUE_T *
 DEQUE_(push_tail)( DEQUE_T * deque,
                    DEQUE_T   ele ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( DEQUE_(full)( deque ) ) ) FD_LOG_CRIT(( "cannot push to full deque" ));
-# endif
+  FD_DCHECK_CRIT( !DEQUE_(full)( deque ), "cannot push to full deque" );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   hdr->deque[ DEQUE_(private_slot)( hdr->end ) ] = ele;
   hdr->end++;
@@ -285,9 +275,7 @@ DEQUE_(push_tail)( DEQUE_T * deque,
 
 static inline DEQUE_T
 DEQUE_(pop_head)( DEQUE_T * deque ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( DEQUE_(empty)( deque ) ) ) FD_LOG_CRIT(( "cannot pop from empty deque" ));
-# endif
+  FD_DCHECK_CRIT( !DEQUE_(empty)( deque ), "cannot pop from empty deque" );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   DEQUE_T ele = hdr->deque[ DEQUE_(private_slot)( hdr->start ) ];
   hdr->start++;
@@ -296,9 +284,7 @@ DEQUE_(pop_head)( DEQUE_T * deque ) {
 
 static inline DEQUE_T
 DEQUE_(pop_tail)( DEQUE_T * deque ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( DEQUE_(empty)( deque ) ) ) FD_LOG_CRIT(( "cannot pop from empty deque" ));
-# endif
+  FD_DCHECK_CRIT( !DEQUE_(empty)( deque ), "cannot pop from empty deque" );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   hdr->end--;
   return hdr->deque[ DEQUE_(private_slot)( hdr->end ) ];
@@ -352,10 +338,8 @@ DEQUE_(push_tail_wrap)( DEQUE_T * deque,
 
 static inline DEQUE_T
 DEQUE_(pop_idx_tail)( DEQUE_T * deque, ulong idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( DEQUE_(empty)( deque )    ) ) FD_LOG_CRIT(( "cannot pop from empty deque" ));
-  if( FD_UNLIKELY( idx>=DEQUE_(cnt)( deque ) ) ) FD_LOG_CRIT(( "index out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( !DEQUE_(empty)( deque ),    "cannot pop from empty deque" );
+  FD_DCHECK_CRIT( idx<DEQUE_(cnt)( deque ),   "index out of bounds"         );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   DEQUE_T * cur = &hdr->deque[ DEQUE_(private_slot)( hdr->start + idx ) ];
   DEQUE_T   ele = *cur;
@@ -388,9 +372,7 @@ DEQUE_(peek_tail)( DEQUE_T * deque ) {
 
 FD_FN_PURE static inline DEQUE_T *
 DEQUE_(peek_index)( DEQUE_T * deque, ulong idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( idx>=DEQUE_(cnt)( deque ) ) ) FD_LOG_CRIT(( "index out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( idx<DEQUE_(cnt)( deque ), "index out of bounds" );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   return hdr->deque + DEQUE_(private_slot)( hdr->start + idx );
 }
@@ -413,9 +395,7 @@ DEQUE_(peek_tail_const)( DEQUE_T const * deque ) {
 
 FD_FN_PURE static inline DEQUE_T const *
 DEQUE_(peek_index_const)( DEQUE_T const * deque, ulong idx ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( idx>=DEQUE_(cnt)( deque ) ) ) FD_LOG_CRIT(( "index out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( idx<DEQUE_(cnt)( deque ), "index out of bounds" );
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
   return hdr->deque + DEQUE_(private_slot)( hdr->start + idx );
 }
@@ -427,9 +407,7 @@ static inline DEQUE_T * DEQUE_(remove_tail)( DEQUE_T * deque ) { DEQUE_(private_
 
 static inline DEQUE_T *
 DEQUE_(push_head_nocopy)( DEQUE_T * deque ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( DEQUE_(full)( deque ) ) ) FD_LOG_CRIT(( "cannot push to full deque" ));
-# endif
+  FD_DCHECK_CRIT( !DEQUE_(full)( deque ), "cannot push to full deque" );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   hdr->start--;
   return &hdr->deque[ DEQUE_(private_slot)( hdr->start ) ];
@@ -437,9 +415,7 @@ DEQUE_(push_head_nocopy)( DEQUE_T * deque ) {
 
 static inline DEQUE_T *
 DEQUE_(push_tail_nocopy)( DEQUE_T * deque ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( DEQUE_(full)( deque ) ) ) FD_LOG_CRIT(( "cannot push to full deque" ));
-# endif
+  FD_DCHECK_CRIT( !DEQUE_(full)( deque ), "cannot push to full deque" );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   DEQUE_T * ele = &hdr->deque[ DEQUE_(private_slot)( hdr->end ) ];
   hdr->end++;
@@ -448,9 +424,7 @@ DEQUE_(push_tail_nocopy)( DEQUE_T * deque ) {
 
 static inline DEQUE_T *
 DEQUE_(pop_head_nocopy)( DEQUE_T * deque ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( DEQUE_(empty)( deque ) ) ) FD_LOG_CRIT(( "cannot pop from empty deque" ));
-# endif
+  FD_DCHECK_CRIT( !DEQUE_(empty)( deque ), "cannot pop from empty deque" );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   DEQUE_T * ele = &hdr->deque[ DEQUE_(private_slot)( hdr->start ) ];
   hdr->start++;
@@ -459,9 +433,7 @@ DEQUE_(pop_head_nocopy)( DEQUE_T * deque ) {
 
 static inline DEQUE_T *
 DEQUE_(pop_tail_nocopy)( DEQUE_T * deque ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( DEQUE_(empty)( deque ) ) ) FD_LOG_CRIT(( "cannot pop from empty deque" ));
-# endif
+  FD_DCHECK_CRIT( !DEQUE_(empty)( deque ), "cannot pop from empty deque" );
   DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
   hdr->end--;
   return &hdr->deque[ DEQUE_(private_slot)( hdr->end ) ];
@@ -517,18 +489,14 @@ DEQUE_(iter_prev)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
 static inline DEQUE_T *
 DEQUE_(iter_ele)( DEQUE_T * deque, DEQUE_(iter_t) iter ) {
 DEQUE_(private_t) * hdr = DEQUE_(private_hdr_from_deque)( deque );
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( (iter<hdr->start) | (iter>hdr->end) ) ) FD_LOG_CRIT(( "iter out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( (iter>=hdr->start) & (iter<=hdr->end), "iter out of bounds" );
   return &hdr->deque[ DEQUE_(private_slot)( iter ) ];
 }
 
 static inline DEQUE_T const *
 DEQUE_(iter_ele_const)( DEQUE_T const * deque, DEQUE_(iter_t) iter ) {
   DEQUE_(private_t) const * hdr = DEQUE_(private_const_hdr_from_deque)( deque );
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( (iter<hdr->start) | (iter>hdr->end) ) ) FD_LOG_CRIT(( "iter out of bounds" ));
-# endif
+  FD_DCHECK_CRIT( (iter>=hdr->start) & (iter<=hdr->end), "iter out of bounds" );
   return &hdr->deque[ DEQUE_(private_slot)( iter ) ];
 }
 

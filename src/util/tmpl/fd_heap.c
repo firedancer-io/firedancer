@@ -474,9 +474,7 @@ HEAP_STATIC HEAP_(t) *
 HEAP_(idx_insert)( HEAP_(t) * heap,
                    ulong      n,
                    HEAP_T *   pool ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( n>=heap->ele_max ) ) FD_LOG_CRIT(( "n out of range" ));
-# endif
+  FD_DCHECK_CRIT( n<heap->ele_max, "n out of range" );
 
   HEAP_IDX_T * _p_child = &heap->root;
 
@@ -548,9 +546,7 @@ HEAP_(idx_insert)( HEAP_(t) * heap,
 HEAP_STATIC HEAP_(t) *
 HEAP_(idx_remove_min)( HEAP_(t) * heap,
                        HEAP_T *   pool ) {
-# if FD_TMPL_USE_HANDHOLDING
-  if( FD_UNLIKELY( !heap->ele_cnt ) ) FD_LOG_CRIT(( "heap empty" ));
-# endif
+  FD_DCHECK_CRIT( !!heap->ele_cnt, "heap empty" );
 
   ulong d = (ulong)heap->root;
 
