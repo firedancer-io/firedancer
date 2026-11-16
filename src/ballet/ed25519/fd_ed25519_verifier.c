@@ -13,7 +13,11 @@
    a fd_ed25519_verify_batch8 that itself verifies one signature at a
    time never does, as a cache hit is always the cheaper path. */
 
+#if FD_ED25519_CRC && defined(FD_ED25519_CRC_IMPL_AVX512)
+#define BATCH_MIN (3UL)
+#else
 #define BATCH_MIN (ULONG_MAX)
+#endif
 
 /* cache_ent_cnt_resolve maps a FD_ED25519_VERIFIER_CACHE_* value or a
    cache entry count to the entry count to allocate, 0 for no cache

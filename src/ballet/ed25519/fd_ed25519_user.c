@@ -1,6 +1,11 @@
 #include "fd_ed25519.h"
 #include "fd_curve25519.h"
 
+/* FD_ED25519_CRC=1 (crc/Local.mk) takes the signers and verifies from
+   the generated ed25519 (crc/) in place of the ones below. */
+
+#if !FD_ED25519_CRC
+
 /* Backend choice: AVX512 (zen4+), then S2N, then REF (no s2n) */
 #if defined(FD_HAS_S2NBIGNUM) && !FD_HAS_AVX512
 #define FD_ED25519_S2N 1
@@ -356,6 +361,8 @@ fd_ed25519_verify_batch8( uchar const * const msgs[],        /* n */
   FD_TEST( 0UL<n && n<=8UL );
   for( ulong i=0UL; i<n; i++ ) results[i] = fd_ed25519_verify( msgs[i], msg_szs[i], sigs[i], public_keys[i], shas[i] );
 }
+
+#endif /* !FD_ED25519_CRC */
 
 char const *
 fd_ed25519_strerror( int err ) {
