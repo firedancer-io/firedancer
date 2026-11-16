@@ -1107,7 +1107,8 @@ fd_feature_id_t const ids[] = {
                                  /* expHkkpN92z71GU7EwB7AXCy8Mz4kzDJFpGY1dZV9A7 */
     .name                      = "enable_big_mod_exp_syscall",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_builtin_loader_ownership_chains)>>3,
     .id                        = {"\x33\x8b\xff\x23\x8a\xab\x0a\x50\xe8\xa3\x35\x8b\x09\x2b\x90\xff\x20\x0b\xde\xe6\x3a\x66\x92\xd7\x6d\x4f\x19\x3d\x10\x52\x93\x31"},
