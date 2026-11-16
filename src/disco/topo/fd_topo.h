@@ -228,6 +228,7 @@ struct fd_topo_tile {
       char  if_name[ 16 ];
       char  members[ 16 ][ 16 ];
       ulong member_cnt;
+      uint  vf_index;
       uint  rx_queue_size;
       uint  tx_queue_size;
 

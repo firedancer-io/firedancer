@@ -82,15 +82,15 @@ fd_iavf_numvfs_get( char const * pf_if,
 int
 fd_iavf_sriov_resources_check( char const * pf_if );
 
-/* fd_iavf_get_last_vf returns the PCI address of the highest enabled VF on pf_if.
-   If vfio_only is set, selects the highest index VF bound to vfio-pci.
+/* fd_iavf_get_vf returns the PCI address of vf_index on pf_if.
+   If vfio_only is set, the selected VF must be bound to vfio-pci.
    Returns 0 on success or -1 with errno set, including ENOENT for no matching VF.
-   vf_idx is optional and outputs are valid only on success */
+   vf_pci_addr is valid only on success */
 int
-fd_iavf_get_last_vf( char const * pf_if,
-                     uint *       vf_idx,
-                     char         vf_pci_addr[ FD_IAVF_PCI_ADDR_SZ ],
-                     int          vfio_only );
+fd_iavf_get_vf( char const * pf_if,
+                uint         vf_index,
+                char         vf_pci_addr[ FD_IAVF_PCI_ADDR_SZ ],
+                int          vfio_only );
 
 /* fd_iavf_pci_probe checks for a supported Intel Ethernet VF and requires
    it to be alone in its IOMMU group so VFIO access cannot include another

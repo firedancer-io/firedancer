@@ -1514,6 +1514,19 @@ telemetry = true
     # This section contains Intel i40e/ice specific network
     # configuration. Only active if [net.provider] is set to "iavf".
     [net.iavf]
+        # VF index iavf should use on every PF/NIC in use by Firedancer.
+        #
+        # If set to 0 (the default), the iavf configure stage creates
+        # one VF on each PF that has no VFs currently (ie has sriov_numvfs = 0)
+        # and binds these new VFs to vfio-pci even if bind_existing_vfs = false.
+        vf_index = 0
+
+        # Allows the iavf configure stage to bind an existing VF to vfio-pci,
+        # instead of requiring you to bind it first. Firedancer always binds
+        # VFs it creates regardless of this setting so this is only relevant
+        # if other applications on the server also use VFs on the same NIC/PFs.
+        bind_existing_vfs = false
+
         # Controls the depths of receive (RX) and transmit (TX) queues.
         # Queue depth values must be a power of two. The highest allowed
         # rx/tx_queue_size is 4096 due to Intel queue limits.

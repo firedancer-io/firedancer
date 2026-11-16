@@ -123,6 +123,15 @@ main( int     argc,
   FD_TEST(  strstr( json, "\"tick_per_ns_mu\"" ) );
   FD_TEST(  strstr( json, "\"max_live_slots\"" ) );
   FD_TEST(  strstr( json, "\"shred_listen_port\"" ) );
+  FD_TEST(  strstr( json, "\"vf_index\":0" ) );
+  FD_TEST(  strstr( json, "\"bind_existing_vfs\":false" ) );
+  config->net.iavf.vf_index          = 2U;
+  config->net.iavf.bind_existing_vfs = 1;
+  FD_TEST( fd_config_to_json( config, json, sizeof(json) ) );
+  FD_TEST( strstr( json, "\"vf_index\":2" ) );
+  FD_TEST( strstr( json, "\"bind_existing_vfs\":true" ) );
+  config->net.iavf.vf_index          = 0U;
+  config->net.iavf.bind_existing_vfs = 0;
 
   /* Only "auto" is a string.  true and false stay JSON booleans, so a
      config not using "auto" serializes exactly as it did before the

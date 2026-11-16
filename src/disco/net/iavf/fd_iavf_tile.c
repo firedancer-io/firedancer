@@ -900,7 +900,7 @@ fd_topo_install_iavf( fd_topo_t *     topo,
     fd_iavf_tile_vf_t * vf = &owner->vfs[vf_idx];
     char const * pf_if = first_tile->iavf.members[vf_idx];
     char vf_pci[ FD_IAVF_PCI_ADDR_SZ ];
-    if( FD_UNLIKELY( -1==fd_iavf_get_last_vf( pf_if, NULL, vf_pci, 1 ) ) ) {
+    if( FD_UNLIKELY( -1==fd_iavf_get_vf( pf_if, first_tile->iavf.vf_index, vf_pci, 1 ) ) ) {
       FD_LOG_ERR(( "VF lookup for PF %s failed (%i-%s)", pf_if, errno, fd_io_strerror( errno ) ));
     }
     if( FD_UNLIKELY( -1==fd_iavf_init( &vf->vfio, &vf->adminq, &vf->vf_info,
