@@ -4874,14 +4874,18 @@ run_cert_dying_dispatch_case( int root_notify ) {
    accounts fit.  In site 2 ten registrations do not, so completing S
    rules the block invalid, which fd_sched_task_done reports.  In site
    3 S registers five accounts, two of them T0's, which fit exactly and
-   count in full while the lane map gains three. */
+   count in full while the lane map gains three.  In site 4, block 2
+   takes a lane with T0 and T1 and runs them.  Blocks 3 to 5 squat the
+   other lanes.  Block 6 finds every head idle and takes block 2's lane.
+   The count survives the demotion, so T4 is refused while the block is
+   unstaged. */
 static void
 run_lthash_writer_bound_case( int site ) {
   fd_sched_t * sched = new_sched( 8UL );
   fd_sched_set_bypass_poh_verify( sched, 1 );
   fd_sched_set_bypass_alut_resolution( sched, 1 );
   ulong const wide_cnt = TEST_WIDE_TXN_ACCT_CNT;
-  ulong const bound    = site<2 ? 2UL*wide_cnt : wide_cnt+1UL+5UL;
+  ulong const bound    = (site==2 || site==3) ? wide_cnt+1UL+5UL : 2UL*wide_cnt;
   fd_sched_set_lthash_txn_writers_max( sched, bound );
   fd_hash_t start_poh[ 1 ]; hash_from_seed( start_poh, 0x6a1b2c3d4e5f7081UL );
 
@@ -4928,6 +4932,25 @@ run_lthash_writer_bound_case( int site ) {
     drive_untracked( sched, 10000UL );
     FD_TEST( strstr( fd_sched_get_state_cstr( sched ), "block_promoted_cnt 1," ) );
     FD_TEST( lthash_block_line_has( sched, 6UL, "lthash_writable_cnt %lu,", bound ) );
+  } else if( site==4 ) {
+    ingest_lthash_fec( sched, 2UL, 1UL, slot, TEST_ROOT_SLOT, encoded01, sz01, 1, 0 );
+    fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+    FD_TEST( lthash_block_line_has( sched, 2UL, "lthash_writable_cnt %lu,", bound ) );
+    drive_untracked( sched, 1000UL );
+    FD_TEST( fd_sched_is_drained( sched ) );
+    /* Blocks 3 to 5 squat the other lanes with their headers. */
+    for( ulong b=3UL; b<=5UL; b++ ) {
+      ingest_lthash_fec( sched, b, 1UL, TEST_ROOT_SLOT+b-1UL, TEST_ROOT_SLOT, NULL, 0UL, 1, 0 );
+      fd_sched_set_poh_params( sched, b, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+      drive_untracked( sched, 1000UL );
+    }
+    FD_TEST( strstr( fd_sched_get_state_cstr( sched ), "staged_bitset 15," ) );
+    /* Block 6 finds every head idle and takes block 2's lane. */
+    ingest_lthash_fec( sched, 6UL, 1UL, TEST_ROOT_SLOT+5UL, TEST_ROOT_SLOT, NULL, 0UL, 1, 0 );
+    fd_sched_set_poh_params( sched, 6UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+    FD_TEST( strstr( fd_sched_get_state_cstr( sched ), "staged_head_idx[0] 6," ) );
+    FD_TEST( strstr( fd_sched_get_state_cstr( sched ), "block_demoted_cnt 1," ) );
+    drive_untracked( sched, 1000UL );
   } else {
     fd_acct_addr_t late[ 10 ];
     for( ulong i=0UL; i<10UL; i++ ) fd_memcpy( late[ i ].b, extra[ i ].uc, sizeof(fd_acct_addr_t) );
@@ -5107,6 +5130,7 @@ main( int     argc,
   run_lthash_writer_bound_case( 1 );
   run_lthash_writer_bound_case( 2 );
   run_lthash_writer_bound_case( 3 );
+  run_lthash_writer_bound_case( 4 );
   run_lthash_writer_bound_full_case();
 
   fd_wksp_delete_anonymous( test_wksp );
