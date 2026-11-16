@@ -362,6 +362,14 @@ struct fd_accdb_cache_line {
   uint  refcnt;
   uchar persisted;
   uchar referenced;
+  /* Claimed for eviction but still in a reader's hazard list; a later
+     sweep takes it once the list is clear. */
+  uchar hazard_pending;
+  /* Some reader has held this line through its hazard list since the
+     line was last taken, so a reclaim has to scan the lists.  Set by
+     the reader before it fences and re-checks the account, so a reader
+     whose check passed is always seen. */
+  uchar hazard_read;
 
   uint next;
 
@@ -455,6 +463,16 @@ struct fd_accdb_shmem_private {
      takes and clears the bits, and hands the lines it frees to those
      joins' lists. */
   struct __attribute__((aligned(64))) { ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ]; } cache_free_hungry[ FD_ACCDB_CACHE_CLASS_CNT ];
+
+  /* Per-join hazard lists: the packed cidx of every line a join is
+     reading without a pin.  A reader stores the cidx, fences, then
+     re-checks that the account still names the line; an evictor first
+     makes the line unreachable (clears the account's cache_idx), then
+     scans every list, and a line found in one stays claimed
+     (hazard_pending) until a later sweep finds the lists clear.  A join
+     fills from slot 0 and resets cnt when it releases; slots below cnt
+     holding FD_ACCDB_ACC_CIDX_INVAL are ones a reader gave up on. */
+  struct __attribute__((aligned(64))) { ulong cnt; uint cidx[ 2UL*FD_ACCDB_MAX_ACQUIRE_CNT ]; } cache_hazard[ FD_ACCDB_MAX_JOINERS ];
 
   fd_accdb_fork_id_t root_fork_id;
 
@@ -667,7 +685,8 @@ struct fd_accdb_shmem_private {
 };
 
 /* fd_accdb_shmem_cache_alloc_reset empties the cache line allocator: no
-   line used yet, every free list empty, no idle reservation credits.
+   line used yet, every free list and hazard list empty, no idle
+   reservation credits.
    cache_class_max, cache_min_reserved and joiner_cnt_max must be set.
    If a class has enough lines for every joiner's worst case at once
    (cache_min_reserved per joiner), no reservation can overflow, and
@@ -692,6 +711,7 @@ fd_accdb_shmem_cache_alloc_reset( fd_accdb_shmem_t * shmem ) {
       shmem->cache_free_cnt[ j ].val    [ c ] = 0UL;
       shmem->join_cred     [ j ].val    [ c ] = 0UL;
     }
+    shmem->cache_hazard[ j ].cnt = 0UL;
   }
 }
 
