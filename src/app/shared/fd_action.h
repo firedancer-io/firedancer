@@ -119,6 +119,7 @@ union fdctl_args {
   struct {
     char name[ 13UL ];
     uint freq;
+    char topo[ 64UL ];
   } flame;
 
   struct {

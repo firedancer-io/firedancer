@@ -2,6 +2,7 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_bootinfo.h"
 #include "../../shared/fd_action.h"
+#include "../../shared/commands/monitor/monitor.h" /* reconstruct_topo */
 #include "../../platform/fd_sys_util.h"
 #include "../../../disco/metrics/fd_metrics.h"
 
@@ -81,6 +82,11 @@ flame_cmd_args( int *    pargc,
   args->flame.freq = fd_env_strip_cmdline_uint( pargc, pargv, "--freq", NULL, 997U );
   if( FD_UNLIKELY( !args->flame.freq ) ) FD_LOG_ERR(( "--freq must be non-zero" ));
 
+  char const * topo_name = fd_env_strip_cmdline_cstr( pargc, pargv, "--topo", NULL, "" );
+  ulong topo_name_len = strlen( topo_name );
+  if( FD_UNLIKELY( topo_name_len > sizeof(args->flame.topo)-1 ) ) FD_LOG_ERR(( "Unknown --topo %s", topo_name ));
+  fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( args->flame.topo ), topo_name, topo_name_len ) );
+
   if( FD_UNLIKELY( !*pargc ) ) {
     strncpy( args->flame.name, "all", sizeof( args->flame.name ) - 1 );
     return;
@@ -97,6 +103,7 @@ flame_cmd_fn( args_t *   args,
   install_parent_signals();
 
   fd_bootinfo_adopt( config );
+  reconstruct_topo( config, args->flame.topo );
   fd_bootinfo_check_layout( config );
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
@@ -254,7 +261,10 @@ flame_cmd_fn( args_t *   args,
 
 static void
 flame_args_help( fd_action_help_t * help ) {
-  fd_action_help_arg( help, "--freq", "<hz>", "Sampling frequency in Hz (default 997)" );
+  fd_action_help_arg( help, "--freq", "<hz>",      "Sampling frequency in Hz (default 997)" );
+  fd_action_help_arg( help, "--topo", "<command>", "Build the topology from another subcommand (e.g. `pktgen`) instead of\n"
+                                                   "the default validator topology.  <command> is the name of a subcommand\n"
+                                                   "that builds its own topology" );
 }
 
 action_t fd_action_flame = {
@@ -263,7 +273,7 @@ action_t fd_action_flame = {
   .fn            = flame_cmd_fn,
   .perm          = flame_cmd_perm,
   .description   = "Capture a perf flamegraph",
-  .usage         = "flame [all|tile|tile:idx] [--freq <hz>]",
+  .usage         = "flame [all|tile|tile:idx] [--freq <hz>] [--topo <command>]",
   .args_help     = flame_args_help,
   .is_diagnostic = 1
 };
