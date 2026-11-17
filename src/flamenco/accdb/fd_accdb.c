@@ -3590,17 +3590,25 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
                                 ulong *      used,
                                 ulong *      max,
                                 ulong *      reserved ) {
+  fd_accdb_shmem_t * shmem      = accdb->shmem;
+  ulong              joiner_cnt = fd_ulong_min( FD_VOLATILE_CONST( shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    ulong cap  = accdb->shmem->cache_class_max[ c ];
-    ulong live = 0UL;   /* a racy count: lines not FREE */
-    for( ulong i=0UL; i<cap; i++ ) live += FD_VOLATILE_CONST( cache_line( accdb, c, i )->state )!=FD_ACCDB_LINE_FREE;
+    /* Approximate, O(joins): lines ever taken, less the free hints in
+       every join's ring and in our stash (FREE lines in other joins'
+       stashes still count as used) */
+    ulong cap  = shmem->cache_class_max[ c ];
+    ulong live = fd_ulong_min( FD_VOLATILE_CONST( shmem->cache_class_init[ c ].val ), cap );
+    live = fd_ulong_sat_sub( live, accdb->stash_cnt[ c ] );
+    for( ulong j=0UL; j<joiner_cnt; j++ ) {
+      fd_accdb_ring_t const * r = &shmem->cache_ring[ j ][ c ];
+      live = fd_ulong_sat_sub( live, fd_ulong_min( FD_VOLATILE_CONST( r->p.prod )-FD_VOLATILE_CONST( r->c.cons ), FD_ACCDB_RING_N ) );
+    }
     max [ c ] = cap;
     used[ c ] = live;
-    ulong res   = FD_VOLATILE_CONST( accdb->shmem->cache_class_used[ c ].val );
+    ulong res = FD_VOLATILE_CONST( shmem->cache_class_used[ c ].val );
     if( res!=ULONG_MAX ) { /* in-flight reservations only, not idle credits */
-      ulong joiner_cnt = fd_ulong_min( FD_VOLATILE_CONST( accdb->shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
       ulong idle = 0UL;
-      for( ulong j=0UL; j<joiner_cnt; j++ ) idle += FD_VOLATILE_CONST( accdb->shmem->join_cred[ j ].val[ c ] );
+      for( ulong j=0UL; j<joiner_cnt; j++ ) idle += FD_VOLATILE_CONST( shmem->join_cred[ j ].val[ c ] );
       res = res>idle ? res-idle : 0UL;
     }
     reserved[ c ] = res;
