@@ -2717,10 +2717,11 @@ test_fallback_vs_reserve( void ) {
 
 /* test_reservation_steal: ctl reserves every class-0 line of the tiny
    cache with an open acquire, so a reader's reservation fails and
-   retries (reservation_retry).  When ctl releases, its reservations
-   become idle credits on ctl's join; the reader's next failure steals
-   them back to the shared counter, and its retry then succeeds.  The
-   counter always equals the reserved lines plus the idle credits. */
+   retries (reservation_retry).  ctl's release keeps cred_max of them as
+   idle credits on its join and returns the rest to the shared counter;
+   the test then tops ctl's idle credits back up to the whole class, so
+   the reader's next failure must steal them, and its retry succeeds.  The counter
+   always equals the reserved lines plus the idle credits. */
 
 static void
 test_reservation_steal( void ) {
@@ -2749,13 +2750,21 @@ test_reservation_steal( void ) {
   FD_TEST( fd_racesan_async_step_until( a, "accdb_acquire:reservation_retry", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
   FD_TEST( *used==n && !g_shmem->join_cred[ 0 ].val[ 0 ] );
 
+  /* Release: credits up to the cap stay idle on ctl, the rest go back.
+     Fill the class with idle credits so the reader's take still fails
+     and has to steal. */
   fd_accdb_release( ctl, n, held );
+  FD_TEST( *used==g_shmem->join_cred[ 0 ].val[ 0 ] );     /* only idle credits remain */
+  FD_TEST( *used<n );                                      /* the cap returned the surplus */
+  ulong idle = n-*used;
+  FD_ATOMIC_FETCH_AND_ADD( used, idle );                   /* top ctl's idle credits back up to the whole class */
+  FD_ATOMIC_FETCH_AND_ADD( &g_shmem->join_cred[ 0 ].val[ 0 ], idle );
   FD_TEST( *used==n && g_shmem->join_cred[ 0 ].val[ 0 ]==n );
   FD_TEST( fd_racesan_async_step_until( a, "accdb_acquire:reservation_retry", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
   FD_TEST( !*used && !g_shmem->join_cred[ 0 ].val[ 0 ] );   /* stolen */
   async_finish( a );
   fiber_done( &g_fiber[0] );
-  FD_TEST( *used==1UL && g_shmem->join_cred[ 1 ].val[ 0 ]==1UL );
+  FD_TEST( *used==g_shmem->join_cred[ 1 ].val[ 0 ] );     /* the reader's line went back to its own credits */
 
   join_delete( reader );
   join_delete( ctl );
