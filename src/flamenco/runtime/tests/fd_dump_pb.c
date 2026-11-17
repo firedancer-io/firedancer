@@ -548,7 +548,7 @@ add_lut_accounts_to_dumped_accounts( fd_accdb_t *                accdb,
 
   /* Decode the ALUT account and dump all pubkeys within the lookup
      table. */
-  if( lut_account.data_len<FD_LOOKUP_TABLE_META_SIZE || (lut_account.data_len&0x1fUL) ) {
+  if( lut_account.data_len<FD_LOOKUP_TABLE_META_SIZE || ((lut_account.data_len-FD_LOOKUP_TABLE_META_SIZE)&0x1fUL) ) {
     fd_accdb_unread_one( accdb, &lut_account );
     return;
   }
