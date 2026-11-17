@@ -31,7 +31,7 @@
    over-provisioning. */
 
 #define FD_ACCDB_CACHE_CLASS_CNT    (8UL)
-#define FD_ACCDB_CACHE_META_SZ     (88UL)
+#define FD_ACCDB_CACHE_META_SZ     (64UL)
 
 /* Per-class line count ceiling.  The acc cache index packs (class, line)
    into 32 bits as 3 bits of class and FD_ACCDB_CACHE_LINE_BITS bits of

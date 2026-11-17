@@ -463,7 +463,7 @@ accmeta_await_evict( fd_snapzp_t * ctx,
     FD_HW_MFENCE();
 
     ulong off_packed = FD_VOLATILE_CONST( acc->offset_fork );
-    int   done       = ( off_packed & FD_ACCDB_OFF_MASK )!=FD_ACCDB_OFF_INVAL;
+    int   done       = FD_ACCDB_OFF_CLEAN( off_packed & FD_ACCDB_OFF_MASK );  /* written back */
 
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX;
