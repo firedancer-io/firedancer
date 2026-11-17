@@ -159,6 +159,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
      res_held / res_extra are what the open bracket took (res_extra:
      acquire_a's programdata reservation, settled by acquire_b). */
   ulong   res_limit[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong   cred_max [ FD_ACCDB_CACHE_CLASS_CNT ];   /* idle credits kept per class */
   ulong * cred;
   ulong   res_held [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong   res_extra[ FD_ACCDB_CACHE_CLASS_CNT ];
@@ -359,6 +360,7 @@ fd_accdb_new( void *              ljoin,
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     int tracked = FD_VOLATILE_CONST( shmem->cache_class_used[ c ].val )!=ULONG_MAX;
     accdb->res_limit[ c ] = tracked ? shmem->cache_class_max[ c ] : ULONG_MAX;
+    accdb->cred_max [ c ] = tracked ? fd_ulong_min( 64UL, shmem->cache_class_max[ c ]/( 2UL*shmem->joiner_cnt_max ) ) : 0UL;
     accdb->res_held [ c ] = 0UL;
     accdb->res_extra[ c ] = 0UL;
     accdb->ring     [ c ] = &shmem->cache_ring[ epoch_idx ][ c ];
@@ -1506,9 +1508,10 @@ line_alloc( fd_accdb_t * accdb,
   }
 }
 
-/* Reservations.  Release keeps a join's reserved lines as idle
-   credits, and acquire spends those before the shared counter.  A
-   failed reservation steals every join's idle credits back. */
+/* Reservations.  Release keeps up to cred_max of a join's reserved
+   lines as idle credits (all joins together hold at most half a class),
+   and acquire spends those before the shared counter.  A failed
+   reservation steals every join's idle credits back. */
 
 static inline int
 res_tracked( fd_accdb_t const * accdb,
@@ -1539,7 +1542,17 @@ static inline void
 res_give( fd_accdb_t * accdb,
           ulong        c,
           ulong        n ) {
-  if( n ) FD_ATOMIC_FETCH_AND_ADD( &accdb->cred[ c ], n );
+  if( FD_UNLIKELY( !n ) ) return;
+  ulong * cred = &accdb->cred[ c ];
+  ulong   max  = accdb->cred_max[ c ];
+  if( FD_LIKELY( FD_ATOMIC_ADD_AND_FETCH( cred, n )<=max ) ) return;
+
+  /* Over the cap: give the surplus back to the shared counter */
+  for( ulong v=FD_VOLATILE_CONST( *cred ); v>max; ) {
+    ulong seen = FD_ATOMIC_CAS( cred, v, max );
+    if( FD_LIKELY( seen==v ) ) { FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ c ].val, v-max ); return; }
+    v = seen;
+  }
 }
 
 static void
