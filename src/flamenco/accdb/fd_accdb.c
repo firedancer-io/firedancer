@@ -75,6 +75,11 @@ typedef struct fd_accdb_fork fd_accdb_fork_t;
    the rest stashed, sharing one scan and one writeback. */
 #define RECLAIM_FG (16UL)
 
+/* RECLAIM_FG_LARGE_SZ: classes with slots this large take one line at a
+   time instead, so an exec tile never writes back more than one large
+   line on its own path. */
+#define RECLAIM_FG_LARGE_SZ (128UL<<10)
+
 #define FD_ACCDB_ACQUIRE_STATE_IDLE    (0)
 #define FD_ACCDB_ACQUIRE_STATE_PHASE_A (1)
 #define FD_ACCDB_ACQUIRE_STATE_OPEN    (2)
@@ -1488,7 +1493,8 @@ line_alloc_try( fd_accdb_t * accdb,
 
   /* Our own CLOCK batch: keep one, stash the rest */
   uint  batch[ RECLAIM_MAX ];
-  ulong n = line_reclaim( accdb, c, RECLAIM_MAX, RECLAIM_FG, batch, 0 );
+  ulong want = fd_accdb_cache_slot_sz[ c ]<RECLAIM_FG_LARGE_SZ ? RECLAIM_FG : 1UL;
+  ulong n    = line_reclaim( accdb, c, RECLAIM_MAX, want, batch, 0 );
   if( FD_UNLIKELY( !n ) ) return FD_ACCDB_ACC_CIDX_INVAL;
   for( ulong k=1UL; k<n; k++ ) line_free( accdb, batch[ k ] );
   return batch[ 0 ];
@@ -3197,10 +3203,16 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
 /* background_preevict (the accdb tile) refills a class's free lines up
    to its target, as hints in the joins' rings.  It runs when the class
    drops below low water or a join ran out, and visits at most
-   PREEVICT_TICK_BUDGET lines per class per call.  force (tests) sweeps
+   PREEVICT_TICK_BUDGET lines and reads about PREEVICT_SCAN_BUDGET
+   hazard entries per class per call.  force (tests) sweeps
    every class eight times. */
 
 #define PREEVICT_TICK_BUDGET (1024UL)
+
+/* PREEVICT_SCAN_BUDGET bounds the hazard entries one pass reads per
+   class: each CLOCK batch scans every join's list, so long lists (big
+   bundles) get fewer batches per pass. */
+#define PREEVICT_SCAN_BUDGET (4096UL)
 
 static void
 background_preevict( fd_accdb_t * accdb,
@@ -3222,6 +3234,12 @@ background_preevict( fd_accdb_t * accdb,
   FD_HW_MFENCE(); /* StoreLoad: victims' accmetas are read until their records publish */
 
   ulong joiner_cnt = fd_ulong_min( FD_VOLATILE_CONST( shmem->joiner_cnt ), FD_ACCDB_MAX_JOINERS );
+
+  /* Batches per class this pass: a scan costs about every list's length */
+  ulong hz_len = joiner_cnt;
+  for( ulong j=0UL; j<joiner_cnt; j++ ) hz_len += fd_ulong_min( FD_VOLATILE_CONST( shmem->cache_hazard[ j ].cnt ), FD_ACCDB_HAZARD_MAX );
+  ulong scan_max = fd_ulong_max( 1UL, PREEVICT_SCAN_BUDGET/hz_len );
+
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     ulong max_c = shmem->cache_class_max[ c ];
 
@@ -3260,8 +3278,9 @@ background_preevict( fd_accdb_t * accdb,
 
     /* Reclaim in batches, handing each line to the neediest ring */
     ulong budget    = PREEVICT_TICK_BUDGET;
+    ulong scans     = scan_max;
     int   taken_any = 0;
-    while( want && budget ) {
+    while( want && budget && scans-- ) {
       uint  got[ RECLAIM_MAX ];
       ulong visit = fd_ulong_min( budget, 2UL*RECLAIM_MAX );
       ulong n     = line_reclaim( accdb, c, visit, fd_ulong_min( want, RECLAIM_MAX ), got, 1 );
