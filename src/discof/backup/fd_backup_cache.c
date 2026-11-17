@@ -174,15 +174,14 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
      produce account indices that become invalid.  These are filtered
      out below. */
 
+  uint line_cidx[ FD_BACKUP_CACHE_PARA ];
   long rem = (long)backup->cache_max[ cls ] - (long)backup->cache_idx;
   ulong idx = backup->cache_idx;
   if( FD_LIKELY( rem >= (long)FD_BACKUP_CACHE_PARA ) ) {
     /* fast path */
     for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++, idx++ ) {
-      fd_accdb_cache_line_t const * line = cache_line( backup, cls, idx );
-      frag->acc_idx[ i ] = line->acc_idx;
-      fd_memcpy( frag->pubkey[ i ].uc, line->key.pubkey, sizeof(fd_pubkey_t) );
-      backup->chain_idx[ i ] = fd_backup_accidx_chain( accidx, line->key.pubkey );
+      frag->acc_idx[ i ] = FD_VOLATILE_CONST( cache_line( backup, cls, idx )->acc_idx );
+      line_cidx[ i ]     = FD_ACCDB_ACC_CIDX_PACK( (uint)cls, (uint)idx );
     }
   } else {
     /* slow path */
@@ -192,10 +191,8 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
       backup->chain_idx[ i ] = UINT_MAX; /* deliberately not ULONG_MAX */
     }
     for( ulong i=0UL; rem--; i++, idx++ ) {
-      fd_accdb_cache_line_t const * line = cache_line( backup, cls, idx );
-      frag->acc_idx[ i ] = line->acc_idx;
-      fd_memcpy( frag->pubkey[ i ].uc, line->key.pubkey, sizeof(fd_pubkey_t) );
-      backup->chain_idx[ i ] = fd_backup_accidx_chain( accidx, line->key.pubkey );
+      frag->acc_idx[ i ] = FD_VOLATILE_CONST( cache_line( backup, cls, idx )->acc_idx );
+      line_cidx[ i ]     = FD_ACCDB_ACC_CIDX_PACK( (uint)cls, (uint)idx );
     }
     if( FD_UNLIKELY( idx >= backup->cache_max[ cls ] ) ) {
       backup->cache_class++;
@@ -204,14 +201,25 @@ fd_backup_cache_scan( fd_backup_cache_t * backup,
   }
   backup->cache_idx = idx;
 
-  /* Filter out account indices that cannot index acc_pool */
+  /* Keep a line only if its account is bound to it.  A line keeps a
+     stale acc_idx once free or orphaned (it names a version only while
+     that version's data word names the line), so this drops free lines
+     and duplicates.  Pubkeys come from the accmeta. */
 
   for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-    if( !fd_backup_accidx_valid( accidx, frag->acc_idx[ i ] ) ) {
-      frag->acc_idx[ i ] = UINT_MAX;
-      memset( frag->pubkey[ i ].uc, 0, sizeof(fd_pubkey_t) );
-      backup->chain_idx[ i ] = UINT_MAX;
+    uint a = frag->acc_idx[ i ];
+    if( fd_backup_accidx_valid( accidx, a ) ) {
+      fd_accdb_accmeta_t const * m = &accidx->acc_pool[ a ];
+      ulong d = FD_VOLATILE_CONST( m->data );
+      if( FD_ACCDB_SIZE_CACHE_VALID( FD_ACCDB_DATA_ES( d ) ) && FD_ACCDB_DATA_CIDX( d )==line_cidx[ i ] ) {
+        fd_memcpy( frag->pubkey[ i ].uc, m->key.pubkey, sizeof(fd_pubkey_t) );
+        backup->chain_idx[ i ] = fd_backup_accidx_chain( accidx, frag->pubkey[ i ].uc );
+        continue;
+      }
     }
+    frag->acc_idx[ i ] = UINT_MAX;
+    memset( frag->pubkey[ i ].uc, 0, sizeof(fd_pubkey_t) );
+    backup->chain_idx[ i ] = UINT_MAX;
   }
 
   /* Filter out freed/invisible and non-rooted accounts */
@@ -244,7 +252,7 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
     return FD_BACKUP_CACHE_ERR_SPACE;
   }
 
-  /* This is a partial copy of read_one_nocopy */
+  /* This is a partial copy of fd_accdb_read_one_nocache */
   fd_accdb_accmeta_t const * accmeta = &accidx->acc_pool[ acc_idx ];
   if( FD_UNLIKELY( memcmp( accmeta->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) {
     return FD_BACKUP_CACHE_ERR_MISS;
@@ -276,10 +284,9 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   ///   Snapshot acc fields.  The acc element's metadata is effectively
   ///   immutable from the perspective of cross-fork readers (see the
   ///   comment block in fd_accdb.h about cross-fork reads). */
-  uint  snap_es       = FD_VOLATILE_CONST( accmeta->executable_size );
-  uint  snap_gen      = accmeta->key.generation;
+  ulong snap_data     = FD_VOLATILE_CONST( accmeta->data );  /* one load: VALID and the line agree */
+  uint  snap_es       = FD_ACCDB_DATA_ES( snap_data );
   ulong snap_lamports = accmeta->lamports;
-  uint  snap_cidx     = FD_VOLATILE_CONST( accmeta->cache_idx );
   ulong data_len      = (ulong)FD_ACCDB_SIZE_DATA( snap_es );
   int   executable    = FD_ACCDB_SIZE_EXEC( snap_es );
   ulong rec_sz        = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
@@ -289,58 +296,20 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
   }
 
   /// STEP 3.
-  ///    Cache hit fast path with try-read-test (ABA) loop.  Same
-  ///    primitives as cache_try_pin: re-check key.generation + pubkey
-  ///    before and after the bulk copy, and bail to the disk path if the
-  ///    line was claimed for eviction (refcnt ==
-  ///    FD_ACCDB_EVICT_SENTINEL).  No CAS on refcnt, we never pin the
-  ///    line.
-  if( !FD_ACCDB_SIZE_CACHE_VALID( snap_es ) ) {
-    return FD_BACKUP_CACHE_ERR_MISS;
-  }
-  if( snap_cidx==FD_ACCDB_ACC_CIDX_INVAL ) {
-    return FD_BACKUP_CACHE_ERR_MISS;
-  }
-
-  ulong cls = FD_ACCDB_ACC_CIDX_CLASS( snap_cidx );
-  ulong idx = FD_ACCDB_ACC_CIDX_IDX  ( snap_cidx );
-  fd_accdb_cache_line_t * line = cache_line( ctx, cls, idx );
+  ///    Copy from the cache without holding the line; the copy is good
+  ///    if the line's seq was even and unchanged and the account stayed
+  ///    bound to it (fd_accdb_line_read_unheld).  Else miss.
+  if( !FD_ACCDB_SIZE_CACHE_VALID( snap_es ) ) return FD_BACKUP_CACHE_ERR_MISS;
+  uint cidx = FD_ACCDB_DATA_CIDX( snap_data );
+  fd_accdb_cache_line_t const * line = cache_line( ctx, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
 
   snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( out + *out_sz );
   memset( hdr, 0, sizeof(snap_acc_hdr_t) );
-  memcpy( hdr->pubkey.uc, pubkey->uc, sizeof(fd_pubkey_t) );
-
-  uint seq0 = FD_VOLATILE_CONST( line->seq );
-  FD_COMPILER_MFENCE();
-  uint gen0 = FD_VOLATILE_CONST( line->key.generation );
-  uint rc0  = FD_VOLATILE_CONST( line->refcnt );
-  uint ai0  = FD_VOLATILE_CONST( line->acc_idx );
-  if( FD_UNLIKELY( rc0==FD_ACCDB_EVICT_SENTINEL ) ) return FD_BACKUP_CACHE_ERR_MISS;
-  if( FD_UNLIKELY( gen0!=snap_gen ) ) return FD_BACKUP_CACHE_ERR_MISS;
-  if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) return FD_BACKUP_CACHE_ERR_MISS;
-  /* acc_idx==UINT_MAX is the "loading" sentinel set by cold_load_acc
-     before the preadv2 fills the line.  CACHE_VALID can be observed
-     set while the bytes are still stale, so fall to the disk path
-     (which spins on offset_fork and reads from the file) rather
-     than copying garbage. */
-  if( FD_UNLIKELY( ai0==UINT_MAX ) ) return FD_BACKUP_CACHE_ERR_MISS;
-
-  FD_COMPILER_MFENCE();
-  memcpy( hdr->owner.uc, line->owner, 32UL );
+  fd_memcpy( hdr->pubkey.uc, pubkey->uc, sizeof(fd_pubkey_t) );
   uchar * d = (uchar *)hdr + sizeof(snap_acc_hdr_t);
-  memcpy( d, (uchar const *)(line+1UL), data_len );
+  FD_COMPILER_MFENCE();  /* the word before the line */
+  if( FD_UNLIKELY( !fd_accdb_line_read_unheld( line, &accmeta->data, snap_data, hdr->owner.uc, d, data_len ) ) ) return FD_BACKUP_CACHE_ERR_MISS;
   if( data_pad ) memset( d + data_len, 0, data_pad );
-  FD_COMPILER_MFENCE();
-
-  uint gen1 = FD_VOLATILE_CONST( line->key.generation );
-  uint rc1  = FD_VOLATILE_CONST( line->refcnt );
-  uint ai1  = FD_VOLATILE_CONST( line->acc_idx );
-  uint seq1 = FD_VOLATILE_CONST( line->seq );
-  if( FD_UNLIKELY( seq1!=seq0 ) ) return FD_BACKUP_CACHE_ERR_MISS;
-  if( FD_UNLIKELY( rc1==FD_ACCDB_EVICT_SENTINEL ) ) return FD_BACKUP_CACHE_ERR_MISS;
-  if( FD_UNLIKELY( gen1!=snap_gen ) ) return FD_BACKUP_CACHE_ERR_MISS;
-  if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) return FD_BACKUP_CACHE_ERR_MISS;
-  if( FD_UNLIKELY( ai1==UINT_MAX ) ) return FD_BACKUP_CACHE_ERR_MISS;
 
   hdr->lamports   = snap_lamports;
   hdr->executable = !!executable;
