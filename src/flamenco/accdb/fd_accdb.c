@@ -455,7 +455,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
      txn_pool use POOL_LAZY=1 so reset is O(1).  fork_pool and
      partition_pool rebuild their free lists in O(max_live_slots) and
      O(partition_cnt), both small. */
-  spin_lock_acquire( &shmem->grow_lock );
+  fd_spinlock_acquire( &shmem->grow_lock );
   acc_pool_reset( accdb->acc_pool_join );
   txn_pool_reset( accdb->txn_pool );
   fork_pool_reset( accdb->fork_shmem_pool );
@@ -481,10 +481,10 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   /* generation keeps counting.  req and done name roots by generation,
      so reusing generations would make a new root look already applied. */
   shmem->root_fork_id   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
-  shmem->partition_lock = 0;
+  fd_spinlock_new( &shmem->partition_lock );
   shmem->partition_max  = 0UL;
   shmem->partition_fallocated = 0UL;
-  spin_lock_release( &shmem->grow_lock );
+  fd_spinlock_release( &shmem->grow_lock );
 
   /* Write heads: sentinel values that force partition-switch on first
      write. */
@@ -566,16 +566,16 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
       accdb_offset_t snap_head = accdb->shmem->whead[ 0 ];
       int            no_head   = 0;
       change_partition( accdb, &snap_head, &accdb->shmem->whead[ 0 ], &no_head, 0 );
-      spin_lock_acquire( &accdb->shmem->partition_lock );
+      fd_spinlock_acquire( &accdb->shmem->partition_lock );
       accdb->shmem->whead[ cold ]         = snap_head;
       accdb->shmem->has_partition[ cold ] = 1;
-      spin_lock_release( &accdb->shmem->partition_lock );
+      fd_spinlock_release( &accdb->shmem->partition_lock );
     } else {
       change_partition( accdb, &accdb->shmem->whead[ 0 ], &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
     }
   }
 
-  spin_lock_acquire( &accdb->shmem->partition_lock );
+  fd_spinlock_acquire( &accdb->shmem->partition_lock );
   if( FD_LIKELY( accdb->shmem->has_partition[ 0 ] ) ) {
     ulong new_idx = packed_partition_idx( &accdb->shmem->whead[ 0 ] );
     fd_accdb_partition_t * newp = partition_pool_ele( accdb->partition_pool, new_idx );
@@ -592,7 +592,7 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
     fd_accdb_shmem_try_enqueue_compaction( accdb->shmem, p );
   }
 
-  spin_lock_release( &accdb->shmem->partition_lock );
+  fd_spinlock_release( &accdb->shmem->partition_lock );
 }
 
 static inline uint
@@ -701,7 +701,7 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
      re-acquires them in ascending order (P, P+1, P+2, ...).  This
      preserves the ascending partition index order expected when the
      released suffix is allocated again. */
-  spin_lock_acquire( &shmem->partition_lock );
+  fd_spinlock_acquire( &shmem->partition_lock );
   for( ulong p=cur_partition_max; p>recover->partition_max; p-- ) {
     fd_accdb_partition_t * part = partition_pool_ele( accdb->partition_pool, p-1UL );
     if( FD_UNLIKELY( part->queued ) ) {
@@ -730,7 +730,7 @@ fd_accdb_snapshot_revert_whead( fd_accdb_t *                         accdb,
     sp->write_offset  = 0UL;
   }
 
-  spin_lock_release( &shmem->partition_lock );
+  fd_spinlock_release( &shmem->partition_lock );
 }
 
 fd_accdb_t *
@@ -2121,7 +2121,7 @@ change_partition( fd_accdb_t *           accdb,
                   uchar                  layer ) {
   /* New data will not fit in the current partition, so we need to
      move to the next one.  */
-  spin_lock_acquire( &accdb->shmem->partition_lock );
+  fd_spinlock_acquire( &accdb->shmem->partition_lock );
   ulong partition_idx_before = packed_partition_idx( offset_before );
   ulong partition_offset_before = packed_partition_offset( offset_before );
   if( FD_LIKELY( *has_partition ) ) {
@@ -2176,25 +2176,25 @@ change_partition( fd_accdb_t *           accdb,
   }
 
   if( FD_UNLIKELY( new_partition_idx>=accdb->shmem->partition_max ) ) FD_VOLATILE( accdb->shmem->partition_max ) = new_partition_idx+1UL;
-  spin_lock_release( &accdb->shmem->partition_lock );
+  fd_spinlock_release( &accdb->shmem->partition_lock );
 
   /* Back the partition before publishing the head, so no writer
      reserves into it while fallocate is running.  Layer-0 writers spin
      on the head until then. */
   if( FD_UNLIKELY( new_partition_idx>=FD_VOLATILE_CONST( accdb->shmem->partition_fallocated ) ) ) {
-    spin_lock_acquire( &accdb->shmem->grow_lock );
+    fd_spinlock_acquire( &accdb->shmem->grow_lock );
     grow_locked( accdb, new_partition_idx, layer, had_partition ? partition_idx_before : ULONG_MAX, 0 );
-    spin_lock_release( &accdb->shmem->grow_lock );
+    fd_spinlock_release( &accdb->shmem->grow_lock );
   }
 
-  spin_lock_acquire( &accdb->shmem->partition_lock );
+  fd_spinlock_acquire( &accdb->shmem->partition_lock );
   *out_offset   = accdb_offset( new_partition_idx, 0UL );
   FD_COMPILER_MFENCE();
   *has_partition = 1;
   if( FD_LIKELY( had_partition && partition_idx_before!=new_partition_idx ) ) {
     fd_accdb_shmem_try_enqueue_compaction( accdb->shmem, partition_idx_before );
   }
-  spin_lock_release( &accdb->shmem->partition_lock );
+  fd_spinlock_release( &accdb->shmem->partition_lock );
 }
 
 /* Reserve sz bytes in the layer-0 write head and set
@@ -2416,12 +2416,12 @@ background_compact( fd_accdb_t * accdb,
 
     fd_racesan_hook( "accdb_reclaim:pre_free_partition" );
 
-    spin_lock_acquire( &accdb->shmem->partition_lock );
+    fd_spinlock_acquire( &accdb->shmem->partition_lock );
     deferred_free_dlist_ele_pop_head( accdb->deferred_free_dlist, accdb->partition_pool );
     FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_current_bytes, accdb->shmem->partition_sz );
     FD_VOLATILE( p->write_offset ) = 0UL;
     partition_pool_ele_release( accdb->partition_pool, p );
-    spin_lock_release( &accdb->shmem->partition_lock );
+    fd_spinlock_release( &accdb->shmem->partition_lock );
   }
 
   if( FD_LIKELY( compaction_dlist_is_empty( accdb->compaction_dlist[ src_layer ], accdb->partition_pool ) ) ) {
@@ -2637,7 +2637,7 @@ background_compact( fd_accdb_t * accdb,
        partition_pool_ele_acquire in change_partition.  Neither fd_dlist
        nor fd_pool are thread-safe, so all mutations must be under the
        same lock. */
-    spin_lock_acquire( &accdb->shmem->partition_lock );
+    fd_spinlock_acquire( &accdb->shmem->partition_lock );
 
     accdb->shmem->shmetrics->partitions_freed++;
     compaction_dlist_ele_pop_head( accdb->compaction_dlist[ src_layer ], accdb->partition_pool );
@@ -2653,7 +2653,7 @@ background_compact( fd_accdb_t * accdb,
       FD_LOG_INFO(( "compaction of layer %lu partition %lu started", src_layer, partition_pool_idx( accdb->partition_pool, next ) ));
     }
 
-    spin_lock_release( &accdb->shmem->partition_lock );
+    fd_spinlock_release( &accdb->shmem->partition_lock );
   }
 
   accdb->metrics->bytes_read += bytes_read-carry;
@@ -4981,11 +4981,11 @@ fd_accdb_background( fd_accdb_t * accdb,
      new partition never waits on fallocate. */
   if( FD_UNLIKELY( FD_VOLATILE_CONST( shmem->partition_max )>=FD_VOLATILE_CONST( shmem->partition_fallocated ) &&
                    FD_VOLATILE_CONST( shmem->partition_fallocated )!=accdb->prealloc_failed_at ) ) {
-    spin_lock_acquire( &shmem->grow_lock );
+    fd_spinlock_acquire( &shmem->grow_lock );
     ulong fallocated = shmem->partition_fallocated;
     int   grow       = fallocated<shmem->partition_cnt && FD_VOLATILE_CONST( shmem->partition_max )>=fallocated;
     int   err        = grow ? grow_locked( accdb, fallocated, 0, ULONG_MAX, 1 ) : 0;
-    spin_lock_release( &shmem->grow_lock );
+    fd_spinlock_release( &shmem->grow_lock );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fallocate() failed (%d-%s) preallocating the accounts database beyond %lu GiB. "
                        "The validator will exit soon when the disk fills.",
