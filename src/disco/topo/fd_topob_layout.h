@@ -5,8 +5,9 @@
    explicit [layout.affinity] are parsed by fd_topob_parse_affinity_cstr
    instead; "auto" runs fd_topob_auto_layout.
 
-   Auto layout walks CPUs in NUMA node order with each CPU's HT sibling
-   right after it, skipping blocklisted and offline CPUs.  Each tile's
+   Auto layout walks CPUs in NUMA node order, CPU 0's die last within
+   its node, with each CPU's HT sibling right after it, skipping
+   blocklisted and offline CPUs.  Each tile's
    class (FD_TOPOB_TILE_*, keyed by name) decides its placement:
 
      - ALWAYS tiles are placed first.  STARTUP and POSTSTART tiles are
