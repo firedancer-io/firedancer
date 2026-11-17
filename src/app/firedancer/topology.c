@@ -36,6 +36,7 @@
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/accdb/fd_accdb_cache.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/events/fd_event_runtime.h"
 #include "../../flamenco/progcache/fd_progcache.h"
@@ -293,6 +294,9 @@ setup_topo_accdb( fd_topo_t *  topo,
   FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
 
   ulong cache_min_reserved = fd_accdb_cache_min_reserved( bundle_enabled );
+
+  /* partition_cnt is a cap: the file cannot outgrow FD_ACCDB_FILE_SZ_MAX */
+  partition_cnt = fd_ulong_min( partition_cnt, FD_ACCDB_FILE_SZ_MAX/partition_sz );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_accounts,       "obj.%lu.max_accounts",       obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,     "obj.%lu.max_live_slots",     obj->id ) );
