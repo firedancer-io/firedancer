@@ -57,8 +57,8 @@
    In the tree phase, the chunks are joined pairwise into a hash tree.
 
    Figure 1 illustrates a BLAKE3 hash tree with a 2170 byte input
-   (34 chunks in{X}), one branch nodes (b{Y}), the root state (RS), and
-   a 192 byte hash output (h{Z}). */
+   (34 blocks in{X} in three chunks), one branch node (b{Y}), the root
+   state (RS), and a 192 byte hash output (h{Z}). */
 
      /*** Figure 1: BLAKE3 Hash Tree ******************************
      *                                                            *
