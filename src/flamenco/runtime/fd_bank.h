@@ -598,8 +598,8 @@ fd_banks_advance_root( fd_banks_t *               banks,
                        ulong                      bank_idx,
                        fd_stake_history_t const * stake_history );
 
-/* fd_banks_clear releases all banks back to the pool and resets the
-   banks manager to its post-new state.  Assumes no active references to
+/* fd_banks_clear releases all banks back to the pool and clears the
+   banks manager.  Assumes no active references to
    any bank.  WARNING: collision risk, resets bank_seq to 1 (0 is the
    reserved invalid sentinel). */
 
