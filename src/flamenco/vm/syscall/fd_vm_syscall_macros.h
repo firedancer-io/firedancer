@@ -103,8 +103,8 @@ typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
    store, but intentionally omits the is_writable checks for the
    input region that are done during memory translation.
 
-   FD_VM_MEM_HADDR_ST_NO_SZ_CHECK does all of the checks of a load,
-   except for a check on the validity of the size of a load. It only
+   FD_VM_MEM_HADDR_ST_NO_SZ_CHECK does all of the checks of a store,
+   except for a check on the validity of the size of a store. It only
    checks that the specific vaddr that is being translated is valid. */
 
 #define FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                          \
