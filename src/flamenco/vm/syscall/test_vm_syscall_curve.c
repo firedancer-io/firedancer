@@ -162,7 +162,7 @@ main( int     argc,
       /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
       /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       /* dump_syscall_to_pb                     */ 0,
-      /* r2_initial_value                       */ 0UL
+      /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );
   FD_TEST( vm_ok );
   fd_vm_mem_init_full( vm );

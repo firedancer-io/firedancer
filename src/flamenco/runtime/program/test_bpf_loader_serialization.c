@@ -580,6 +580,7 @@ run_fixture( fd_svm_mini_t * mini,
   uint                    region_cnt = 0;
   fd_vm_acc_region_meta_t acc_metas[FD_TXN_INSTR_ACCT_MAX];
   ulong                   idata_offset = 0;
+  ulong                   aptr_offset  = 0;
 
   fd_memset( pre_lens,  fill, sizeof(pre_lens)  );
   fd_memset( regions,   fill, sizeof(regions)   );
@@ -592,12 +593,18 @@ run_fixture( fd_svm_mini_t * mini,
       in->virtual_address_space_adj, in->direct_mapping,
       in->direct_account_pointers_in_program_input,
       in->is_deprecated,
-      &idata_offset, &serialized_sz );
+      &idata_offset, &aptr_offset, &serialized_sz );
 
   FD_LOG_NOTICE(( "  result=%d serialized_sz=%lu region_cnt=%u idata_offset=%lu",
                   result, serialized_sz, region_cnt, idata_offset ));
 
   int ok = 1;
+
+  ulong aptr_expected = ULONG_MAX;
+  if( out->result==0 && !in->is_deprecated && in->direct_account_pointers_in_program_input ) {
+    fixture_region_t const * last = &out->regions[ out->num_regions-1UL ];
+    aptr_expected = ( last->vm_addr+last->data_len ) - ( in->num_instr_accounts*sizeof(ulong) );
+  }
 
   if( out->result==0 ) {
     if( !check_result( result, 0 ) ) ok = 0;
@@ -608,6 +615,10 @@ run_fixture( fd_svm_mini_t * mini,
     }
     else if( idata_offset!=out->instr_data_offset ) {
       FD_LOG_WARNING(( "instr_data_offset: got %lu, expected %lu", idata_offset, out->instr_data_offset ));
+      ok = 0;
+    }
+    else if( aptr_offset!=aptr_expected ) {
+      FD_LOG_WARNING(( "account_pointers_offset: got %lu, expected %lu", aptr_offset, aptr_expected ));
       ok = 0;
     }
     else {
@@ -715,11 +726,12 @@ test_touched_case( fd_svm_mini_t * mini,
   uint                    region_cnt = 0U;
   fd_vm_acc_region_meta_t metas[ FD_TXN_INSTR_ACCT_MAX ];
   ulong                   idata_off = 0UL;
+  ulong                   aptr_off  = 0UL;
   ulong                   ser_sz    = 0UL;
   fd_memset( pre_lens, 0xA5, sizeof(pre_lens) ); /* not zeroed in fd_bpf_execute either */
   fd_memset( regions,  0xA5, sizeof(regions)  );
   fd_memset( metas,    0xA5, sizeof(metas)    );
-  FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, pre_lens, regions, &region_cnt, metas, vasa, dm, 0, 0, &idata_off, &ser_sz ) );
+  FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, pre_lens, regions, &region_cnt, metas, vasa, dm, 0, 0, &idata_off, &aptr_off, &ser_sz ) );
   uchar * ser = ctx->runtime->bpf_loader_serialization.frame[ ctx->runtime->instr.stack_sz-1UL ];
 
   for( ulong i=0UL; i<4UL; i++ ) FD_TEST( !ctx->txn_out->accounts.touched[ i ] );

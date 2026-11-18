@@ -266,6 +266,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
                                          int                       direct_mapping,
                                          int                       direct_account_pointers_in_program_input,
                                          ulong *                   instr_data_offset,
+                                         ulong *                   account_pointers_offset,
                                          ulong *                   serialized_bytes_written ) {
   /* Transaction sanitisation limits the number of instruction accounts to
      FD_TXN_ACCT_ADDR_MAX. */
@@ -417,6 +418,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
   serialized_params += sizeof(fd_pubkey_t);
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/program-runtime/src/serialization.rs#L522-L529 */
+  *account_pointers_offset = ULONG_MAX;
   if( direct_account_pointers_in_program_input ) {
     ulong cur_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
       (ulong)(serialized_params - curr_serialized_params_start);
@@ -427,6 +429,9 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
       FD_STORE( ulong, serialized_params, acc_region_metas[i].vm_addr );
       serialized_params += sizeof(ulong);
     }
+
+    /* https://github.com/anza-xyz/agave/blob/v4.5/program-runtime/src/serialization.rs#L616-L617 */
+    *account_pointers_offset = cur_vaddr + padding;
   }
 
   /* Write out the final region. */
@@ -798,6 +803,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           int                       direct_account_pointers_in_program_input,
                                           uchar                     is_deprecated,
                                           ulong *                   instr_data_offset,
+                                          ulong *                   account_pointers_offset,
                                           ulong *                   serialized_bytes_written ) {
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L236-L239 */
@@ -808,6 +814,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L265-L285 */
   if( FD_UNLIKELY( is_deprecated ) ) {
+    *account_pointers_offset = ULONG_MAX;
     return fd_bpf_loader_input_serialize_for_abiv0( instr_ctx, pre_lens,
                                                     input_mem_regions, input_mem_regions_cnt,
                                                     acc_region_metas, virtual_address_space_adjustments,
@@ -817,7 +824,8 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                                     input_mem_regions, input_mem_regions_cnt,
                                                     acc_region_metas, virtual_address_space_adjustments,
                                                     direct_mapping, direct_account_pointers_in_program_input,
-                                                    instr_data_offset, serialized_bytes_written );
+                                                    instr_data_offset, account_pointers_offset,
+                                                    serialized_bytes_written );
   }
 }
 

@@ -19,6 +19,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           int                       direct_account_pointers_in_program_input,
                                           uchar                     is_deprecated,
                                           ulong *                   instr_data_offset,
+                                          ulong *                   account_pointers_offset,
                                           ulong *                   serialized_bytes_written );
 
 /* input and pre_lens must come from serialize_parameters for this

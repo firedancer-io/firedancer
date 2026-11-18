@@ -590,7 +590,7 @@ fd_vm_init(
    int                       syscall_parameter_address_restrictions,
    int                       virtual_address_space_adjustments,
    int                       dump_syscall_to_pb,
-   ulong                     r2_initial_value ) {
+   ulong const               reg[ FD_VM_REG_CNT ] ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
@@ -666,8 +666,7 @@ fd_vm_init(
 
   /* Initialize registers */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
-  vm->reg[1]  = FD_VM_MEM_MAP_INPUT_REGION_START;
-  vm->reg[2]  = r2_initial_value;
+  fd_memcpy( vm->reg, reg, FD_VM_REG_CNT*sizeof(ulong) );
   /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/vm.rs#L325-L330 */
   vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START +
     ( FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( vm->sbpf_version ) ? FD_VM_STACK_MAX : vm->stack_frame_sz );
