@@ -67,8 +67,8 @@
 #define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (offsetof(fd_gossip_update_message_t, duplicate_shred)     + sizeof((fd_gossip_update_message_t *)0)->duplicate_shred)
 #define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (offsetof(fd_gossip_update_message_t, snapshot_hashes)     + sizeof((fd_gossip_update_message_t *)0)->snapshot_hashes)
 
-/* Gossip messages encode wallclock in millis*, while we
-   parse them into nanoseconds for internal use.
+/* Gossip messages encode wallclock in millis*, which are retained
+   for internal use.
 
    * exceptions:
      - Contact Info outset (AKA instance creation wallclock) is encoded
