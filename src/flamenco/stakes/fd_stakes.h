@@ -90,7 +90,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           ulong                          rewarded_epoch,
                           ulong *                        new_rate_activation_epoch );
 
-/* fd_stakes_update_delegation is used to maintain the in-memory cache
+/* fd_stakes_update_stake_delegation is used to maintain the in-memory cache
    of the stake delegations that is used at the epoch boundary.  Entries
    in the cache will be inserted/updated/removed based on the state of
    the stake account.  stake_history is the bank's StakeHistory sysvar
