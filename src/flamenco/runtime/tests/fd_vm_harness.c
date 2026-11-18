@@ -166,7 +166,8 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   frame_level = ctx->runtime->instr.stack_sz-1UL;
   ctx->runtime->bpf_loader_serialization.frame[ frame_level ] = fd_bpf_frames_acquire( ctx->runtime->bpf_frames, 0 );
 
-  ulong instr_data_offset = 0UL;
+  ulong instr_data_offset       = 0UL;
+  ulong account_pointers_offset = 0UL;
   int err = fd_bpf_loader_input_serialize_parameters( ctx,
                                                       pre_lens,
                                                       input_mem_regions,
@@ -177,6 +178,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                                       direct_account_pointers_in_program_input,
                                                       is_deprecated,
                                                       &instr_data_offset,
+                                                      &account_pointers_offset,
                                                       &input_sz );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "bpf loader input serialize parameters err" ));
@@ -207,7 +209,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
               syscall_parameter_address_restrictions,
               virtual_address_space_adjustments,
               0 /* dump_syscall_to_pb */,
-              0UL /* r2 is set by the fuzzer below */ );
+              (ulong[ FD_VM_REG_CNT ]){ 0 } /* r2 is set by the fuzzer below */ );
 
   // Override some execution state values from the syscall fuzzer input
   // This is so we can test if the syscall mutates any of these erroneously
@@ -385,6 +387,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   fd_vm_acc_region_meta_t acc_region_metas[256]   = {0};
   uint                    input_mem_regions_cnt   = 0U;
   ulong                   instr_data_offset       = 0UL;
+  ulong                   account_pointers_offset = 0UL;
 
   int err = fd_bpf_loader_input_serialize_parameters(
     ctx,
@@ -397,6 +400,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
     direct_account_pointers_in_program_input,
     is_deprecated,
     &instr_data_offset,
+    &account_pointers_offset,
     &input_sz
   );
 

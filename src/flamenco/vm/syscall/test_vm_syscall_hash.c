@@ -193,7 +193,7 @@ main( int     argc,
       FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
       FD_FEATURE_ACTIVE_BANK( bank, syscall_parameter_address_restrictions ),
       FD_FEATURE_ACTIVE_BANK( bank, virtual_address_space_adjustments ),
-      0, 0UL );
+      0, (ulong[ FD_VM_REG_CNT ]){ 0 } );
   FD_TEST( vm_ok );
 
   /* Test specs: {name, fn, hash_sz, expected_empty, expected_abc} */

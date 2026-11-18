@@ -216,7 +216,7 @@ deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
     /* syscall_parameter_address_restrictions */ syscall_parameter_address_restrictions,
     /* virtual_address_space_adjustments      */ virtual_address_space_adjustments,
     /* dump_syscall_to_pb                     */ 0,
-    /* r2_initial_value                       */ 0UL );
+    /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 } );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
@@ -477,8 +477,10 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
   int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
   int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, direct_account_pointers_in_program_input );
+  int                     pass_input_metadata_in_vm_r3_r5          = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, pass_input_metadata_in_vm_r3_r5 );
 
   ulong instruction_data_offset = 0UL;
+  ulong account_pointers_offset = 0UL;
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
   uchar * input = instr_ctx->runtime->bpf_loader_serialization.frame[ instr_ctx->runtime->instr.stack_sz-1UL ];
@@ -486,7 +488,8 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas, virtual_address_space_adjustments, direct_mapping,
                                                   direct_account_pointers_in_program_input, is_deprecated,
-                                                  &instruction_data_offset, &input_sz );
+                                                  &instruction_data_offset,
+                                                  &account_pointers_offset, &input_sz );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -512,8 +515,22 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                            instr_ctx->bank->f.slot>=instr_ctx->runtime->log.dump_proto_ctx->dump_proto_start_slot &&
                            instr_ctx->runtime->log.dump_proto_ctx->dump_syscall_to_pb;
 
+  /* Set up initial register values */
+  ulong reg[ FD_VM_REG_CNT ] = { 0 };
+  /* https://github.com/anza-xyz/agave/blob/v4.5/program-runtime/src/vm.rs#L323 */
+  reg[1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/bpf_loader/src/lib.rs#L1525-L1528 */
-  ulong r2_initial_value = provide_instruction_data_offset_in_vm_r2 ? instruction_data_offset : 0UL;
+  reg[2] = provide_instruction_data_offset_in_vm_r2 ? instruction_data_offset : 0UL;
+  /* https://github.com/anza-xyz/agave/blob/v4.5/program-runtime/src/vm.rs#L326-L343 */
+  if( !is_deprecated && pass_input_metadata_in_vm_r3_r5 ) {
+    if( FD_UNLIKELY( account_pointers_offset==ULONG_MAX ) ) {
+      fd_log_collector_msg_literal( instr_ctx, "Failed to create SBF VM: cannot determine account pointers offset" );
+      return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
+    }
+    reg[3] = instr_ctx->instr->data_sz;
+    reg[4] = account_pointers_offset;
+    reg[5] = instr_ctx->instr->acct_cnt;
+  }
 
   /* TODO: (topointon): correctly set check_size in vm setup */
   fd_wksp_t * progcache_wksp = instr_ctx->runtime->progcache->join->data_base;
@@ -543,7 +560,7 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     /* syscall_parameter_address_restrictions */ syscall_parameter_address_restrictions,
     /* virtual_address_space_adjustments      */ virtual_address_space_adjustments,
     /* dump_syscall_to_pb                     */ dump_syscall_to_pb,
-    /* r2_initial_value                       */ r2_initial_value );
+    /* reg                                    */ reg );
   if( FD_UNLIKELY( !vm ) ) {
     /* We throw an error here because it could be the case that the given heap_size > HEAP_MAX.
        In this case, Agave fails the transaction but does not error out.

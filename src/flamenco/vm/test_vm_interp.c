@@ -64,7 +64,7 @@ test_program_exec( char *                   test_case_name,
       /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
       /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       /* dump_syscall_to_pb                     */ 0,
-      /* r2_initial_value                       */ 0UL
+      /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );
   FD_TEST( vm_ok );
 
@@ -128,7 +128,7 @@ test_vm_validate( ulong                 sbpf_version,
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
-      0, 0UL );
+      0, (ulong[ FD_VM_REG_CNT ]){ 0 } );
   FD_TEST( ok );
   vm->pc        = vm->entry_pc;
   vm->ic        = 0UL;
@@ -159,7 +159,7 @@ test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
         FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
         FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
         FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
-        0, 0UL ) );
+        0, (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
     FD_TEST( vm->stack_frame_sz==expected_sz[i] );
     FD_TEST( vm->stack_push_frame_count==expected_ct[i] );
   }
@@ -193,7 +193,7 @@ lazy_exec( fd_vm_t *             vm,
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
       FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
-      0, 0UL ) );
+      0, (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
 
   int err = fd_vm_validate( vm );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "%s: validate: %i-%s", name, err, fd_vm_strerror( err ) ));
@@ -494,7 +494,7 @@ test_0cu_exit( fd_runtime_t * runtime ) {
       /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
       /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       /* dump_syscall_to_pb                     */ 0,
-      /* r2_initial_value                       */ 0UL
+      /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );
   FD_TEST( vm_ok );
 
@@ -529,7 +529,7 @@ test_0cu_exit( fd_runtime_t * runtime ) {
       /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
       /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       /* dump_syscall_to_pb                     */ 0,
-      /* r2_initial_value                       */ 0UL
+      /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );
   FD_TEST( vm_ok );
 

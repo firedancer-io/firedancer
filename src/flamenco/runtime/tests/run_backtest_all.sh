@@ -16,3 +16,5 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l replace-ata-with-p-ata-f7c9
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l loader-v3-remove-extend-program-ea633176 -m 2000000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l unbound-loader-v3-instruction-data-ea633176 -m 2000000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l loader-v3-allow-prefunded-programdata-ea633176 -m 2000000 -e 330
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l pass-input-metadata-in-vm-r3-r5-ea633176 -m 2000000 -e 470
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l pass-input-metadata-in-vm-r3-r5-ptrs-ea633176 -m 2000000 -e 580

@@ -342,7 +342,7 @@ env_build( fd_svm_mini_t *        mini,
     FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
     FD_FEATURE_ACTIVE_BANK( bank, syscall_parameter_address_restrictions ),
     FD_FEATURE_ACTIVE_BANK( bank, virtual_address_space_adjustments ),
-    0, 0UL
+    0, (ulong[ FD_VM_REG_CNT ]){ 0 }
   ) );
 
   fd_vm_mem_init_full( vm );

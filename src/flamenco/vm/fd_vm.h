@@ -327,7 +327,7 @@ fd_vm_init(
    int                       syscall_parameter_address_restrictions,
    int                       virtual_address_space_adjustments,
    int                       dump_syscall_to_pb,
-   ulong                     r2_initial_value );
+   ulong const               reg[ FD_VM_REG_CNT ] );
 
 /* fd_vm_leave leaves the caller's current local join to a vm.
    Returns a pointer to the memory region holding the vm on success

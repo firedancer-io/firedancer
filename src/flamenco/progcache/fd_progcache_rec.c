@@ -267,7 +267,7 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
                    FD_FEATURE_ACTIVE( load_slot, features, syscall_parameter_address_restrictions ),
                    FD_FEATURE_ACTIVE( load_slot, features, virtual_address_space_adjustments ),
                    0,
-                   0UL );
+                   (ulong[ FD_VM_REG_CNT ]){ 0 } );
   if( FD_UNLIKELY( !vm ) ) FD_LOG_CRIT(( "fd_vm_init failed" ));
 
   if( FD_UNLIKELY( fd_vm_validate( vm )!=FD_VM_SUCCESS ) ) return NULL;

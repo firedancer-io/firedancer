@@ -470,7 +470,7 @@ run_input( test_input_t const * input,
       /* syscall_parameter_address_restrictions */ 0,
       /* virtual_address_space_adjustments      */ 0,
       /* dump_syscall_to_pb                     */ 0,
-      /* r2_initial_value                       */ 0UL
+      /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );
   FD_TEST( vm_ok );
 
