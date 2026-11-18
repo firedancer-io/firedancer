@@ -222,7 +222,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.3.2/programs/bpf_loader/src/syscalls/sysvar.rs#L149 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L159 */
 int
 fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
                                                 /**/            ulong   out_vaddr,
@@ -269,7 +269,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L167-L232 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L187-L271 */
 int
 fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
                               /**/            ulong   sysvar_id_vaddr,
@@ -282,7 +282,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   /* sysvar_id_cost seems to just always be 32 / 250 = 0...
-     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L190-L197 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L206-L211 */
   ulong sysvar_buf_cost = sz / FD_VM_CPI_BYTES_PER_UNIT;
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, fd_ulong_max( sysvar_buf_cost, FD_VM_MEM_OP_BASE_COST ) ) );
 
@@ -297,7 +297,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/sysvar.rs#L207-L211 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L229-L235 */
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_U8,
@@ -308,10 +308,10 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L199-L200 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L239 */
   const fd_pubkey_t * sysvar_id = FD_VM_MEM_HADDR_LD( vm, sysvar_id_vaddr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L205-L208 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L241-L244 */
   ulong offset_length;
   int err = fd_int_if( __builtin_uaddl_overflow( offset, sz, &offset_length ), FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW, FD_EXECUTOR_INSTR_SUCCESS );
   if( FD_UNLIKELY( err ) ) {
@@ -319,10 +319,10 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_ABORT;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L210-L213
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L246-L249
      We don't need this, we already checked we can store in out_vaddr with requested sz. */
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L215-L221 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L252-L255 */
   if( FD_UNLIKELY( memcmp( sysvar_id->uc, fd_sysvar_clock_id.uc,             FD_PUBKEY_FOOTPRINT ) &&
                    memcmp( sysvar_id->uc, fd_sysvar_epoch_schedule_id.uc,    FD_PUBKEY_FOOTPRINT ) &&
                    memcmp( sysvar_id->uc, fd_sysvar_epoch_rewards_id.uc,     FD_PUBKEY_FOOTPRINT ) &&
@@ -342,7 +342,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L223-L228
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L257-L267
      Note the length check is at the very end to fail after performing sufficient checks. */
 
   if( FD_UNLIKELY( offset_length>sysvar_buf_len ) ) {
@@ -360,7 +360,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2043-L2118 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2895-L2962 */
 int
 fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
                                    /**/            ulong   var_addr,
@@ -372,26 +372,26 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   /* Var addr of 0 returns the total active stake on the cluster.
 
-     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2057-L2075 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2909-L2927 */
   if( FD_UNLIKELY( var_addr==0UL ) ) {
-    /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2065-L2066 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2917-L2918 */
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2926 */
     vm->reg[0] = vm->instr_ctx->bank->f.total_epoch_stake;
     return FD_VM_SUCCESS;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2083-L2091
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2935-L2943
      FD_PUBKEY_FOOTPRINT/FD_VM_CPI_BYTES_PER_UNIT is always 32/250 = 0,
      so we can omit it */
 
   FD_VM_CU_UPDATE( vm, FD_VM_MEM_OP_BASE_COST + FD_VM_SYSCALL_BASE_COST );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2103-L2104 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2956-L2957 */
   fd_pubkey_t const * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6874-L6879 */
 
   ulong stake = 0UL;
   /* It's okay to ignore if an account is invalid since these stakes
@@ -412,7 +412,7 @@ fd_vm_syscall_sol_get_stack_height( /**/            void *  _vm,
                                     FD_PARAM_UNUSED ulong   r3,
                                     FD_PARAM_UNUSED ulong   r4,
                                     FD_PARAM_UNUSED ulong   r5 ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1547 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2307 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
@@ -430,22 +430,22 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
                                    FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1465 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2158 */
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1467 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2160 */
   fd_txn_return_data_t const * return_data = &vm->instr_ctx->txn_out->details.return_data;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1468 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2161 */
   ulong length = fd_ulong_min( return_data->len, sz );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1469-L1492 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2162-L2185 */
   if( FD_LIKELY( length ) ) {
 
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1470-L1474 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2163-L2167 */
     FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( length, sizeof(fd_pubkey_t) ) / FD_VM_CPI_BYTES_PER_UNIT );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1476-L1481 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2169-L2174 */
     fd_vm_haddr_query_t return_data_query = {
       .vaddr    = return_data_vaddr,
       .align    = FD_VM_ALIGN_RUST_U8,
@@ -463,12 +463,12 @@ fd_vm_syscall_sol_get_return_data( /**/            void *  _vm,
     fd_vm_haddr_query_t * queries[] = { &return_data_query, &program_id_query };
     FD_VM_TRANSLATE_MUT( vm, queries );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1490-L1491 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2183-L2184 */
     memcpy( return_data_query.haddr, return_data->data, length );
     memcpy( program_id_query.haddr, &return_data->program_id, sizeof(fd_pubkey_t) );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1495 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2188 */
   vm->reg[0] = return_data->len;
   return FD_VM_SUCCESS;
 }
@@ -480,7 +480,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
                                    FD_PARAM_UNUSED ulong   r3,
                                    FD_PARAM_UNUSED ulong   r4,
                                    FD_PARAM_UNUSED ulong   r5 ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1297 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2103 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* In the original version of this code, there was an FD_TEST
@@ -494,7 +494,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSCALL_BASE_COST, src_sz / FD_VM_CPI_BYTES_PER_UNIT ) );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L1316 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2123 */
   if( FD_UNLIKELY( src_sz>FD_VM_RETURN_DATA_MAX ) ) {
     /* TODO: this is a bit annoying, we may want to unify return codes...
        - FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE is Agave's return code,
@@ -506,7 +506,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   /* src_sz == 0 is ok */
   void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, src_sz );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/bpf_loader/src/syscalls/mod.rs#L1480-L1484 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2133-L2136 */
   fd_pubkey_t const * program_id = NULL;
   int err = fd_exec_instr_ctx_get_last_program_key( vm->instr_ctx, &program_id );
   if( FD_UNLIKELY( err ) ) {
@@ -527,7 +527,7 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
 }
 
 /* Used to query and convey information about the sibling instruction
-   https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L676
+   https://github.com/anza-xyz/solana-sdk/blob/instruction%40v4.0.0/instruction/src/lib.rs#L321-L326
 
     */
 struct __attribute__((packed)) fd_vm_syscall_processed_sibling_instruction {
@@ -541,7 +541,7 @@ typedef struct fd_vm_syscall_processed_sibling_instruction fd_vm_syscall_process
 #define FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE  (16UL)
 #define FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_ALIGN (8UL )
 
-/* https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1402 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2193 */
 int
 fd_vm_syscall_sol_get_processed_sibling_instruction(
     void * _vm,
@@ -554,31 +554,31 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* Consume base compute cost
-     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1513 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2206 */
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
   /* Get the current instruction stack height.  This value is 1-indexed
      (top level instruction has a stack height of 1).
-    https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1517 */
+    https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2208 */
   ulong stack_height = vm->instr_ctx->runtime->instr.stack_sz;
 
   /* Reverse iterate through the instruction trace, ignoring anything except instructions on the same level.
-     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1518-L1522 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2209-L2230 */
   ulong instruction_trace_length = vm->instr_ctx->runtime->instr.trace_length;
   ulong reverse_index_at_stack_height = 0UL;
   fd_instr_info_t * found_instruction_context = NULL;
   for( ulong index_in_trace=instruction_trace_length; index_in_trace>0UL; index_in_trace-- ) {
 
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1524-L1526
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2231-L2233
        This error can never happen */
 
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1527-L1529 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2240-L2242 */
     fd_instr_info_t * instruction_context = &vm->instr_ctx->runtime->instr.trace[ index_in_trace-1UL ];
     if( FD_LIKELY( instruction_context->stack_height<stack_height ) ) {
       break;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1530-L1536 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2243-L2249 */
     if( FD_UNLIKELY( instruction_context->stack_height==stack_height ) ) {
       if( FD_UNLIKELY( fd_ulong_sat_add( index, 1UL )==reverse_index_at_stack_height ) ) {
         found_instruction_context = instruction_context;
@@ -590,7 +590,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 
   /* If we have found an entry, then copy the instruction into the
      result addresses.
-     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1539-L1588
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2253-L2301
    */
   if( FD_LIKELY( found_instruction_context != NULL ) ) {
     fd_vm_haddr_query_t result_header_query = {
@@ -605,7 +605,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 
     fd_vm_syscall_processed_sibling_instruction_t * result_header = result_header_query.haddr;
 
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1546-L1583 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2266-L2299 */
     if( result_header->data_len==found_instruction_context->data_sz && result_header->accounts_len==found_instruction_context->acct_cnt ) {
       fd_vm_haddr_query_t program_id_query = {
         .vaddr    = result_program_id_vaddr,
@@ -635,7 +635,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       uchar *                     data       = data_query.haddr;
       fd_vm_rust_account_meta_t * accounts   = accounts_query.haddr;
 
-      /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1561-L1562 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2281 */
       fd_pubkey_t const * instr_ctx_program_id = NULL;
       int err = fd_runtime_get_key_of_account_at_index(
           vm->instr_ctx->txn_out,
@@ -648,12 +648,12 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       }
       fd_memcpy( program_id, instr_ctx_program_id, sizeof(fd_pubkey_t) );
 
-      /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1563 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2282 */
       if( FD_LIKELY( found_instruction_context->data_sz ) ) {
         fd_memcpy( data, found_instruction_context->data, found_instruction_context->data_sz );
       }
 
-      /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1564-L1581 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2283-L2295 */
       for( ushort i=0; i<found_instruction_context->acct_cnt; i++ ) {
         fd_pubkey_t const * account_key;
         ushort txn_idx = found_instruction_context->accounts[ i ].index_in_transaction;
@@ -669,24 +669,24 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       }
     } else {
       /* Copy the actual metadata into the result meta struct
-         https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1584-L1586 */
+         https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2296-L2299 */
       result_header->data_len     = found_instruction_context->data_sz;
       result_header->accounts_len = found_instruction_context->acct_cnt;
     }
 
     /* Return true as we found a sibling instruction
-       https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1588 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2300 */
     vm->reg[0] = 1UL;
     return FD_VM_SUCCESS;
   }
 
   /* Return false if we didn't find a sibling instruction
-     https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1590 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2302 */
   vm->reg[0] = 0UL;
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/sysvar.rs#L80 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/sysvar.rs#L93 */
 int
 fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
                                             /**/            ulong   out_vaddr,

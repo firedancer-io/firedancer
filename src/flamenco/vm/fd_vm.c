@@ -224,13 +224,13 @@ fd_vm_validate( fd_vm_t const * vm ) {
   };
 
   /* SIMD-0173: LDDW
-     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L232-L235 */
+     https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L240-L243 */
   validation_map[ 0x18 ] = !FD_VM_SBPF_DISABLE_LDDW(sbpf_version) ? FD_CHECK_LDQ : FD_INVALID;
-  /* HOR64 https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L325 */
+  /* HOR64 https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L333 */
   validation_map[ 0xf7 ] = FD_VM_SBPF_DISABLE_LDDW(sbpf_version) ? FD_VALID   :    FD_INVALID;
 
   /* SIMD-0173: LE
-     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L285 */
+     https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L293 */
   validation_map[ 0xd4 ] = !FD_VM_SBPF_DISABLE_LE(sbpf_version) ? FD_CHECK_END : FD_INVALID;
 
   /* SIMD-0173: LDXW, STW, STXW */
@@ -266,7 +266,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
   validation_map[ 0x9f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
 
   /* SIMD-0173 / SIMD-0377: CALLX references valid register numbers
-     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L198-L214 */
+     https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L206-L222 */
   validation_map[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version)  ? FD_CHECK_CALL_REG_SRC
                           : FD_VM_SBPF_CALLX_USES_DST_REG(sbpf_version) ? FD_CHECK_CALL_REG_DST
                           : FD_CHECK_CALL_REG_IMM;
@@ -278,7 +278,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
   /* note: 0x?c, 0x?7, 0x?f should not be overwritten because they're now load/store ix */
 
   /* SIMD-0174: NEG
-     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L274 */
+     https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L282 */
   validation_map[ 0x84 ] = !FD_VM_SBPF_DISABLE_NEG(sbpf_version) ? FD_VALID : FD_INVALID;
   /* note: 0x87 should not be overwritten because it was NEG64 and it becomes STW */
 
@@ -309,7 +309,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
   validation_map[ 0xfe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
 
   /* SIMD-0377: JMP32
-     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L354-L375
+     https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L362-L383
 
      Note that these override some opcodes that conflict with PQR, so
      these must come AFTER PQR. */
@@ -349,10 +349,10 @@ fd_vm_validate( fd_vm_t const * vm ) {
                      ( FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS( sbpf_version ) ? vm->text_sz : 0UL ) ) )
     return FD_VM_ERR_BAD_TEXT;
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L104 */
     return FD_VM_TEXT_SZ_UNALIGNED;
 
-  if ( FD_UNLIKELY( vm->text_cnt == 0UL ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L112 */
+  if ( FD_UNLIKELY( vm->text_cnt == 0UL ) ) /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L107 */
     return FD_VM_ERR_EMPTY;
 
   ulong const * text     = vm->text;
@@ -385,12 +385,12 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
-    /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L244 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L240 */
     case FD_CHECK_LDQ: {
-      /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L131 */
+      /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L138 */
       if( FD_UNLIKELY( (i+1UL)>=text_cnt ) ) return FD_VM_ERR_INCOMPLETE_LDQ;
 
-      /* https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/verifier.rs#L137-L139 */
+      /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L144-L146 */
       fd_sbpf_instr_t addl_imm = fd_sbpf_instr( text[ i+1UL ] );
       if( FD_UNLIKELY( addl_imm.opcode.raw!=FD_SBPF_OP_ADDL_IMM ) ) return FD_VM_ERR_LDQ_NO_ADDL_IMM;
 
@@ -416,7 +416,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
       break;
     }
 
-    /* https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/verifier.rs#L220 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L206 */
     case FD_CHECK_CALL_REG_SRC: {
       if( FD_UNLIKELY( instr.src_reg > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
@@ -429,7 +429,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
       }
       break;
     }
-    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L205-L206 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L213-L214 */
     case FD_CHECK_CALL_REG_DST: {
       if( FD_UNLIKELY( instr.dst_reg > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
@@ -441,7 +441,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     }
 
     /* Check registers
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/verifier.rs#L177 */
+       https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/verifier.rs#L174 */
 
     /* Source register */
     if( FD_UNLIKELY( instr.src_reg>10 ) ) return FD_VM_ERR_INVALID_SRC_REG;
@@ -625,7 +625,7 @@ fd_vm_init(
   vm->text_cnt                               = text_cnt;
   /* In SBPF V3, bytecode starts at vaddr 0x100000000 exactly, so
      text_off from the POV of the VM is 0.
-     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L539 */
+     https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L573 */
   vm->text_off                               = FD_VM_SBPF_ENABLE_LOWER_RODATA_VADDR( sbpf_version ) ? 0UL : text_off;
   vm->text_sz                                = text_sz;
   vm->entry_pc                               = entry_pc;
@@ -641,7 +641,7 @@ fd_vm_init(
   vm->direct_mapping                         = direct_mapping;
   vm->syscall_parameter_address_restrictions = syscall_parameter_address_restrictions;
   vm->virtual_address_space_adjustments      = virtual_address_space_adjustments;
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/vm.rs#L99-L103 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/vm.rs#L96-L100 */
   if( FD_UNLIKELY( FD_VM_SBPF_STACK_FRAME_GAPS( sbpf_version ) && !virtual_address_space_adjustments ) ) {
     vm->stack_frame_sz                       = FD_VM_STACK_FRAME_SZ;
     vm->stack_push_frame_count               = 2UL;
@@ -667,7 +667,7 @@ fd_vm_init(
   /* Initialize registers */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
   fd_memcpy( vm->reg, reg, FD_VM_REG_CNT*sizeof(ulong) );
-  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/vm.rs#L325-L330 */
+  /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/vm.rs#L380-L385 */
   vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START +
     ( FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( vm->sbpf_version ) ? FD_VM_STACK_MAX : vm->stack_frame_sz );
   /* Note: Agave uses r11 as pc, we don't */

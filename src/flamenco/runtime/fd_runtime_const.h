@@ -126,8 +126,8 @@ FD_PROTOTYPES_BEGIN
 
 /* FeeStructure constants. Bank is always initialized with
    `FeeStructure::default()`
-   https://github.com/anza-xyz/agave/blob/v3.1.0-beta.0/runtime/src/bank.rs#L1859
-   https://github.com/anza-xyz/solana-sdk/blob/badc2c40071e6e7f7a8e8452b792b66613c5164c/fee-structure/src/lib.rs#L100 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L2312
+   https://github.com/anza-xyz/solana-sdk/blob/fee-structure%40v4.1.0/fee-structure/src/lib.rs#L122 */
 #define FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE (5000UL)
 
 /* Various constant values used by the runtime. */
@@ -136,9 +136,9 @@ FD_PROTOTYPES_BEGIN
 
 #define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
 
-/* https://github.com/anza-xyz/agave/blob/0d34a1a160129c4293dac248e14231e9e773b4ce/program-runtime/src/compute_budget.rs#L139 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/lib.rs#L26 */
 #define FD_MAX_INSTRUCTION_TRACE_LENGTH (64UL)
-/* https://github.com/anza-xyz/agave/blob/f70ab5598ccd86b216c3928e4397bf4a5b58d723/compute-budget/src/compute_budget.rs#L13 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/execution_budget.rs#L8 */
 #define FD_MAX_INSTRUCTION_STACK_DEPTH  (5UL)
 
 
@@ -150,7 +150,7 @@ FD_PROTOTYPES_BEGIN
 /* Maximum CPI instruction data size. 10 KiB was chosen to ensure that
    CPI instructions are not more limited than transaction instructions
    if the size of transactions is doubled in the future.
-   https://github.com/anza-xyz/agave/blob/v3.1.1/transaction-context/src/lib.rs#L33 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/lib.rs#L18 */
 #define FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN (10240UL)
 
 /* The bpf loader's serialization footprint (the size of the per-stack-
@@ -168,7 +168,7 @@ FD_PROTOTYPES_BEGIN
 #define MAX_PERMITTED_DATA_INCREASE (10240UL) // 10KB
 #define FD_BPF_ALIGN_OF_U128        (8UL)
 #define FD_ACCOUNT_REC_ALIGN        (8UL)
-/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L37-L38 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/ebpf.rs#L35-L36 */
 #define FD_RUNTIME_EBPF_HOST_ALIGN  (16UL)
 
 /* FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT is the per-unique-account

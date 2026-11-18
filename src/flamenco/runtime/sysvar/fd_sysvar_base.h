@@ -9,11 +9,11 @@
 #define FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ (    81UL)
 #define FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ (   33UL)
 #define FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ  (8UL)
-#define FD_SYSVAR_RECENT_HASHES_BINCODE_SZ (  6008UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/recent_blockhashes.rs#L157 */
+#define FD_SYSVAR_RECENT_HASHES_BINCODE_SZ (  6008UL) /* Agave v4.5: https://github.com/anza-xyz/solana-sdk/blob/sysvar%40v5.0.0/sysvar/src/recent_blockhashes.rs#L42 */
 #define FD_SYSVAR_RENT_BINCODE_SZ          (    17UL)
-#define FD_SYSVAR_SLOT_HASHES_BINCODE_SZ   ( 20488UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/slot_hashes.rs#L69 */
-#define FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ  (131097UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/slot_history.rs#L65 */
-#define FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ( 16392UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/stake_history.rs#L66 */
+#define FD_SYSVAR_SLOT_HASHES_BINCODE_SZ   ( 20488UL) /* Agave v4.5: https://github.com/anza-xyz/solana-sdk/blob/slot-hashes%40v4.0.0/slot-hashes/src/lib.rs#L40 */
+#define FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ  (131097UL) /* Agave v4.5: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v3.2.0/slot-history/src/lib.rs#L55 */
+#define FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ( 16392UL) /* Agave v4.5: https://github.com/anza-xyz/solana-sdk/blob/stake-history%40v2.1.0/stake-history/src/lib.rs#L32 */
 
 struct fd_sysvar_clock {
   ulong slot;

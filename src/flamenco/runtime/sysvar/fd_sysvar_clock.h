@@ -31,7 +31,7 @@ fd_sysvar_clock_read( fd_accdb_t *            accdb,
    and leader_schedule_epoch at the start of a block.  The timestamp is
    left as the parent's.
 
-   https://github.com/anza-xyz/agave/blob/386cf57c45e135d8a3a8b7d16877eb896f695c64/runtime/src/bank.rs#L2507
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L2648
 
    At an epoch boundary the parent's timestamp becomes the epoch start
    timestamp. */

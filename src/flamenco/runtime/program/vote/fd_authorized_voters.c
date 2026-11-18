@@ -25,7 +25,7 @@ void
 fd_authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self,
                                               ulong                         current_epoch ) {
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L46
+  // https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/authorized_voters.rs#L76
   ulong expired_keys[ MAX_AUTHORIZED_VOTERS_CAPACITY ];
   ulong key_cnt                                     = 0;
   for( fd_vote_authorized_voters_treap_fwd_iter_t iter =
@@ -37,7 +37,7 @@ fd_authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self
     if( ele->epoch < current_epoch ) expired_keys[key_cnt++] = ele->epoch;
   }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L52
+  // https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/authorized_voters.rs#L82
   for( ulong i = 0; i < key_cnt; i++ ) {
     fd_vote_authorized_voter_t * ele =
         fd_vote_authorized_voters_treap_ele_query( self->treap, expired_keys[i], self->pool );
@@ -45,7 +45,7 @@ fd_authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self
     fd_vote_authorized_voters_pool_ele_release( self->pool, ele );
   }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L60
+  // https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/authorized_voters.rs#L90
   FD_TEST( !fd_authorized_voters_is_empty( self ) );
 
 }
@@ -59,7 +59,7 @@ fd_authorized_voters_get_or_calculate_authorized_voter_for_epoch( fd_vote_author
   fd_vote_authorized_voter_t * res =
       fd_vote_authorized_voters_treap_ele_query( self->treap, epoch, self->pool );
   // "predecessor" would be more big-O optimal here, but mirroring labs logic
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L93
+  // https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/authorized_voters.rs#L124
   if( FD_UNLIKELY( !res ) ) {
     for( fd_vote_authorized_voters_treap_fwd_iter_t iter =
              fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
@@ -85,11 +85,11 @@ fd_vote_authorized_voter_t *
 fd_authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorized_voters_t * self,
                                                                ulong                         epoch ) {
   int                          existed = 0;
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L29
+  // https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/authorized_voters.rs#L50
   fd_vote_authorized_voter_t * res =
       fd_authorized_voters_get_or_calculate_authorized_voter_for_epoch( self, epoch, &existed );
   if( !res ) return NULL;
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L32
+  // https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/authorized_voters.rs#L53
   if( !existed ) {
     /* insert cannot fail because !existed */
     if( FD_UNLIKELY( !fd_vote_authorized_voters_pool_free( self->pool ) ) ) {
@@ -99,7 +99,7 @@ fd_authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorize
     ele->epoch                       = epoch;
     ele->pubkey                      = res->pubkey;
     ele->prio                        = ele->pubkey.uc[0];
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L33
+    // https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/authorized_voters.rs#L54
     fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool );
     return ele;
   }

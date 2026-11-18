@@ -8,16 +8,16 @@
 #include "../fd_compute_budget_details.h"
 #include "../../vm/fd_vm_base.h"
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/execution_budget.rs#L44 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/execution_budget.rs#L31 */
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT (200000UL)
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/programs/compute-budget/src/lib.rs#L4 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/compute-budget/src/lib.rs#L4 */
 #define DEFAULT_COMPUTE_UNITS (150UL)
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/execution_budget.rs#L47 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/execution_budget.rs#L34 */
 #define MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT (3000UL)
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/compute-budget-instruction/src/builtin_programs_filter.rs#L38 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/builtin_programs_filter.rs#L37 */
 
 FD_FN_PURE static inline uchar
 get_program_kind( fd_bank_t const *      bank,
@@ -32,7 +32,7 @@ get_program_kind( fd_bank_t const *      bank,
        being migrated to BPF, but is treated as migrated by the cost
        model.
 
-       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/builtins-default-costs/src/lib.rs#L95-L107 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/builtins-default-costs/src/lib.rs#L94-L106 */
     if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, bls_pubkey_management_in_vote_account ) &&
                      fd_pubkey_eq( program_pubkey, &fd_solana_vote_program_id ) ) ) {
       return FD_PROGRAM_KIND_MIGRATING_BUILTIN;
@@ -70,18 +70,18 @@ is_compute_budget_instruction( fd_txn_t const *       txn,
   - `num_builtin_instrs` -> `num_non_migratable_builtin_instructions` + `num_not_migrated`
   - `num_non_builtin_instrs` -> `num_non_builtin_instructions` + `num_migrated`
 
-   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/compute-budget-instruction/src/compute_budget_instruction_details.rs#L196 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L196 */
 
 FD_FN_CONST static inline ulong
 calculate_default_compute_unit_limit( ulong num_builtin_instrs,
                                       ulong num_non_builtin_instrs ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L227-L234 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L211-L218 */
   return fd_ulong_sat_add( fd_ulong_sat_mul( num_builtin_instrs, MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT ),
                            fd_ulong_sat_mul( num_non_builtin_instrs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT ) );
 
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/compute-budget-instruction/src/compute_budget_instruction_details.rs#L192 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L192 */
 
 FD_FN_CONST static inline int
 sanitize_requested_heap_size( ulong bytes ) {
@@ -91,13 +91,13 @@ sanitize_requested_heap_size( ulong bytes ) {
     ( bytes%FD_HEAP_FRAME_BYTES_GRANULARITY )==0UL;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/compute-budget-instruction/src/compute_budget_instruction_details.rs#L101-L153 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L101-L153 */
 
 int
 fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out ) {
   fd_compute_budget_details_t * details = &txn_out->details.compute_budget;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/compute-budget-instruction/src/compute_budget_instruction_details.rs#L105-L119 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L105-L119 */
   if( details->has_requested_heap_size ) {
     if( FD_UNLIKELY( !sanitize_requested_heap_size( details->heap_size ) ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( txn_out, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, details->requested_heap_size_instr_index );
@@ -105,7 +105,7 @@ fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out ) {
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/compute-budget-instruction/src/compute_budget_instruction_details.rs#L121-L128 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L121-L128 */
   if( !details->has_compute_units_limit_update ) {
     details->compute_unit_limit = calculate_default_compute_unit_limit( details->num_builtin_instrs,
                                                                         details->num_non_builtin_instrs );
@@ -113,7 +113,7 @@ fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out ) {
   details->compute_unit_limit = fd_ulong_min( FD_MAX_COMPUTE_UNIT_LIMIT, details->compute_unit_limit );
   details->compute_meter      = details->compute_unit_limit;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/compute-budget-instruction/src/compute_budget_instruction_details.rs#L136-L145 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L136-L145 */
   if( details->has_loaded_accounts_data_size_limit_update ) {
     if( FD_UNLIKELY( details->loaded_accounts_data_size_limit==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
@@ -145,7 +145,7 @@ fd_compute_budget_count_instrs( fd_bank_t const *             bank,
    NOTE: At this point, the transaction context has NOT been fully
    initialized (namely, the accounts). The accounts are NOT safe to access.
 
-   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/compute-budget-instruction/src/compute_budget_instruction_details.rs#L54-L99 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L54-L99 */
 int
 fd_executor_compute_budget_program_execute_instructions( fd_bank_t const *   bank,
                                                          fd_txn_in_t const * txn_in,

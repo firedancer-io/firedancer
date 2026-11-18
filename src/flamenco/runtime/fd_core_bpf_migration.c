@@ -20,7 +20,7 @@ get_program_data_address( fd_pubkey_t const * program_addr ) {
   uchar         out_bump_seed;
   int err = fd_pubkey_find_program_address( &fd_solana_bpf_loader_upgradeable_program_id, 1UL, &seed, &seed_sz, &out, &out_bump_seed, &custom_err );
   if( FD_UNLIKELY( err ) ) {
-    /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L277-L279 */
+    /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/syscalls.rs#L277-L279 */
     FD_LOG_ERR(( "Unable to find a viable program address bump seed" ));
   }
   return out;
@@ -84,7 +84,7 @@ tmp_account_store( fd_bank_t *        bank,
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &db_acc, update );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L12 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L12 */
 
 struct target_core_bpf {
   fd_pubkey_t        program_address;
@@ -95,7 +95,7 @@ struct target_core_bpf {
 
 typedef struct target_core_bpf target_core_bpf_t;
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L19 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L19 */
 
 struct target_builtin {
   fd_tmp_account_t * program_account;
@@ -105,7 +105,7 @@ struct target_builtin {
 
 typedef struct target_builtin target_builtin_t;
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L25-L91 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L25-L88 */
 
 target_builtin_t *
 target_builtin_new_checked( target_builtin_t *        target_builtin,
@@ -116,7 +116,7 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
                             fd_accdb_fork_id_t        fork_id,
                             fd_runtime_stack_t *      runtime_stack ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L31-L53 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L31-L53 */
 
   fd_tmp_account_t * program_account = &runtime_stack->bpf_migration->program_account;
   switch( migration_target ) {
@@ -139,11 +139,11 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
     FD_LOG_ERR(( "invalid migration_target %d", migration_target ));
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L55 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L55 */
 
   fd_pubkey_t program_data_address = get_program_data_address( program_address );
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L57-L82 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L57-L79 */
 
   ulong program_data_account_lamports = 0UL;
   do {
@@ -153,7 +153,7 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
     if( FD_UNLIKELY( !progdata_exists ) ) fd_accdb_unread_one( accdb, &progdata );
 
     /* SIMD-0444: relax_programdata_account_check_migration
-       https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L57-L70 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L57-L70 */
     if( relax_programdata_account_check_migration ) {
       /* The program data account should not exist, but a system
          account with funded lamports is acceptable. */
@@ -178,7 +178,7 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
     }
   } while(0);
 
-  /* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L63-L67 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L81-L86 */
 
   *target_builtin = (target_builtin_t) {
     .program_account               = program_account,
@@ -188,7 +188,7 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
   return target_builtin;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L26-L93 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L26-L90 */
 static target_core_bpf_t *
 target_core_bpf_new_checked( target_core_bpf_t *  target_core_bpf,
                              fd_pubkey_t const *  program_address,
@@ -262,7 +262,7 @@ target_core_bpf_new_checked( target_core_bpf_t *  target_core_bpf,
   return target_core_bpf;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L25-L82
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L25-L79
 
    Agave uses a separate TargetBpfV2 struct, but it has the
    same layout as target_builtin_t so we reuse that. */
@@ -274,41 +274,41 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
                            fd_accdb_fork_id_t        fork_id,
                            fd_runtime_stack_t *      runtime_stack ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L30-L33 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L30-L33 */
   fd_tmp_account_t * program_account = &runtime_stack->bpf_migration->program_account;
   if( FD_UNLIKELY( !tmp_account_read( program_account, accdb, fork_id, program_address ) ) ) {
     /* CoreBpfMigrationError::AccountNotFound(*program_address) */
     return NULL;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L35-L38 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L35-L38 */
   if( FD_UNLIKELY( 0!=memcmp( &program_account->owner, &fd_solana_bpf_loader_program_id, sizeof(fd_pubkey_t) ) ) ) {
     /* CoreBpfMigrationError::IncorrectOwner(*program_address) */
     return NULL;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L40-L45 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L40-L45 */
   if( FD_UNLIKELY( !program_account->executable ) ) {
     /* CoreBpfMigrationError::ProgramAccountNotExecutable(*program_address) */
     return NULL;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L47 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L47 */
   fd_pubkey_t program_data_address = get_program_data_address( program_address );
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L49-L74 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L49-L71 */
   ulong program_data_account_lamports = 0UL;
   do {
     fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, program_data_address.uc );
     int progdata_exists = !!acc.lamports;
     if( FD_UNLIKELY( !progdata_exists ) ) fd_accdb_unread_one( accdb, &acc );
 
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L49-L74 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L49-L71 */
     if( FD_LIKELY( allow_prefunded ) ) {
       /* The program data account should not exist, but a system
          account with funded lamports is acceptable.
 
-         https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L50-L61 */
+         https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L50-L61 */
       if( FD_UNLIKELY( progdata_exists ) ) {
         if( FD_UNLIKELY( !fd_pubkey_eq( (fd_pubkey_t*)acc.owner, &fd_solana_system_program_id ) ) ) {
           /* CoreBpfMigrationError::ProgramHasDataAccount(*program_address) */
@@ -320,7 +320,7 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
         }
       }
     } else {
-      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L62-L74 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L62-L71 */
       if( FD_UNLIKELY( progdata_exists ) ) {
         /* CoreBpfMigrationError::ProgramHasDataAccount(*program_address) */
         fd_accdb_unread_one( accdb, &acc );
@@ -349,7 +349,7 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
    execution.  The feature activation selects a new program-cache
    revision, so no explicit cache update is needed here.
 
-   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L120-L218 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L128-L216 */
 static int
 fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
                                             fd_runtime_stack_t * runtime_stack,
@@ -425,7 +425,7 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L51-L75 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L50-L73 */
 
 static fd_tmp_account_t *
 source_buffer_new_checked( fd_tmp_account_t *  acc,
@@ -459,10 +459,10 @@ source_buffer_new_checked( fd_tmp_account_t *  acc,
     return NULL;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L61-L71 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L60-L69 */
   if( verified_build_hash ) {
     /* Strip trailing zero-padding before hashing
-       https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L61-L63 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L60-L62 */
     uchar const * data       = (uchar const *)acc->data;
     ulong         offset     = BUFFER_METADATA_SIZE;
     ulong         end_offset = acc->data_sz;
@@ -481,13 +481,13 @@ source_buffer_new_checked( fd_tmp_account_t *  acc,
   return acc;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L82-L95 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L55-L68 */
 
 static fd_tmp_account_t *
 new_target_program_account( fd_tmp_account_t *        acc,
                             target_builtin_t const *  target,
                             fd_rent_t const *         rent ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L86-L88 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L59-L61 */
   fd_bpf_state_t state = {
     .discriminant = FD_BPF_STATE_PROGRAM,
     .inner = {
@@ -511,7 +511,7 @@ new_target_program_account( fd_tmp_account_t *        acc,
   return acc;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L108-L153 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L81-L126 */
 static fd_tmp_account_t *
 new_target_program_data_account( fd_tmp_account_t *       acc,
                                  fd_tmp_account_t const * source,
@@ -531,7 +531,7 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   if( FD_UNLIKELY( state.discriminant!=FD_BPF_STATE_BUFFER ) )
     return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L91-L98 */
   if( upgrade_authority_address ) {
     if( FD_UNLIKELY( !state.inner.buffer.has_authority_address ||
                      !fd_pubkey_eq( upgrade_authority_address, &state.inner.buffer.authority_address ) ) ) {
@@ -596,7 +596,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   fd_memset( &runtime_stack->bpf_migration->empty,                   0, sizeof(runtime_stack->bpf_migration->empty                  ) );
   fd_memset( &runtime_stack->bpf_migration->progcache_validate,      0, sizeof(runtime_stack->bpf_migration->progcache_validate     ) );
 
-  /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L232-L240 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L232-L240 */
   fd_tmp_account_t * source = &runtime_stack->bpf_migration->source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
@@ -642,7 +642,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   FD_DCHECK_CRIT( new_target_program_data->data_sz>=PROGRAMDATA_METADATA_SIZE, "undersize account" );
   /* FIXME call fd_directly_invoke_loader_v3_deploy */
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L267-L281 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L270-L284 */
   ulong lamports_to_burn;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_account->lamports, source->lamports, &lamports_to_burn ) ) ) return;
   if( FD_UNLIKELY( fd_ulong_checked_add( lamports_to_burn, target->program_data_account_lamports, &lamports_to_burn ) ) )       return;
@@ -663,7 +663,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
 }
 
 /* Mimics migrate_builtin_to_core_bpf().
-   https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#215-303 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L218-L303 */
 void
 fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
                                 fd_accdb_t *                           accdb,
@@ -674,7 +674,7 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
 }
 
 /* Mimics upgrade_core_bpf_program().
-   https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L319-L377 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L320-L387 */
 void
 fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
                              fd_accdb_t *                           accdb,
@@ -685,13 +685,13 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
                              fd_capture_ctx_t *                     capture_ctx ) {
   fd_memset( runtime_stack->bpf_migration, 0, sizeof(fd_runtime_stack_bpf_migration_t) );
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L327 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L329 */
   target_core_bpf_t target[1];
   if( FD_UNLIKELY( !target_core_bpf_new_checked( target, builtin_program_id, accdb, bank->accdb_fork_id, runtime_stack ) ) ) {
     return;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L330-L338 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L330-L338 */
   fd_tmp_account_t * source = &runtime_stack->bpf_migration->source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
@@ -702,7 +702,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
     return;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L91-L98 */
   if( target->has_upgrade_authority_address ) {
     fd_bpf_state_t buffer_state[1];
     if( FD_UNLIKELY( fd_bpf_state_decode( buffer_state, source->data, BUFFER_METADATA_SIZE ) ||
@@ -716,7 +716,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L331-L332  */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L341-L342  */
   fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration->new_target_program_data;
   fd_pubkey_t program_data_address = get_program_data_address( builtin_program_id );
 
@@ -749,21 +749,21 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
              source->data + BUFFER_METADATA_SIZE,
              program_data_len );
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L339-L346 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L344-L351 */
   ulong old_data_sz;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_data_account->data_sz, source->data_sz, &old_data_sz ) ) ) return;
   ulong new_data_sz = new_target_program_data->data_sz;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L349-L355 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L354-L360 */
   uchar const * elf    = new_target_program_data->data + PROGRAMDATA_METADATA_SIZE;
   ulong         elf_sz = program_data_len;
   if( FD_UNLIKELY( fd_directly_invoke_loader_v3_deploy_checks( bank, runtime_stack, elf, elf_sz ) ) ) return;
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L359-L364 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L369-L374 */
   ulong lamports_to_burn;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_data_account->lamports, source->lamports, &lamports_to_burn ) ) ) return;
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L366-L371 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L376-L381 */
   fd_pubkey_t source_addr = source->pubkey;
   tmp_account_store( bank, accdb, new_target_program_data, capture_ctx, 1 );
 
@@ -772,7 +772,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   empty->pubkey = source_addr;
   tmp_account_store( bank, accdb, empty, capture_ctx, 0 );
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L374 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L384 */
   /* FIXME "update account data size delta" */
   (void)old_data_sz;
   (void)new_data_sz;
@@ -781,7 +781,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
 }
 
 /* Mimics upgrade_loader_v2_program_with_loader_v3_program().
-   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L402-L474 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L408-L489 */
 void
 fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               bank,
                                                      fd_accdb_t *              accdb,
@@ -793,7 +793,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
                                                      fd_capture_ctx_t *        capture_ctx ) {
   fd_memset( runtime_stack->bpf_migration, 0, sizeof(fd_runtime_stack_bpf_migration_t) );
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L411-L412 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L418-L419 */
   target_builtin_t target[1];
   if( FD_UNLIKELY( !target_bpf_v2_new_checked(
       target,
@@ -804,7 +804,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
       runtime_stack ) ) )
     return;
 
-  /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L420-L428 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L420-L428 */
   fd_tmp_account_t * source = &runtime_stack->bpf_migration->source;
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
@@ -817,24 +817,24 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
   fd_rent_t const * rent = &bank->f.rent;
   ulong             slot = bank->f.slot;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L416-L417 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L431-L432 */
   fd_tmp_account_t * new_target_program = &runtime_stack->bpf_migration->new_target_program;
   if( FD_UNLIKELY( !new_target_program_account( new_target_program, target, rent ) ) )
     return;
   new_target_program->pubkey = *loader_v2_program_address;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L419-L421 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L434-L436 */
   fd_tmp_account_t * new_target_program_data = &runtime_stack->bpf_migration->new_target_program_data;
   if( FD_UNLIKELY( !new_target_program_data_account( new_target_program_data, source, NULL, rent, slot ) ) ) {
     return;
   }
   new_target_program_data->pubkey = target->program_data_address;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L427-L435 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L442-L450 */
   ulong old_data_sz;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_account->data_sz, source->data_sz, &old_data_sz ) ) ) return;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L432-L435 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L447-L450 */
   ulong new_data_sz;
   if( FD_UNLIKELY( fd_ulong_checked_add( new_target_program->data_sz, new_target_program_data->data_sz, &new_data_sz ) ) ) return;
 
@@ -854,12 +854,12 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
      execution.  The feature activation selects a new program-cache
      revision, so no explicit cache update is needed here.
 
-     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L437-L443*/
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L452-L458*/
   uchar const * elf    = (uchar const *)new_target_program_data->data + PROGRAMDATA_METADATA_SIZE;
   ulong         elf_sz = new_target_program_data->data_sz - PROGRAMDATA_METADATA_SIZE;
   if( FD_UNLIKELY( fd_directly_invoke_loader_v3_deploy_checks( bank, runtime_stack, elf, elf_sz ) ) ) return;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L451-L459 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L466-L474 */
   ulong lamports_to_burn;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_account->lamports, source->lamports, &lamports_to_burn ) ) ) return;
   if( FD_UNLIKELY( fd_ulong_checked_add( lamports_to_burn, target->program_data_account_lamports, &lamports_to_burn ) ) )       return;
@@ -867,7 +867,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
   ulong lamports_to_fund;
   if( FD_UNLIKELY( fd_ulong_checked_add( new_target_program->lamports, new_target_program_data->lamports, &lamports_to_fund ) ) ) return;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L462-L468 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L477-L483 */
   tmp_account_store( bank, accdb, new_target_program,      capture_ctx, 0 );
   tmp_account_store( bank, accdb, new_target_program_data, capture_ctx, 1 );
 

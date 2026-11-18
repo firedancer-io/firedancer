@@ -607,7 +607,7 @@ interp_exec:
   /* 0x60 - 0x6f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x64) /* FD_SBPF_OP_LSH_IMM */
-    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L291 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L318 */
     reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHL( (uint)reg_dst, (uint)imm ) );
   FD_VM_INTERP_INSTR_END;
 
@@ -620,12 +620,12 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x67) /* FD_SBPF_OP_LSH64_IMM */
-    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L376 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L403 */
     reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHL( reg_dst, imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x6c) /* FD_SBPF_OP_LSH_REG */
-    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L292 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L319 */
     reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHL( (uint)reg_dst, reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
@@ -639,14 +639,14 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x6f) /* FD_SBPF_OP_LSH64_REG */
-    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L377 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L404 */
     reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHL( reg_dst, reg_src );
   FD_VM_INTERP_INSTR_END;
 
   /* 0x70 - 0x7f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x74) /* FD_SBPF_OP_RSH_IMM */
-    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L293 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L320 */
     reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHR( (uint)reg_dst, imm ) );
   FD_VM_INTERP_INSTR_END;
 
@@ -659,12 +659,12 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x77) /* FD_SBPF_OP_RSH64_IMM */
-    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L378 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L405 */
     reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHR( reg_dst, imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x7c) /* FD_SBPF_OP_RSH_REG */
-    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L294 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L321 */
     reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHR( (uint)reg_dst, (uint)reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
@@ -678,7 +678,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x7f) /* FD_SBPF_OP_RSH64_REG */
-    /* https://github.com/solana-labs/rbpf/blob/8d36530b7071060e2837ebb26f25590db6816048/src/interpreter.rs#L379 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L406 */
     reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHR( reg_dst, reg_src );
   FD_VM_INTERP_INSTR_END;
 
@@ -702,7 +702,7 @@ interp_exec:
        (*)but after checking calldests, see point below. */
 
       /* Agave's order of checks
-         (https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L565-L572):
+         (https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L599-L606):
           1. Lookup imm hash in FunctionRegistry (calldests_test is our equivalent)
           2. Push stack frame
           3. Check PC
@@ -740,25 +740,25 @@ interp_exec:
   } FD_VM_INTERP_BRANCH_END;
 
   /* SIMD-0178: Static syscalls (SBPF V3+)
-     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L542-L577 */
+     https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L576-L611 */
   FD_VM_INTERP_BRANCH_BEGIN(0x85_static) { /* FD_SBPF_OP_CALL_IMM (static syscalls) */
 
     if( src == 0 ) {
       /* External syscall
-         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L545-L553 */
+         https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L579-L587 */
       fd_sbpf_syscalls_t const * syscall = imm!=fd_sbpf_syscalls_key_null() ? fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL ) : NULL;
       if( FD_UNLIKELY( !syscall ) ) goto sigillbr;
       FD_VM_INTERP_SYSCALL_EXEC;
     } else if( src == 1 ) {
       /* Internal call
-         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L555-L563
-         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L97-L103 */
+         https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L589-L597
+         https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L114-L120 */
       long target_pc_l = fd_long_sat_add( (long)pc, fd_long_sat_add( (long)(int)imm, 1L ) );
       if( FD_UNLIKELY( target_pc_l<0L || (ulong)target_pc_l>=text_cnt ) ) goto sigillbr;
       FD_VM_INTERP_STACK_PUSH;
       pc = (ulong)target_pc_l - 1;
     } else {
-      /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L574-L576 */
+      /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L608-L610 */
       goto sigillbr;
     }
 
@@ -803,7 +803,7 @@ interp_exec:
 
     FD_VM_INTERP_STACK_PUSH;
 
-    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L528-L540 */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L562-L574 */
     ulong vaddr = fd_sbpf_callx_uses_src_reg_enabled( sbpf_version ) ? reg_src
                 : fd_sbpf_callx_uses_dst_reg_enabled( sbpf_version ) ? reg[ dst ]
                 : reg[ imm & 15U ];
@@ -849,8 +849,8 @@ interp_exec:
       /* Agave JIT VM exit implementation analysis below.
 
        Agave references:
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L503-L509
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L697-L702 */
+       https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L613-L619
+       https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/jit.rs#L786-L792 */
     if( FD_UNLIKELY( !frame_cnt ) ) goto sigexit; /* Exit program */
     frame_cnt--;
     reg[6]   = shadow[ frame_cnt ].r6;
@@ -1096,7 +1096,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   /* SIMD-0377: JMP32
-     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L480-L501
+     https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/interpreter.rs#L514-L535
 
      0x16 - 0xde ******************************************************/
 
@@ -1304,7 +1304,7 @@ interp_halt:
         2. IM' = IM + pc0       # pc0 is the start of the new linear run (typically the target pc)
 
       Code (that does the above in one ALU instruction):
-       https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L891
+       https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/jit.rs#L950
 
 
       ### How does this relate to our interpreter?
@@ -1338,7 +1338,7 @@ interp_halt:
    section covers the various faults that the respective VMs implement and how they match.
 
    # Normal VM exit (sigexit):
-   VM exit instruction entrypoint: https://github.com/solana-labs/rbpf/blob/12237895305ab38514be865ebed6268553e4f589/src/jit.rs#L698-L708
+   VM exit instruction entrypoint: https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/jit.rs#L783-L792
 
    Pseudocode (with FD semantics):
    ```

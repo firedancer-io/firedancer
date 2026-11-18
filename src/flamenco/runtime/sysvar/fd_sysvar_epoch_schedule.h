@@ -37,7 +37,7 @@
    MAX_LOCKOUT_HISTORY, which is the minimum slot count needed to reach
    finality in Tower BFT.
 
-   https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L21 */
+   https://github.com/anza-xyz/solana-sdk/blob/epoch-schedule%40v3.4.0/epoch-schedule/src/lib.rs#L49 */
 
 #define FD_EPOCH_LEN_MIN (32UL)
 

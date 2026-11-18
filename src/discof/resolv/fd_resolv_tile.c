@@ -308,7 +308,7 @@ peek_alut( fd_resolv_ctx_t *  ctx,
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/accounts-db/src/accounts.rs#L119-L122
 
      The resolv tile maps accdb read-only and so must use the nocache
      read API; fd_accdb_read_one would mutate writer-only shmem. */

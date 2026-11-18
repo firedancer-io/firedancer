@@ -153,7 +153,7 @@ struct __attribute__((packed)) fd_vm_rc_refcell_ref {
 };
 typedef struct fd_vm_rc_refcell_ref fd_vm_rc_refcell_ref_t;
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L224-L247
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L263-L286
 
    This struct caches the result of a translated CallerAccount,
    which could be translated from either the Rust or C ABI.
@@ -181,7 +181,7 @@ typedef struct fd_vm_cpi_caller_account fd_vm_cpi_caller_account_t;
 
    The control and data flow matches Agave 1-1 for ease of auditability.
 
-   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L979-L985 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L1095-L1101 */
 struct fd_vm_cpi_translated_account {
   ushort                     index_in_caller;
   fd_vm_cpi_caller_account_t caller_account;

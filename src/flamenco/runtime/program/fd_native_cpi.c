@@ -51,7 +51,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
   fd_memcpy( instr_info->data, instr_data, instr_data_len );
   instr_info->data_sz = (ushort)instr_data_len;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L312-L313 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L316-L324 */
   int exec_err = fd_vm_prepare_instruction( instr_info,
                                             ctx,
                                             native_program_id,
@@ -64,7 +64,7 @@ fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
     return exec_err;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L315-L321 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L325-L326 */
   return fd_execute_instr( ctx->runtime, ctx->bank, ctx->txn_in, ctx->txn_out, instr_info );
 }
 

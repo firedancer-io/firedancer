@@ -7,7 +7,7 @@
 #define FD_CORE_BPF_MIGRATION_TARGET_BUILTIN   (0)
 #define FD_CORE_BPF_MIGRATION_TARGET_STATELESS (1)
 
-/* https://github.com/anza-xyz/agave/blob/v2.3.0/builtins/src/core_bpf_migration.rs#L17-L43
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/builtins/src/core_bpf_migration.rs#L16-L42
    Configuration for migrating a built-in program to Core BPF.
    - `migration_target` is one of
       FD_CORE_BPF_MIGRATION_TARGET_{BUILTIN,STATELESS}. */
@@ -21,7 +21,7 @@ struct fd_core_bpf_migration_config {
 };
 typedef struct fd_core_bpf_migration_config fd_core_bpf_migration_config_t;
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/prototypes.rs#L7-L13
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/builtins/src/prototype.rs#L9-L21
    Transitions of built-in programs at epoch boundaries when features are activated */
 struct fd_builtin_program {
   fd_pubkey_t const *                    pubkey;
@@ -31,7 +31,7 @@ struct fd_builtin_program {
 };
 typedef struct fd_builtin_program fd_builtin_program_t;
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/prototypes.rs#L31-L35
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/builtins/src/prototype.rs#L39-L46
    Transitions of stateless built-in programs at epoch boundaries when features are activated */
 struct fd_stateless_builtin_program {
   fd_pubkey_t const *                    pubkey;
@@ -125,7 +125,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *          bank,
                              fd_hash_t const *    verified_build_hash,
                              fd_capture_ctx_t *   capture_ctx );
 
-/* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L408-L415 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L408-L415 */
 void
 fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *          bank,
                                                      fd_accdb_t *         accdb,

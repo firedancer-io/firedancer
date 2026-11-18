@@ -6,7 +6,7 @@
 #include "../leaders/fd_leaders_base.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/inflation_rewards/points.rs#L27 */
 struct fd_calculated_stake_points {
   fd_w_u128_t points;
   ulong       new_credits_observed;
@@ -18,7 +18,7 @@ struct fd_calculated_stake_points {
 };
 typedef struct fd_calculated_stake_points fd_calculated_stake_points_t;
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L24 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/inflation_rewards/mod.rs#L25 */
 struct fd_calculated_stake_rewards {
   ulong staker_rewards;
   ulong voter_rewards;

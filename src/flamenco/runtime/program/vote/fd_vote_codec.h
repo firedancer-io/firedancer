@@ -18,11 +18,11 @@
    for edge cases where elements are added beyond theoretical capacity
    and then popped within execution. */
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/mod.rs#L39 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L36 */
 #define MAX_LOCKOUT_HISTORY          (31UL)
 #define MAX_LOCKOUT_HISTORY_CAPACITY (MAX_LOCKOUT_HISTORY+1UL)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/mod.rs#L43 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L40 */
 #define MAX_EPOCH_CREDITS_HISTORY          (64UL)
 #define MAX_EPOCH_CREDITS_HISTORY_CAPACITY (MAX_EPOCH_CREDITS_HISTORY+1UL)
 
@@ -34,18 +34,18 @@
 #define MAX_AUTHORIZED_VOTERS          (4UL)
 #define MAX_AUTHORIZED_VOTERS_CAPACITY (MAX_AUTHORIZED_VOTERS+2UL)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/mod.rs#L154 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L206 */
 #define PRIOR_VOTERS_MAX (32UL)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/mod.rs#L33 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L30 */
 #define FD_BLS_PUBKEY_COMPRESSED_SZ   (48UL)
 #define FD_BLS_PUBKEY_UNCOMPRESSED_SZ (96UL)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/mod.rs#L36 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L33 */
 #define FD_BLS_PROOF_OF_POSSESSION_COMPRESSED_SZ (96UL)
 
 /* Default block revenue commission (100%)
-   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/vote/src/vote_state_view.rs#L117 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/vote/src/vote_state_view.rs#L113 */
 #define FD_VOTE_DEFAULT_BLOCK_REVENUE_COMMISSION_BPS (10000U)
 
 /* Serialized size of each vote state version */
@@ -156,7 +156,7 @@ struct fd_vote_lockout {
 typedef struct fd_vote_lockout fd_vote_lockout_t;
 #define FD_VOTE_LOCKOUT_ALIGN alignof(fd_vote_lockout_t)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/authorized_voters.rs#L11-L13 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/authorized_voters.rs#L20-L22 */
 struct fd_vote_authorized_voter {
   ulong       epoch;
   fd_pubkey_t pubkey;
@@ -219,7 +219,7 @@ struct fd_landed_vote {
 typedef struct fd_landed_vote fd_landed_vote_t;
 #define FD_LANDED_VOTE_ALIGN alignof(fd_landed_vote_t)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_instruction_data.rs#L253 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_instruction_data.rs#L286 */
 struct fd_voter_with_bls_args {
   uchar bls_pubkey[FD_BLS_PUBKEY_COMPRESSED_SZ];
   uchar bls_proof_of_possession[FD_BLS_PROOF_OF_POSSESSION_COMPRESSED_SZ];
@@ -227,7 +227,7 @@ struct fd_voter_with_bls_args {
 typedef struct fd_voter_with_bls_args fd_voter_with_bls_args_t;
 #define FD_VOTER_WITH_BLS_ARGS_ALIGN alignof(fd_voter_with_bls_args_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L230 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_instruction_data.rs#L236 */
 struct fd_vote_init {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_voter;
@@ -237,7 +237,7 @@ struct fd_vote_init {
 typedef struct fd_vote_init fd_vote_init_t;
 #define FD_VOTE_INIT_ALIGN alignof(fd_vote_init_t)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_instruction_data.rs#L213 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_instruction_data.rs#L248 */
 struct fd_vote_init_v2 {
   fd_pubkey_t node_pubkey;
   fd_pubkey_t authorized_voter;
@@ -252,7 +252,7 @@ struct fd_vote_init_v2 {
 typedef struct fd_vote_init_v2 fd_vote_init_v2_t;
 #define FD_VOTE_INIT_V2_ALIGN alignof(fd_vote_init_v2_t)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_instruction_data.rs#L277 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_instruction_data.rs#L312 */
 struct fd_vote_authorize {
   uint                     discriminant;
   fd_voter_with_bls_args_t voter_with_bls;
@@ -291,7 +291,7 @@ typedef struct fd_vote_authorized_voters fd_vote_authorized_voters_t;
 /* Vote state structs (per version)                                   */
 /**********************************************************************/
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/vote_state_1_14_11.rs#L16-L46 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_1_14_11.rs#L23-L53 */
 struct fd_vote_state_1_14_11 {
   fd_pubkey_t                 node_pubkey;
   fd_pubkey_t                 authorized_withdrawer;
@@ -306,7 +306,7 @@ struct fd_vote_state_1_14_11 {
 };
 typedef struct fd_vote_state_1_14_11 fd_vote_state_1_14_11_t;
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/vote_state_v3.rs#L30-L60 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_v3.rs#L34-L64 */
 struct fd_vote_state_v3 {
   fd_pubkey_t                 node_pubkey;
   fd_pubkey_t                 authorized_withdrawer;
@@ -321,7 +321,7 @@ struct fd_vote_state_v3 {
 };
 typedef struct fd_vote_state_v3 fd_vote_state_v3_t;
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/vote_state_v4.rs#L30-L71 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_v4.rs#L35-L76 */
 struct fd_vote_state_v4 {
   fd_pubkey_t                 node_pubkey;
   fd_pubkey_t                 authorized_withdrawer;
@@ -449,7 +449,7 @@ struct fd_lockout_offset {
 typedef struct fd_lockout_offset fd_lockout_offset_t;
 #define FD_LOCKOUT_OFFSET_ALIGN alignof(fd_lockout_offset_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L133 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_instruction_data.rs#L31 */
 struct fd_legacy_vote {
   ulong *   slots;
   fd_hash_t hash;
@@ -460,7 +460,7 @@ struct fd_legacy_vote {
 typedef struct fd_legacy_vote fd_legacy_vote_t;
 #define FD_LEGACY_VOTE_ALIGN alignof(fd_legacy_vote_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L37 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/instruction.rs#L77 */
 struct fd_vote_authorize_pubkey {
   fd_pubkey_t         pubkey;
   fd_vote_authorize_t vote_authorize;
@@ -468,7 +468,7 @@ struct fd_vote_authorize_pubkey {
 typedef struct fd_vote_authorize_pubkey fd_vote_authorize_pubkey_t;
 #define FD_VOTE_AUTHORIZE_PUBKEY_ALIGN alignof(fd_vote_authorize_pubkey_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L78 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/instruction.rs#L118 */
 struct fd_vote_switch {
   fd_legacy_vote_t vote;
   fd_hash_t        hash;
@@ -476,7 +476,7 @@ struct fd_vote_switch {
 typedef struct fd_vote_switch fd_vote_switch_t;
 #define FD_VOTE_SWITCH_ALIGN alignof(fd_vote_switch_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_instruction_data.rs#L66 */
 struct fd_vote_state_update {
   fd_vote_lockout_t * lockouts;
   ulong               root;
@@ -489,7 +489,7 @@ struct fd_vote_state_update {
 typedef struct fd_vote_state_update fd_vote_state_update_t;
 #define FD_VOTE_STATE_UPDATE_ALIGN alignof(fd_vote_state_update_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/instruction.rs#L147 */
 struct fd_update_vote_state_switch {
   fd_vote_state_update_t vote_state_update;
   fd_hash_t              hash;
@@ -509,7 +509,7 @@ struct fd_compact_vote_state_update {
 typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_ALIGN alignof(fd_compact_vote_state_update_t)
 
-/* https://github.com/solana-labs/solana/blob/252438e28fbfb2c695fe1215171b83456e4b761c/programs/vote/src/vote_instruction.rs#L143 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/instruction.rs#L196 */
 struct fd_compact_vote_state_update_switch {
   fd_compact_vote_state_update_t compact_vote_state_update;
   fd_hash_t                      hash;
@@ -517,7 +517,7 @@ struct fd_compact_vote_state_update_switch {
 typedef struct fd_compact_vote_state_update_switch fd_compact_vote_state_update_switch_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_SWITCH_ALIGN alignof(fd_compact_vote_state_update_switch_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L185 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_instruction_data.rs#L133 */
 struct fd_tower_sync {
   fd_vote_lockout_t * lockouts;
   ulong               lockouts_cnt;
@@ -532,7 +532,7 @@ struct fd_tower_sync {
 typedef struct fd_tower_sync fd_tower_sync_t;
 #define FD_TOWER_SYNC_ALIGN alignof(fd_tower_sync_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_instruction.rs#L104 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/instruction.rs#L216 */
 struct fd_tower_sync_switch {
   fd_tower_sync_t tower_sync;
   fd_hash_t       hash;
@@ -540,7 +540,7 @@ struct fd_tower_sync_switch {
 typedef struct fd_tower_sync_switch fd_tower_sync_switch_t;
 #define FD_TOWER_SYNC_SWITCH_ALIGN alignof(fd_tower_sync_switch_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L244 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_instruction_data.rs#L322 */
 struct fd_vote_authorize_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t         current_authority_derived_key_owner;
@@ -551,7 +551,7 @@ struct fd_vote_authorize_with_seed_args {
 typedef struct fd_vote_authorize_with_seed_args fd_vote_authorize_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_WITH_SEED_ARGS_ALIGN alignof(fd_vote_authorize_with_seed_args_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L252 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_instruction_data.rs#L333 */
 struct fd_vote_authorize_checked_with_seed_args {
   fd_vote_authorize_t authorization_type;
   fd_pubkey_t         current_authority_derived_key_owner;
@@ -561,7 +561,7 @@ struct fd_vote_authorize_checked_with_seed_args {
 typedef struct fd_vote_authorize_checked_with_seed_args fd_vote_authorize_checked_with_seed_args_t;
 #define FD_VOTE_AUTHORIZE_CHECKED_WITH_SEED_ARGS_ALIGN alignof(fd_vote_authorize_checked_with_seed_args_t)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/instruction.rs#L28-L31 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/instruction.rs#L37-L40 */
 struct fd_commission_kind {
   uint discriminant;
 };
@@ -590,7 +590,7 @@ typedef struct fd_deposit_delegator_rewards_args fd_deposit_delegator_rewards_ar
 /* Vote instruction (discriminated union)                             */
 /**********************************************************************/
 
-/* https://github.com/firedancer-io/solana/blob/53a4e5d6c58b2ffe89b09304e4437f8ca198dadd/programs/vote/src/vote_instruction.rs#L21 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/instruction.rs#L53 */
 struct fd_vote_instruction {
   uint discriminant;
   union {
@@ -765,7 +765,7 @@ fd_vote_account_add_pending_delegator_rewards( uchar * data,
 /* fd_vote_account_reset_pending_delegator_rewards zeroes the pending
    delegator rewards field in place and stores the value it held in *old_out.
    Returns 0 on success, 1 if the data is not an initialized v4 state.
-   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/vote/src/vote_state_view_mut.rs#L58-L71 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/vote/src/vote_state_view_mut.rs#L57-L70 */
 int
 fd_vote_account_reset_pending_delegator_rewards( uchar * data,
                                                  ulong   data_sz,

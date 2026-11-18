@@ -51,7 +51,7 @@ fd_sysvar_stake_history_read( fd_accdb_t *         accdb,
                               uchar                data[ static FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ],
                               fd_stake_history_t * view );
 
-/* https://github.com/anza-xyz/solana-sdk/blob/stake-history%40v1.0.0/stake-history/src/lib.rs#L140-L144 */
+/* https://github.com/anza-xyz/solana-sdk/blob/stake-history%40v2.1.0/stake-history/src/lib.rs#L189-L193 */
 fd_stake_history_entry_t const *
 fd_sysvar_stake_history_query( fd_stake_history_t const * view,
                                ulong                      epoch );

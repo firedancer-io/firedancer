@@ -4,7 +4,7 @@
 #include "../fd_accdb_svm.h"
 #include "fd_sysvar_rent.h"
 
-/* https://github.com/anza-xyz/agave/blob/v3.1/runtime/src/bank.rs#L2025 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L2556 */
 
 void
 fd_sysvar_account_update( fd_bank_t *         bank,

@@ -33,8 +33,8 @@
 FD_STATIC_ASSERT( MAX_STAKE_WEIGHTS==FD_RUNTIME_MAX_VAT_VOTE_ACCOUNTS, vat_stake_weights );
 
 /*
-   https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1254-L1258
-   https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1749
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L1494-L1498
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L2338
  */
 int
 fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
@@ -148,18 +148,18 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
    owned by the system program, the deposit overflows the collector's
    balance, or the rent state transition is invalid.
 
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/runtime/src/bank/fee_distribution.rs#L205-L229 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L269-L293 */
 static int
 fd_runtime_validate_fee_collector( fd_bank_t const * bank,
                                    fd_acc_t const *  collector,
                                    ulong             fee ) {
   FD_TEST( fee );
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/runtime/src/bank/fee_distribution.rs#L206-L208 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L270-L272 */
   if( FD_UNLIKELY( memcmp( collector->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) return 1;
 
   /* Lamport overflow burns the fee.
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/runtime/src/bank/fee_distribution.rs#L210-L214 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L274-L278 */
   ulong pre_balance = collector->lamports;
   ulong post_balance;
   if( FD_UNLIKELY( __builtin_uaddl_overflow( pre_balance, fee, &post_balance ) ) ) return 1;
@@ -176,7 +176,7 @@ fd_runtime_validate_fee_collector( fd_bank_t const * bank,
 /* Validates an external SIMD-0232 block revenue collector after the
    fee reward has been added.  Returns 0 to deposit, 1 to burn.  The
    vote account itself is always valid and must not be passed here.
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/bank/fee_distribution.rs#L231-L270 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L332-L367 */
 
 static int
 fd_runtime_validate_block_revenue_collector( fd_bank_t const *   bank,
@@ -205,7 +205,7 @@ fd_runtime_validate_block_revenue_collector( fd_bank_t const *   bank,
 
 /* Deposits fees into the collector account.
    Returns 0 on deposit, 1 to burn.
-   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L248 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L248 */
 
 static int
 fd_runtime_deposit_fees( fd_bank_t *         bank,
@@ -222,7 +222,7 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, collector_id, 1 );
   int burn;
   if( FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector ) ) {
-    /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L254-L267 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L254-L267 */
     ulong pre_lamports = acc.lamports;
     burn = __builtin_uaddl_overflow( pre_lamports, fees, &acc.lamports );
     /* The vote account itself is always a valid collector. */
@@ -231,7 +231,7 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
     }
     if( FD_UNLIKELY( burn ) ) acc.lamports = pre_lamports;
   } else {
-    /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L269-L291 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L269-L291 */
     burn = fd_runtime_validate_fee_collector( bank, &acc, fees );
     if( FD_LIKELY( !burn ) ) {
       acc.lamports += fees; /* guaranteed to not overflow, checked above */
@@ -245,7 +245,7 @@ fd_runtime_deposit_fees( fd_bank_t *         bank,
 /* Deposits delegator fees into the leader's vote account and increments
    pending delegator rewards (SIMD-0123).
    Returns 0 on deposit, 1 to burn.
-   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L303 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L303 */
 
 static int
 fd_runtime_deposit_delegator_fees( fd_bank_t *         bank,
@@ -260,17 +260,17 @@ fd_runtime_deposit_delegator_fees( fd_bank_t *         bank,
   int burn = 0;
 
   /* Must be a vote account.
-     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L312-L314 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L312-L314 */
   if( memcmp( acc.owner, fd_solana_vote_program_id.uc, sizeof(fd_pubkey_t) ) ) burn = 1;
 
   /* Lamports must not overflow.  Checked before the field update: the
      account is written back as is when the deposit burns.
-     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L324-L326 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L324-L326 */
   ulong pre_lamports = acc.lamports;
   if( !burn && __builtin_uaddl_overflow( pre_lamports, fees, &acc.lamports ) ) burn = 1;
 
   /* Must be a v4 state and pending_delegator_rewards must not overflow.
-     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L316-L322 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L316-L322 */
   if( !burn && fd_vote_account_add_pending_delegator_rewards( acc.data, acc.data_len, fees ) ) burn = 1;
 
   if( burn ) acc.lamports = pre_lamports;
@@ -281,7 +281,7 @@ fd_runtime_deposit_delegator_fees( fd_bank_t *         bank,
 /* Deposits the fee reward with the leader's collector and, under
    SIMD-0123, the delegator share with the leader's vote account.
    Returns the lamports to burn.
-   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L146 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L146 */
 
 static ulong
 fd_runtime_deposit_or_burn_fee( fd_bank_t *        bank,
@@ -298,7 +298,7 @@ fd_runtime_deposit_or_burn_fee( fd_bank_t *        bank,
      collector from the vote account state the leader schedule was
      derived from (the t-2 vote stakes set); default is the leader
      identity.
-     https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L151-L181 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L151-L181 */
   int custom_commission_collector = FD_FEATURE_ACTIVE_BANK( bank, custom_commission_collector );
 
   fd_pubkey_t const *  collector_id   = leader;
@@ -310,14 +310,14 @@ fd_runtime_deposit_or_burn_fee( fd_bank_t *        bank,
     if( FD_UNLIKELY( !leader_vote ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get_vote(%lu) returned NULL", bank->f.slot ));
     if( FD_UNLIKELY( !fd_vote_stakes_query_t_2( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, leader_vote, leader_ele ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( leader_vote->uc, leader_vote_b58 );
-      /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L167 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L167 */
       FD_LOG_CRIT(( "leader vote account %s is not in the epoch stakes at slot %lu", leader_vote_b58, bank->f.slot ));
     }
     commission_bps = leader_ele->block_revenue_commission_bps;
     collector_id   = &leader_ele->block_collector;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L183-L199 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L183-L199 */
   ulong validator_fee = deposit;
   ulong delegator_fee = 0UL;
   if( FD_FEATURE_ACTIVE_BANK( bank, block_revenue_sharing ) ) {
@@ -326,7 +326,7 @@ fd_runtime_deposit_or_burn_fee( fd_bank_t *        bank,
     delegator_fee = deposit - validator_fee;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/fee_distribution.rs#L201-L212 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/fee_distribution.rs#L201-L212 */
   ulong validator_fee_to_burn = 0UL;
   if( validator_fee && fd_runtime_deposit_fees( bank, accdb, capture_ctx, collector_id, leader_vote, validator_fee ) ) {
     FD_LOG_INFO(( "slot %lu has an invalid fee collector, burning fee reward (%lu lamports)", bank->f.slot, validator_fee ));
@@ -464,7 +464,7 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 /* Epoch Boundary                                                             */
 /******************************************************************************/
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6446 */
 static void
 fd_apply_builtin_program_feature_transitions( fd_bank_t *          bank,
                                               fd_accdb_t *         accdb,
@@ -479,13 +479,13 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *          bank,
 
   fd_builtin_program_t const * builtins = fd_builtins();
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
-    /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6732-L6751 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6461-L6479 */
     if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       FD_BASE58_ENCODE_32_BYTES( builtins[i].pubkey->key, pubkey_b58 );
       FD_LOG_DEBUG(( "Migrating builtin program %s to core BPF", pubkey_b58 ));
       fd_migrate_builtin_to_core_bpf( bank, accdb, runtime_stack, builtins[i].core_bpf_migration_config, capture_ctx );
     }
-    /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6753-L6774 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6451-L6459 */
     if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && FD_FEATURE_JUST_ACTIVATED_OFFSET( bank, builtins[i].enable_feature_offset ) ) {
       FD_BASE58_ENCODE_32_BYTES( builtins[i].pubkey->key, pubkey_b58 );
       FD_LOG_DEBUG(( "Enabling builtin program %s", pubkey_b58 ));
@@ -493,7 +493,7 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *          bank,
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6776-L6793 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6482-L6501 */
   fd_stateless_builtin_program_t const * stateless_builtins = fd_stateless_builtins();
   for( ulong i=0UL; i<fd_num_stateless_builtins(); i++ ) {
     if( stateless_builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, stateless_builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
@@ -503,7 +503,7 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *          bank,
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/c1080de464cfb578c301e975f498964b5d5313db/runtime/src/bank.rs#L6795-L6805 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6503-L6509 */
   for( fd_precompile_program_t const * precompiles = fd_precompiles(); precompiles->verify_fn; precompiles++ ) {
     if( precompiles->feature_offset != NO_ENABLE_FEATURE_ID &&
         FD_FEATURE_JUST_ACTIVATED_OFFSET( bank, precompiles->feature_offset ) ) {
@@ -596,14 +596,14 @@ set_lamports_per_byte( fd_bank_t *        bank,
   fd_sysvar_rent_write( bank, accdb, capture_ctx, &rent );
 }
 
-// https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391
+// https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6334-L6444
 static void
 fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
                                               fd_accdb_t *         accdb,
                                               fd_runtime_stack_t * runtime_stack,
                                               fd_capture_ctx_t *   capture_ctx ) {
   /* Activate new features
-      https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5296-L5391 */
+      https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6334-L6444 */
   fd_features_activate( bank, accdb, capture_ctx );
   fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, bank->f.slot, &bank->f.epoch_schedule );
 
@@ -614,7 +614,7 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
   }
 
   /* SIMD-0437 rent reduction gates.
-     https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/runtime/src/bank.rs#L5612-L5639 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6366-L6393 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_6333 ) ) ) {
     set_lamports_per_byte( bank, accdb, capture_ctx, 6333UL );
   }
@@ -633,31 +633,31 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
 
   /* SIMD-0438 resets rent to the legacy value (in case something goes
      wrong with the above).
-     https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/runtime/src/bank.rs#L5641-L5644 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6395-L6403 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, set_lamports_per_byte_to_6960 ) ) ) {
     set_lamports_per_byte( bank, accdb, capture_ctx, 6960UL );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6366-L6368 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6416-L6418 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, remove_runtime_float_ops ) ) ) {
     fd_apply_integer_inflation_initial_rate( bank );
   }
 
   /* SIMD-0550: double_disinflation_rate
-     https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6232-L6234 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6420-L6422 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, double_disinflation_rate ) ) ) {
     fd_apply_double_disinflation_rate( bank );
   }
 
   /* Apply builtin program feature transitions
-      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
+      https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6428 */
   fd_apply_builtin_program_feature_transitions( bank, accdb, runtime_stack, capture_ctx );
 
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, validator_location_registration ) ) ) {
     /* TODO: upgrade the stake program to support vote state v5 */
   }
 
-  /* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/runtime/src/bank.rs#L6389-L6402 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6430-L6443 */
   if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, replace_ata_with_p_ata ) ) ) {
     fd_upgrade_loader_v2_program_with_loader_v3_program(
       bank,
@@ -672,7 +672,7 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *          bank,
 }
 
 /* process for the start of a new epoch
-   https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L1811-L1899 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L1901-L1993 */
 static void
 fd_runtime_process_new_epoch( fd_bank_t *          bank,
                               fd_accdb_t *         accdb,
@@ -784,7 +784,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *        bank,
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
-  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L1447-L1449 */
 
   fd_runtime_new_fee_rate_governor_derived( bank, bank->f.parent_signature_cnt );
 
@@ -857,8 +857,8 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
    In Agave, program deployments use the feature set from the next
    slot via DELAY_VISIBILITY_SLOT_OFFSET.  The runtime environments
    for deployment are selected based on epoch_of(slot+1):
-   https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank.rs#L3280-L3295
-   https://github.com/anza-xyz/agave/blob/v3.1.8/svm/src/transaction_processor.rs#L339-L345
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L2099-L2112
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/transaction_processor.rs#L435-L441
 
    This function does NOT write to feature accounts or update the
    lthash.  It only modifies the bank's in-memory feature set. */
@@ -990,7 +990,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   /* Setup needs the fee to skip loading accounts for transactions with
      an invalid fee payer, so compute unit limits are sanitized here.
      Any sanitization error is reported as part of check_transactions.
-     https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/runtime/src/bank/check_transactions.rs#L148-L184 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/check_transactions.rs#L168-L204 */
   int sanitize_err = fd_sanitize_compute_unit_limits( txn_out );
   fd_executor_calculate_fee( txn_out, TXN( txn_in->txn ), txn_in->txn->payload, &txn_out->details.execution_fee, &txn_out->details.priority_fee );
 
@@ -1018,7 +1018,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   txn_out->details.check_start_ticks = fd_tickcount();
 
   /* load_and_execute_transactions() -> check_transactions()
-     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L4310-L4315 */
   err = sanitize_err;
   if( FD_LIKELY( !err ) ) err = fd_executor_check_transactions( runtime, bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1028,7 +1028,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* load_and_execute_sanitized_transactions() -> validate_fees() ->
      validate_transaction_fee_payer()
-     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/transaction_processor.rs#L526-L539 */
   err = fd_executor_validate_transaction_fee_payer( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* As of the relax_fee_payer_constraint feature, a transaction with
@@ -1045,7 +1045,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
        transactions with invalid fee payers are not allowed in a block,
        and if a block contains any such transactions it is invalid.
 
-       https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/svm/src/transaction_processor.rs#L741-L770 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/transaction_processor.rs#L808-L833 */
     if( FD_FEATURE_ACTIVE_BANK( bank, relax_fee_payer_constraint ) &&
         txn_out->accounts.nonce_idx_in_txn==ULONG_MAX ) {
       txn_out->err.is_committable = 1;
@@ -1060,7 +1060,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
   /* With a valid fee payer, setup only skips acquiring accounts if they
      are known to exceed the loaded accounts data size limit.
-     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/transaction_processor.rs#L543-L549 */
   if( FD_UNLIKELY( runtime->accounts.account_cnt<txn_out->accounts.cnt ) ) {
     txn_out->details.loaded_accounts_data_size = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
     err = FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
@@ -1070,7 +1070,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
-       https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/transaction_processor.rs#L578-L583 */
     txn_out->err.is_fees_only = 1;
 
     /* If the transaction fails to load, the "rollback" accounts will include one of the following:
@@ -1080,14 +1080,14 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
         Because the cost tracker uses the loaded account data size in block cost calculations, we need to
         make sure our calculated loaded accounts data size is conformant with Agave's.
-        https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/svm/src/account_loader.rs#L437-L449
+        https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/account_loader.rs#L481-L486
 
         These are different depending on if define_ltds_fee_only_semantics is enabled or not.
 
         If define_ltds_fee_only_semantics is enabled, we use the accumulated load size so far,
         clamped to the compute budget requested loaded_accounts_data_size_limit. */
     if( FD_FEATURE_ACTIVE_BANK( bank, define_ltds_fee_only_semantics ) ) {
-      /* https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/svm/src/account_loader.rs#L495-L501 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/account_loader.rs#L532-L538 */
       txn_out->details.loaded_accounts_data_size = fd_ulong_min(
         txn_out->details.loaded_accounts_data_size,
         txn_out->details.compute_budget.loaded_accounts_data_size_limit );
@@ -1111,7 +1111,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
      The fee payer and the nonce account will be stored and hashed so
      long as the transaction landed on chain, or, in Agave terminology,
      the transaction was processed.
-     https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/account_saver.rs#L72
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/account_saver.rs#L75
 
      A transaction lands on chain in one of two ways:
      (1) Passed fee validation and loaded accounts.
@@ -1187,7 +1187,7 @@ fd_runtime_commit_txn( fd_runtime_t *      runtime,
          payer account. */
       if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
-      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime/src/account_saver.rs#L120-L122 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/account_saver.rs#L122-L124 */
       if( FD_UNLIKELY( !txn_out->accounts.touched[ i ] ) ) continue;
 
       fd_pubkey_t const * pubkey = &txn_out->accounts.keys[ i ];
@@ -1449,8 +1449,8 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( txn_out->err.is_noop ) ) {
       /* No-op transactions charge the requested CUs and loaded
          account data size limit.
-         https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/svm/src/transaction_processor.rs#L757-L767
-         https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/svm/src/transaction_processing_result.rs#L92-L106 */
+         https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/transaction_processor.rs#L819-L830
+         https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/transaction_processing_result.rs#L108-L122 */
       txn_out->details.compute_budget.compute_meter = 0UL;
       txn_out->details.loaded_accounts_data_size    = txn_out->details.compute_budget.loaded_accounts_data_size_limit;
     } else if( FD_LIKELY( !txn_out->err.is_fees_only ) ) {
@@ -1604,12 +1604,12 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
 
   fd_features_restore( &bank->f.features, accdb, bank->accdb_fork_id, bank->f.slot, &bank->f.epoch_schedule );
 
-  /* https://github.com/anza-xyz/agave/blob/9bcf93e368b5fb52c21677ed8c7f0360eb93b5b7/runtime/src/bank.rs#L6237-L6242 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6287-L6292 */
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, remove_runtime_float_ops ) ) ) {
     fd_apply_integer_inflation_initial_rate( bank );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/runtime/src/bank.rs#L6101-L6109 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6293-L6298 */
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, double_disinflation_rate ) ) ) {
     fd_apply_double_disinflation_rate( bank );
   }
@@ -1870,7 +1870,7 @@ fd_runtime_block_footer_end( fd_bank_t *                         bank,
 
    Backward scan over transaction accounts. Returns ULONG_MAX if not found.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L233-L238 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L274-L279 */
 
 ulong
 fd_runtime_find_index_of_account( fd_txn_out_t const * txn_out,
@@ -1928,7 +1928,7 @@ fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
                                         ushort                idx,
                                         fd_pubkey_t const * * key ) {
   /* Return a MissingAccount error if idx is out of bounds.
-     https://github.com/anza-xyz/agave/blob/v3.1.4/transaction-context/src/lib.rs#L187 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L270 */
   if( FD_UNLIKELY( idx>=txn_out->accounts.cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
@@ -1937,7 +1937,7 @@ fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L162 */
+/* https://github.com/anza-xyz/solana-sdk/blob/message%40v6.0.0/message/src/versions/v0/loaded.rs#L184 */
 int
 fd_txn_account_is_demotion( const int        idx,
                             const fd_txn_t * txn_descriptor,
@@ -1970,13 +1970,13 @@ fd_runtime_account_is_writable_idx_flat( const ushort        idx,
                                          const fd_pubkey_t * addr_at_idx,
                                          const fd_txn_t *    txn_descriptor,
                                          const uint          bpf_upgradeable_in_txn ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L43 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/message%40v6.0.0/message/src/sanitized.rs#L35 */
   if( !fd_txn_is_writable( txn_descriptor, idx ) ) {
     return 0;
   }
 
   /* See comments in fd_system_ids.h.
-     https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L44 */
+     https://github.com/anza-xyz/solana-sdk/blob/message%40v6.0.0/message/src/sanitized.rs#L36 */
   if( fd_pubkey_is_active_reserved_key( addr_at_idx ) ||
       fd_pubkey_is_pending_reserved_key( addr_at_idx ) ) {
 
@@ -1994,7 +1994,7 @@ fd_runtime_account_is_writable_idx_flat( const ushort        idx,
 /* This function aims to mimic the writable accounts check to populate the writable accounts cache, used
    to determine if accounts are writable or not.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
+   https://github.com/anza-xyz/solana-sdk/blob/message%40v6.0.0/message/src/sanitized.rs#L30-L39 */
 int
 fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                     fd_txn_out_t const * txn_out,

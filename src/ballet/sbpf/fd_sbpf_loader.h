@@ -16,7 +16,7 @@
 
 #define FD_SBPF_PROG_RODATA_ALIGN 8UL
 
-/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L17 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/elf_parser/mod.rs#L25 */
 #define FD_SBPF_ELF_PARSER_SUCCESS                           ( 0)
 #define FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER           (-1)
 #define FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER        (-2)
@@ -34,8 +34,8 @@
 #define FD_SBPF_ELF_PARSER_ERR_NO_STRING_TABLE               (-14)
 #define FD_SBPF_ELF_PARSER_ERR_NO_DYNAMIC_STRING_TABLE       (-15)
 
-/* Map Rust ElfError (elf.rs v0.12.2) to C error codes */
-/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L40-L66 */
+/* Map Rust ElfError (elf.rs v0.27.0) to C error codes */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/elf.rs#L47-L117 */
 #define FD_SBPF_ELF_SUCCESS                                  (  0)
 #define FD_SBPF_ELF_ERR_FAILED_TO_PARSE                      ( -1)
 #define FD_SBPF_ELF_ERR_ENTRYPOINT_OUT_OF_BOUNDS             ( -2)
@@ -61,7 +61,7 @@
 #define FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION             (-22)
 #define FD_SBPF_ELF_ERR_INVALID_PROGRAM_HEADER               (-23)
 
-/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L19-L34 */
 #define FD_SBPF_VERSION_COUNT (5U)
 #define FD_SBPF_V0            (0U)
 #define FD_SBPF_V1            (1U)
@@ -371,50 +371,50 @@ fd_sbpf_program_delete( fd_sbpf_program_t * program );
 /* SBPF versions and features. This should stay in sync with the macro
    definitions in fd_vm_private.h until they are removed (once Agave
    cleans up the jump table).
-   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L28 */
+   https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L36 */
 
 #define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN (64U)
 
 /* SIMD-0166 */
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L32-L34 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L49-L51 */
 static inline int fd_sbpf_manual_stack_frame_bump_enabled            ( ulong v ) { return v==FD_SBPF_V1 || v==FD_SBPF_V2; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L36-L38 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L53-L55 */
 static inline int fd_sbpf_stack_frame_gaps_enabled                   ( ulong v ) { return v==FD_SBPF_V0; }
 
 /* SIMD-0174 */
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L41-L43 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L58-L60 */
 static inline int fd_sbpf_enable_pqr_enabled                         ( ulong v ) { return v==FD_SBPF_V2; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L45-L47 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L62-L64 */
 static inline int fd_sbpf_explicit_sign_extension_of_results_enabled ( ulong v ) { return v==FD_SBPF_V2; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L49-L51 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L66-L68 */
 static inline int fd_sbpf_swap_sub_reg_imm_operands_enabled          ( ulong v ) { return v==FD_SBPF_V2; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L53-L55 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L70-L72 */
 static inline int fd_sbpf_disable_neg_enabled                        ( ulong v ) { return v==FD_SBPF_V2; }
 
 /* SIMD-0173 */
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L58-L60 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L75-L77 */
 static inline int fd_sbpf_callx_uses_src_reg_enabled                 ( ulong v ) { return v==FD_SBPF_V2; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L62-L64 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L79-L81 */
 static inline int fd_sbpf_disable_lddw_enabled                       ( ulong v ) { return v==FD_SBPF_V2; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L66-L68 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L83-L85 */
 static inline int fd_sbpf_disable_le_enabled                         ( ulong v ) { return v==FD_SBPF_V2; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L70-L72 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L87-L89 */
 static inline int fd_sbpf_move_memory_ix_classes_enabled             ( ulong v ) { return v==FD_SBPF_V2; }
 
 /* SIMD-0178 */
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L75-L77 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L92-L94 */
 static inline int fd_sbpf_static_syscalls_enabled                    ( ulong v ) { return v>=FD_SBPF_V3; }
 
 /* SIMD-0189 */
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L79-L81 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L96-L98 */
 static inline int fd_sbpf_enable_stricter_elf_headers_enabled        ( ulong v ) { return v>=FD_SBPF_V3; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L83-L85 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L100-L102 */
 static inline int fd_sbpf_enable_lower_rodata_vaddr_enabled          ( ulong v ) { return v>=FD_SBPF_V3; }
 
 /* SIMD-0377 */
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L87-L89 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L104-L106 */
 static inline int fd_sbpf_enable_jmp32_enabled                       ( ulong v ) { return v>=FD_SBPF_V3; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L91-L93 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L108-L110 */
 static inline int fd_sbpf_callx_uses_dst_reg_enabled                 ( ulong v ) { return v>=FD_SBPF_V3; }
 
 FD_PROTOTYPES_END

@@ -16,10 +16,10 @@
 #define FD_ADDRLUT_STATUS_DEACTIVATING (1)
 #define FD_ADDRLUT_STATUS_DEACTIVATED  (2)
 
-/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L19 */
+/* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L37 */
 #define FD_LOOKUP_TABLE_META_SIZE      (56)
 
-/* https://github.com/solana-program/address-lookup-table/blob/a9fc56e413727e2a9d6dce58df6691f4b45320d7/program/src/state.rs#L12 */
+/* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L34 */
 #define FD_LOOKUP_TABLE_MAX_ADDRESSES  (256)
 #define FD_LOOKUP_TABLE_SZ_MAX         (FD_LOOKUP_TABLE_META_SIZE + (FD_LOOKUP_TABLE_MAX_ADDRESSES * 32UL))
 
@@ -187,7 +187,7 @@ fd_alut_slot_hashes_position( fd_slot_hashes_t const * hashes,
   return hashes->elems[ base ].slot==slot ? base : ULONG_MAX;
 }
 
-/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L81-L104 */
+/* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L100-L124 */
 FD_FN_UNUSED static uchar
 fd_alut_status( fd_alut_meta_t const *   state,
                 ulong                    current_slot,
@@ -208,7 +208,7 @@ fd_alut_status( fd_alut_meta_t const *   state,
   return FD_ADDRLUT_STATUS_DEACTIVATED;
 }
 
-/* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L72-L78 */
+/* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L91-L98 */
 FD_FN_UNUSED static uchar
 fd_alut_is_active( fd_alut_meta_t const *   self,
                    ulong                    current_slot,
@@ -227,7 +227,7 @@ fd_alut_is_active( fd_alut_meta_t const *   self,
 
 /* fd_alut_active_addresses_len returns the number of active addresses
    in an address lookup table account.
-   https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L142-L164 */
+   https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L168-L191 */
 FD_FN_UNUSED static int
 fd_alut_active_addresses_len( fd_alut_meta_t const *   self,
                               ulong                    current_slot,
@@ -304,39 +304,39 @@ fd_alut_interp_next( fd_alut_interp_t * interp,
   fd_txn_acct_addr_lut_t const * addr_lut =
       &fd_txn_get_address_tables_const( interp->txn )[ interp->alut_idx ];
 
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L96-L114 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/accounts-db/src/accounts.rs#L124-L167 */
   if( FD_UNLIKELY( !fd_memeq( alut_owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L205-L209 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L255-L259 */
   if( FD_UNLIKELY( alut_data_sz < FD_LOOKUP_TABLE_META_SIZE ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/accounts-db/src/accounts.rs#L141-L142 */
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L197-L214 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/accounts-db/src/accounts.rs#L126-L127 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L242-L270 */
   fd_alut_meta_t meta;
   if( FD_UNLIKELY( fd_alut_state_decode( alut_data, FD_LOOKUP_TABLE_META_SIZE, &meta ) ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L250-L253 */
   if( FD_UNLIKELY( meta.discriminant!=FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
   }
 
   /* Again probably an impossible case, but the ALUT data needs to be 32-byte aligned
-      https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L210-L214 */
+      https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L260-L264 */
   if( FD_UNLIKELY( (alut_data_sz - FD_LOOKUP_TABLE_META_SIZE) & 0x1fUL ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L101-L112 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/accounts-db/src/accounts.rs#L129-L162 */
   fd_acct_addr_t const * lookup_addrs     = fd_type_pun_const( alut_data+FD_LOOKUP_TABLE_META_SIZE );
   ulong                  lookup_addrs_cnt = (alut_data_sz - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
 
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L218 */
   ulong active_addresses_len;
   int err = fd_alut_active_addresses_len(
       &meta,
@@ -347,15 +347,15 @@ fd_alut_interp_next( fd_alut_interp_t * interp,
   );
   if( FD_UNLIKELY( err ) ) return err;
 
-  /* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v3.0.1/address-lookup-table-interface/src/state.rs#L208-L211 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L219-L222 */
   if( FD_UNLIKELY( active_addresses_len>lookup_addrs_cnt ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L169-L182 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address-lookup-table-interface%40v4.0.0/address-lookup-table-interface/src/state.rs#L212-L226 */
   uchar const * writable_lut_idxs = interp->txn_payload + addr_lut->writable_off;
   for( ulong j=0UL; j<addr_lut->writable_cnt; j++ ) {
-    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/accounts-db/src/accounts.rs#L153-L157 */
     if( writable_lut_idxs[j] >= active_addresses_len ) {
       return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
     }
@@ -365,7 +365,7 @@ fd_alut_interp_next( fd_alut_interp_t * interp,
   uchar const * readonly_lut_idxs = interp->txn_payload + addr_lut->readonly_off;
   fd_acct_addr_t * out_accts_ro = interp->out_accts_alt + interp->txn->addr_table_adtl_writable_cnt;
   for( ulong j=0UL; j<addr_lut->readonly_cnt; j++ ) {
-    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/accounts-db/src/accounts.rs#L158-L162 */
     if( readonly_lut_idxs[j] >= active_addresses_len ) {
       return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
     }

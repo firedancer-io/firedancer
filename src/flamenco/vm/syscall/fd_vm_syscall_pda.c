@@ -34,14 +34,14 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   /* This check does NOT halt execution within `fd_vm_syscall_sol_try_find_program_address`. This means
      that if the user provides 16 seeds (excluding the bump) in the `try_find_program_address` syscall,
      this same check below will be hit 255 times and deduct that many CUs. Very strange...
-     https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/pubkey/src/lib.rs#L725-L727 */
+     https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/syscalls.rs#L414-L416 */
   if( FD_UNLIKELY( seeds_cnt+( !!bump_seed )>FD_VM_PDA_SEEDS_MAX ) ) {
     return FD_VM_SYSCALL_ERR_INVALID_PDA;
   }
 
   for( ulong i=0UL; i<seeds_cnt; i++ ) {
     /* This is an unconditional check in Agave:
-       https://github.com/anza-xyz/agave/blob/v2.1.6/sdk/pubkey/src/lib.rs#L729-L731
+       https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/syscalls.rs#L417-L419
      */
     if( FD_UNLIKELY( seed_szs[ i ]>FD_VM_PDA_SEED_MEM_MAX ) ) {
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
@@ -55,7 +55,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
 
     /* If the seed length is 0, then we don't need to append anything. solana_bpf_loader_program::syscalls::translate_slice
        returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA.
-       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L737-L742 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L800 */
     if( FD_UNLIKELY( !seed_sz ) ) {
       continue;
     }
@@ -63,7 +63,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
     fd_sha256_append( vm->sha, seed_haddr, seed_sz );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/pubkey/src/lib.rs#L738-L747 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/syscalls.rs#L427-L432 */
   if( bump_seed ) {
     fd_sha256_append( vm->sha, bump_seed, 1UL );
   }
@@ -89,7 +89,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
 
 /* fd_vm_translate_and_check_program_address_inputs is responsible for doing
    the preflight checks and translation of the seeds and program id.
-   https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L719 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L782 */
 
 int
 fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
@@ -107,9 +107,9 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
   /* This is a preflight check that is performed in Agave before deriving PDAs but after checking the seeds vaddr.
      When called to help CPI signer translation, this logs an
      instruction error:
-     https://github.com/anza-xyz/agave/blob/v2.1.11/programs/bpf_loader/src/syscalls/cpi.rs#L538-L540
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L761-L763
      However, when called from a syscall, this logs a syscall error:
-     https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L728-L730 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L791-L793 */
   if( FD_UNLIKELY( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) ) {
     if( is_syscall ) {
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
@@ -122,13 +122,13 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
   for( ulong i=0UL; i<seeds_cnt; i++ ) {
     ulong seed_sz = untranslated_seeds[i].len;
     /* Another preflight check
-       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L734-L736
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L797-L799
        When this function is called from syscalls, we would like to
        abort when exceeding SEED_MEM_MAX.
        However, when we reuse this function from CPI for signer
        translation, this check doesn't exist.  Sigh.
        Instead, the check is delayed until deriving PDA.
-       https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L543
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L770-L771
      */
     if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX && is_syscall ) ) {
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
@@ -147,7 +147,7 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
 }
 
 /* fd_vm_syscall_sol_create_program_address is the entrypoint for the sol_create_program_address syscall:
-https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L729
+https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L808
 
 The main semantic difference between Firedancer's implementation and Solana's is that Solana
 translates all the seed pointers before doing any computation, while Firedancer translates
@@ -202,11 +202,11 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
   /* Agave does their translation before the calculation, so if the translation fails we should fail
      the syscall.
 
-     https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L744-L750 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L826-L832 */
   if ( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
 
     /* Place 1 in r0 and successfully exit if we failed to derive a PDA
-      https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L753 */
+      https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L835 */
     if ( FD_LIKELY( err == FD_VM_SYSCALL_ERR_INVALID_PDA ) ) {
       vm->reg[0] = 1UL;
       return FD_VM_SUCCESS;
@@ -224,7 +224,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
 }
 
 /* fd_vm_syscall_sol_try_find_program_address is the entrypoint for the sol_try_find_program_address syscall:
-https://github.com/anza-xyz/agave/blob/v2.1.1/programs/bpf_loader/src/syscalls/mod.rs#L791
+https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L851
 
 This syscall creates a valid program derived address, searching for a hash
 that is not a valid ed25519 curve point by iterating through 255 possible
@@ -281,7 +281,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
     /* Stop looking if we have found a valid PDA */
     if( FD_LIKELY( err==FD_VM_SUCCESS ) ) {
 
-      /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L919-L924 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L883-L887 */
       fd_vm_haddr_query_t bump_seed_ref_query = {
         .vaddr    = out_bump_seed_vaddr,
         .align    = FD_VM_ALIGN_RUST_U8,

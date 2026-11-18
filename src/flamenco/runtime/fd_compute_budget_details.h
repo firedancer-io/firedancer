@@ -8,7 +8,7 @@ FD_PROTOTYPES_BEGIN
 /* Defines any compute budget details that may or may not be updated
    by compute budget instructions.
 
-   https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L39-L51 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L39-L51 */
 struct fd_compute_budget_details {
   uchar has_compute_units_limit_update;
   uchar has_compute_units_price_update;

@@ -11,10 +11,10 @@
 #define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 
 /* The maximum number of seeds a PDA can have
-   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L21 */
+   https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/lib.rs#L60 */
 #define FD_VM_PDA_SEEDS_MAX    (16UL)
 /* The maximum length of a PDA seed
-   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L19 */
+   https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/lib.rs#L58 */
 #define FD_VM_PDA_SEED_MEM_MAX (32UL)
 
 /* PYTHON3 CODE FOR COMPUTING THE SYSCALL MURMUR3 HASH (e.g. sol_get_epoch_stake):
@@ -38,7 +38,7 @@
   ```
 */
 
-/* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L22 */
+/* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/lib.rs#L60 */
 
 /* FIXME: CONSIDER NOT PREFIXING SYSCALLS WITH SOL_? (OR MAYBE THIS
    IS NECESSARY TO DISAMBIGUATE SOLANA SYSCALLS FROM NON-SOLANA?
@@ -664,7 +664,7 @@ FD_VM_SYSCALL_DECL( sol_set_return_data );
           stored upon successful execution (the length of the arrays in
           the result). Has the type
           solana_program::instruction::ProcessedSiblingInstruction
-          https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L672-L681
+          https://github.com/anza-xyz/solana-sdk/blob/instruction%40v4.0.0/instruction/src/lib.rs#L317-L326
      r3 - result_program_id_vaddr, byte VM pointer where the pubkey of
           the program ID of the last processed sibling instruction will
           be stored upon successful execution
@@ -677,7 +677,7 @@ FD_VM_SYSCALL_DECL( sol_set_return_data );
           execution.  The length of the data will be stored in
           ProcessedSiblingInstruction.accounts_len.  Each account meta
           has the type solana_program::instruction::AccountMeta
-          https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/sdk/program/src/instruction.rs#L525-L548
+          https://github.com/anza-xyz/solana-sdk/blob/instruction%40v4.0.0/instruction/src/account_meta.rs#L19-L33
 
     Return:
 

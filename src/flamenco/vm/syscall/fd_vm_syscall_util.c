@@ -10,7 +10,7 @@ fd_vm_syscall_abort( /**/            void *  _vm,
                      FD_PARAM_UNUSED ulong   r3,
                      FD_PARAM_UNUSED ulong   r4,
                      FD_PARAM_UNUSED ulong   r5 ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L630 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L711 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_ABORT );
   return FD_VM_SYSCALL_ERR_ABORT;
@@ -20,7 +20,7 @@ fd_vm_syscall_abort( /**/            void *  _vm,
    a valid utf8 string, or it errors.
 
    Analogous of Agave's translate_string_and_do().
-   https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L601
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L561
 
    As of v0.2.6, the only two usages are in syscall panic and syscall log. */
 #define FD_TRANSLATE_STRING( vm, vaddr, msg_sz ) (__extension__({                          \
@@ -41,7 +41,7 @@ fd_vm_syscall_sol_panic( /**/            void *  _vm,
                          FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/mod.rs#L637
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L717
 
      Note: this syscall is not used by the Rust SDK, only by the C SDK.
      Rust transforms `panic!()` into a log, followed by an abort.
@@ -70,7 +70,7 @@ fd_vm_syscall_sol_log( /**/            void *  _vm,
                        FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L5 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L6 */
 
   FD_VM_CU_UPDATE( vm, fd_ulong_max( msg_sz, FD_VM_SYSCALL_BASE_COST ) );
 
@@ -92,7 +92,7 @@ fd_vm_syscall_sol_log_64( void *  _vm,
                           ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L37 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L40 */
 
   FD_VM_CU_UPDATE( vm, FD_VM_LOG_64_UNITS );
 
@@ -113,7 +113,7 @@ fd_vm_syscall_sol_log_compute_units( /**/            void *  _vm,
                                      FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L60 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L63 */
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
@@ -134,7 +134,7 @@ fd_vm_syscall_sol_log_pubkey( /**/            void *  _vm,
                               FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L84 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L87 */
 
   FD_VM_CU_UPDATE( vm, FD_VM_LOG_PUBKEY_UNITS );
 
@@ -160,33 +160,33 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
                             FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L109
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L110
 
      Note: this is implemented following Agave's perverse behavior.
      We need to loop the slice multiple times to match the exact error,
      first compute budget, then memory mapping.
      And finally, we can loop to log. */
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L121 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L123 */
 
   FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L123-L128 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L127-L128 */
 
   fd_vm_vec_t const * slice = (fd_vm_vec_t const *)FD_VM_MEM_SLICE_HADDR_LD( vm, slice_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
     fd_ulong_sat_mul( slice_cnt, sizeof(fd_vm_vec_t) ) );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L130-L135 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L130-L133 */
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_mul( FD_VM_SYSCALL_BASE_COST, slice_cnt ) );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L136-L141 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L134-L137 */
 
   for( ulong i=0UL; i<slice_cnt; i++ ) {
     FD_VM_CU_UPDATE( vm, slice[i].len );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L145-L152 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L141-L147 */
 
   ulong msg_sz = 14UL; /* "Program data: ", with space */
   for( ulong i=0UL; i<slice_cnt; i++ ) {
@@ -197,7 +197,7 @@ fd_vm_syscall_sol_log_data( /**/            void *  _vm,
     msg_sz += (slice[i].len + 2)/3*4 + (i > 0);
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/syscalls/logging.rs#L156 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/logging.rs#L151 */
 
   fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
   if( FD_LIKELY( log->disabled ) ) {
@@ -236,12 +236,12 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
                               FD_PARAM_UNUSED ulong   r5 ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L666 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L747 */
 
   /* This syscall is ... uh ... problematic.  But the community has
      already recognized this and deprecated it:
 
-     https://github.com/solana-labs/solana/blob/v1.17.23/sdk/src/feature_set.rs#L846
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/feature-set/src/lib.rs#L730-L732
 
      Unfortunately, old code never dies so, practically, this will need
      to be supported until the heat death of the universe.
@@ -257,7 +257,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
      allocation algorithm.  Fortunately, Solana is just using a basic
      bump allocator:
 
-     https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/invoke_context.rs#L122-L148
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L131-L157
 
      vm->heap_{sz,max} and the below replicate this exactly.
 
@@ -269,8 +269,8 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
      well ... malloc from day 1).  So the alignment behavior below is a
      bug-for-bug replication of that:
 
-     https://github.com/solana-labs/solana/blob/v1.17.23/programs/bpf_loader/src/syscalls/mod.rs#L645-L681
-     https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/entrypoint.rs#L265-L266
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L744-L780
+     https://github.com/anza-xyz/solana-sdk/blob/program-entrypoint%40v3.1.1/program-entrypoint/src/lib.rs#L380
 
      More generally and already ranted about elsewhere, any code that
      uses malloc/free style dynamic allocation is inherently broken.  So
@@ -292,16 +292,16 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
      between different compilations of the Solana validator and the
      below. */
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L676-L680 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L758-L762 */
 
   ulong align = fd_vm_is_check_align_enabled( vm ) ? 8UL : FD_VM_ALIGN_RUST_U8;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L684
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L766-L769
      Nothing to do.
      TODO: unclear if it throw InstructionError::CallDepth
-     https://github.com/anza-xyz/agave/blob/v2.0.8/program-runtime/src/invoke_context.rs#L662 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/memory_context.rs#L43-L47 */
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L685-L693 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L770-L778 */
 
   /* Non-zero free address implies that this is a free() call.  Since
      this is a bump allocator, free is a no-op. */
@@ -326,7 +326,7 @@ fd_vm_syscall_sol_alloc_free( /**/            void *  _vm,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mem_ops.rs#L145 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L130 */
 int
 fd_vm_memmove( fd_vm_t * vm,
                ulong     dst_vaddr,
@@ -336,7 +336,7 @@ fd_vm_memmove( fd_vm_t * vm,
     return FD_VM_SUCCESS;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L188-L192 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L139-L148 */
   fd_vm_haddr_query_t dst_ref_mut_query = {
     .vaddr    = dst_vaddr,
     .align    = FD_VM_ALIGN_RUST_U8,
@@ -353,7 +353,7 @@ fd_vm_memmove( fd_vm_t * vm,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mem_ops.rs#L41 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L51 */
 int
 fd_vm_syscall_sol_memmove( /**/            void *  _vm,
                            /**/            ulong   dst_vaddr,
@@ -371,7 +371,7 @@ fd_vm_syscall_sol_memmove( /**/            void *  _vm,
   return fd_vm_memmove( vm, dst_vaddr, src_vaddr, sz );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mem_ops.rs#L18 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L27 */
 int
 fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
                           /**/            ulong   dst_vaddr,
@@ -386,7 +386,7 @@ fd_vm_syscall_sol_memcpy( /**/            void *  _vm,
   vm->reg[0] = 0UL;
 
   /* Exact same as memmove, except also check overlap.
-     https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L45 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L41 */
   FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, src_vaddr, sz, dst_vaddr, sz );
 
   return fd_vm_memmove( vm, dst_vaddr, src_vaddr, sz );
@@ -402,7 +402,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
   vm->reg[0] = 0UL;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L84 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L79 */
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
@@ -418,7 +418,7 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
      case, different from libc style memcmp, harder to callers to use,
      etc ... probably too late to do anything about it now ... sigh */
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L121-L125 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L93-L97 */
   fd_vm_haddr_query_t cmp_result_ref_mut_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_I32,
@@ -492,7 +492,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
   vm->reg[0] = 0UL;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.17/programs/bpf_loader/src/syscalls/mem_ops.rs#L142 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L117 */
 
   FD_VM_CU_MEM_OP_UPDATE( vm, sz );
 
@@ -502,7 +502,7 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
 
   int b = (int)(c & 255UL);
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L155-L159 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L120-L124 */
   fd_vm_haddr_query_t haddr_query = {
     .vaddr    = dst_vaddr,
     .align    = FD_VM_ALIGN_RUST_U8,

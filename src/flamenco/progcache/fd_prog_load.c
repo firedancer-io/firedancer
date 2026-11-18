@@ -40,7 +40,7 @@ fd_prog_info_v1( fd_prog_info_t * out,
   return out;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.5/svm/src/program_loader.rs#L29 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/program_loader.rs#L34 */
 fd_prog_info_t *
 fd_prog_info( fd_prog_info_t * out,
               fd_acc_t const * acc ){
@@ -65,7 +65,7 @@ fd_prog_versions( fd_features_t const * features,
   int reenable_v0 = FD_FEATURE_ACTIVE( slot, features, reenable_sbpf_v0_execution );
   int enable_v0   = !disable_v0 || reenable_v0;
   fd_prog_versions_t v = {0};
-  /* https://github.com/anza-xyz/agave/blob/v4.3.0-beta.0/syscalls/src/lib.rs#L333-L340 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L331-L337 */
   v.min_sbpf_version = enable_v0 ? FD_SBPF_V0 : FD_SBPF_V3;
   v.max_sbpf_version = FD_SBPF_V3;
   return v;

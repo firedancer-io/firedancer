@@ -190,7 +190,7 @@ fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * st
     loaded_accounts_data_size = FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ;
   } else loaded_accounts_data_size = state->loaded_acct_data_sz;
 
-  /* https://github.com/firedancer-io/agave/blob/927c6d30ed5e1baea30c06ebf2aa0c9bae0e1dd1/sdk/fee-structure/src/lib.rs#L122-L129
+  /* https://github.com/anza-xyz/solana-sdk/blob/fee-structure%40v4.1.0/fee-structure/src/lib.rs#L111-L119
 
      loaded_accounts_data_size <= FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ
      means no overflow */

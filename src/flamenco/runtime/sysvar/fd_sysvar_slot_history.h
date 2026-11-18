@@ -8,7 +8,7 @@
 #define FD_SLOT_HISTORY_SLOT_NOT_FOUND (-2)
 #define FD_SLOT_HISTORY_SLOT_TOO_OLD   (-3)
 
-/* https://github.com/solana-labs/solana/blob/v1.18.26/sdk/program/src/slot_history.rs#L43 */
+/* https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v3.2.0/slot-history/src/lib.rs#L52 */
 #define FD_SLOT_HISTORY_MAX_ENTRIES (1024UL * 1024UL)
 
 struct fd_slot_history_view {
