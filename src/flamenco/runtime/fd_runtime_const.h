@@ -85,7 +85,7 @@ FD_PROTOTYPES_BEGIN
       are very very low.
    3. All of the other account updates that can happen in a slot.  In
       the standard case this would be the sysvars, the incinerator,
-      and the fee collector (7 accounts.)
+      and the fee collector (up to 9 accounts, including Alpenglow updates).
       - Clock
       - SlotHashes
       - RecentBlockhashes
