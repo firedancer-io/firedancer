@@ -522,7 +522,7 @@ fd_bpf_loader_input_deserialize_for_abiv1( fd_exec_instr_ctx_t * ctx,
           }
         } else {
           if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &view_acc )!=post_len ||
-                           memcmp( fd_borrowed_account_get_data( &view_acc ), post_data, post_len ) ) ) {
+                           ( post_len && memcmp( fd_borrowed_account_get_data( &view_acc ), post_data, post_len ) ) ) ) {
             return can_data_be_resized_err;
           }
         }
@@ -752,7 +752,7 @@ fd_bpf_loader_input_deserialize_for_abiv0( fd_exec_instr_ctx_t * ctx,
             return set_data_err;
           }
         } else if( fd_borrowed_account_get_data_len( &view_acc ) != pre_len ||
-                   memcmp( post_data, fd_borrowed_account_get_data( &view_acc ), pre_len ) ) {
+                   ( pre_len && memcmp( post_data, fd_borrowed_account_get_data( &view_acc ), pre_len ) ) ) {
           return can_data_be_resized_err;
         }
       } else if( !direct_mapping && fd_borrowed_account_can_data_be_changed( &view_acc, &can_data_be_changed_err ) ) {
