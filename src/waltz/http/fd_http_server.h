@@ -21,8 +21,9 @@
 
      (1) Stage data into the ring with fd_http_server_printf and
          fd_http_server_memcpy functions.
-     (2) Send the staged data to clients with fd_http_server_send and
-         fd_http_server_oring_broadcast.
+     (2) Send the staged data to clients with fd_http_server_ws_send and
+         fd_http_server_ws_broadcast, or use fd_http_server_stage_body for
+         an HTTP response.
 
    The server is designed to be used in a single threaded event loop
    and run within a tile.  Server fds live in the epoll set provided
@@ -368,13 +369,13 @@ fd_http_server_ws_close( fd_http_server_t * http,
                          ulong              ws_conn_id,
                          int                reason );
 
-/* fd_http_server_buffer_trunc truncates the pending message to the given length. */
+/* fd_http_server_stage_trunc truncates the pending message to the given length. */
 
 void
 fd_http_server_stage_trunc( fd_http_server_t * http,
                              ulong len );
 
-/* fd_http_server_buffer_len returns the length of the pending message. */
+/* fd_http_server_stage_len returns the length of the pending message. */
 
 ulong
 fd_http_server_stage_len( fd_http_server_t * http );
@@ -390,7 +391,7 @@ fd_http_server_stage_len( fd_http_server_t * http );
 
    Once the full message has been appended into the outgoing ring buffer,
    the staged contents can be sent to all connected WebSocket clients of
-   the HTTP server using fd_http_server_broadcast.  This will end the
+   the HTTP server using fd_http_server_ws_broadcast.  This will end the
    current staged message so future prints go into a new message.
 
    Printing is not error-free, it is assumed that the format string is
@@ -416,7 +417,7 @@ fd_http_server_printf( fd_http_server_t * http,
 
    Once the full message has been appended into the outgoing ring buffer,
    the staged contents can be sent to all connected WebSocket clients of
-   the HTTP server using fd_http_server_broadcast.  This will end the
+   the HTTP server using fd_http_server_ws_broadcast.  This will end the
    current staged message so future prints go into a new message.
 
    Appending is not error-free, it is assumed that the data provided is
