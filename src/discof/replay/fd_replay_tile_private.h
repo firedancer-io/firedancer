@@ -406,7 +406,7 @@ struct fd_replay_tile {
   fd_block_id_t finalized_block_id_lo;
   fd_block_id_t finalized_block_id_hi;
 
-  /* Randomly generated block id for the initial genesis/snapshot slot.
+  /* Zero block id for genesis, otherwise randomly generated.
      Used as a fallback when the snapshot manifest does not contain a
      block_id (block_id will be populated in Agave 4.1 snapshots and
      will be required in Agave 4.2). */
