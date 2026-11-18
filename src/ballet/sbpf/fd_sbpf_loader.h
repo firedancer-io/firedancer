@@ -260,7 +260,7 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
   ulong * text;
   ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc ]). ULONG_MAX if not set. */
 
-  /* Bit vector of valid call destinations (bit count is text_cnt). */
+  /* Bit vector of valid call destinations. */
   void * calldests_shmem;
   /* Local join to bit vector of valid call destinations (target PCs) */
   fd_sbpf_calldests_t * calldests;
