@@ -7,8 +7,8 @@
 FD_PROTOTYPES_BEGIN
 
 /* fd_xsk_activate installs an XSK file descriptor into the XDP redirect
-   program's XSKMAP for the network device with name fd_xsk_ifname(xsk)
-   at key fd_xsk_ifqueue(xsk). If another XSK is already installed at
+   program's XSKMAP at key xsk->if_queue_id.
+   If another XSK is already installed at
    this key, it will be silently replaced.  The given xsk must be a
    valid local join to fd_xsk_t.  When packets arrive on the netdev RX
    queue that the XSK is bound to, and the XDP program takes action
