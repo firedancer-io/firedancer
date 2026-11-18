@@ -294,8 +294,9 @@ struct fd_txn {
      Specifically, if uchar const * payload is a pointer to the first byte of
      the transaction data in the packet, then (payload+recent_blockhash_off) is
      a pointer to the blockhash. Since the resulting pointer points inside the
-     packet, it should be treated as pointing to unaligned data. In practice,
-     recent_blockhash_off is 5 or 6 (mod 32). */
+     packet, it should be treated as pointing to unaligned data. For legacy
+     and V0 transactions, recent_blockhash_off is 5 or 6 (mod 32); for V1,
+     it is 8. */
   ushort      recent_blockhash_off;
 
   /* addr_table_lookup_cnt: The number of address lookup tables this
