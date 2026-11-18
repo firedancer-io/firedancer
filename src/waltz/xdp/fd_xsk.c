@@ -319,8 +319,6 @@ fd_xsk_init( fd_xsk_t *              xsk,
     .sxdp_family   = PF_XDP,
     .sxdp_ifindex  = xsk->if_idx,
     .sxdp_queue_id = xsk->if_queue_id,
-    /* See extended commentary below for details on XDP_USE_NEED_WAKEUP
-       flag. */
     .sxdp_flags    = (ushort)flags
   };
 
