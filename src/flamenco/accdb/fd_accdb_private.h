@@ -133,9 +133,8 @@ struct fd_accdb_partition {
   ulong compaction_dead_records;       /* records skipped (no live index entry) this pass */
 
   /* Epoch at which this partition was enqueued for compaction.  Set by
-     fd_accdb_shmem_bytes_freed when the partition crosses the
-     freed-bytes threshold.  The compaction tile will not begin reading
-     from this partition until all joiners that were in an
+     fd_accdb_shmem_try_enqueue_compaction.  The compaction tile will not
+     begin reading from this partition until all joiners that were in an
      epoch-protected critical section at enqueue time have exited,
      ensuring any in-flight pwritev2 to this partition has completed. */
   ulong compaction_ready_epoch;
