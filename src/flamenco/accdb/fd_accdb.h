@@ -537,9 +537,9 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
                    uchar const *      pubkey );
 
-/* fd_accdb_reset reinitializes the accdb to the state immediately after
-   fd_accdb_new.  All in-memory index state is cleared and all pool
-   joins are re-established.  The on-disk file is not truncated.
+/* fd_accdb_reset clears in-memory index state and re-establishes pool
+   joins.  Generation and request/completion counters are preserved.
+   The on-disk file is not truncated.
 
    Waits for the accdb tile to apply pending root / purge requests and
    release what they retired.  The caller must guarantee that no other
