@@ -31,7 +31,7 @@ static const fd_bn254_scalar_t fd_bn254_const_r[1] = {{{
   0x43e1f593f0000001, 0x2833e84879b97091, 0xb85045b68181585d, 0x30644e72e131a029,
 }}};
 
-/* const 1/r for CIOS mul */
+/* -1/r mod 2^64 for CIOS mul */
 static const ulong fd_bn254_const_r_inv = 0xC2E1F593EFFFFFFFUL;
 
 FD_PROTOTYPES_BEGIN
