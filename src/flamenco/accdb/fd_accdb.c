@@ -148,7 +148,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong * cred;
 
   /* Track account addresses changed since a full snap.
-     Used to determine which accounts should be packed into a full
+     Used to determine which accounts should be packed into an incremental
      snapshot (including tombstones for accounts no longer present in
      accdb, but present in the full snapshot). */
   struct {
