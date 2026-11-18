@@ -1478,8 +1478,8 @@ acc_unlink( fd_accdb_t * accdb,
      try to reclaim the cache line so the eviction path does not try
      to write back stale data from a recycled pool slot.  Lock-free:
      CAS the refcnt 0 -> EVICT_SENTINEL to claim it exclusively, then
-     push to this join's free list.  If the line is pinned (refcnt>0),
-     skip, the pinner's release will handle it.
+     push to this join's free list.  If the line is still pinned,
+     mark it persisted to prevent writeback after the account is freed.
 
      Acquire CACHE_CLAIM_BIT before touching acc->cache_idx /
      CACHE_VALID — see evict_clear_acc_cache_ref for the protocol.
