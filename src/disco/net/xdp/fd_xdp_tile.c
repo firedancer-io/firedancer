@@ -790,12 +790,6 @@ net_prefbusy_poll_ready( fd_xsk_t *         rr_xsk,
 }
 
 static void
-net_prefbusy_poll_flush( fd_net_flusher_t * flusher,
-                         long               now ) {
-  flusher->prefbusy_last_poll_ticks = now;
-}
-
-static void
 before_credit_prefbusy( fd_net_ctx_t *      ctx,
                         fd_stem_context_t * stem,
                         int *               charge_busy,
@@ -829,7 +823,7 @@ before_credit_prefbusy( fd_net_ctx_t *      ctx,
     ctx->metrics.xsk_tx_wakeup_cnt++;
     ctx->metrics.xsk_rx_wakeup_cnt++;
 
-    net_prefbusy_poll_flush( flusher, fd_tickcount() );
+    flusher->prefbusy_last_poll_ticks = fd_tickcount();
   }
 
   /* Process new RX from xsk ring if there is any. */

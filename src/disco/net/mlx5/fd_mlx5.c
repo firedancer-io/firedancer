@@ -1017,47 +1017,17 @@ fd_uverbs_init_ioctl_attr( struct ib_uverbs_attr * attr,
 }
 
 static int
-fd_uverbs_init_alloc_uar_req( fd_uverbs_alloc_uar_req_t * req,
-                              ulong *                     mmap_offset,
-                              uint *                      mmap_sz,
-                              uint *                      page_id ) {
-  if( FD_UNLIKELY( !req || !mmap_offset || !mmap_sz || !page_id ) ) return -1;
-  fd_memset( req, 0, sizeof(*req) );
-  req->hdr.length    = (ushort)sizeof(*req);
-  req->hdr.object_id = MLX5_IB_OBJECT_UAR;
-  req->hdr.method_id = MLX5_IB_METHOD_UAR_OBJ_ALLOC;
-  req->hdr.num_attrs = 5U;
-  req->hdr.driver_id = RDMA_DRIVER_MLX5;
-  fd_uverbs_init_ioctl_attr( req->attrs+0, MLX5_IB_ATTR_UAR_OBJ_ALLOC_HANDLE,      0U, 0UL );
-  fd_uverbs_init_ioctl_attr( req->attrs+1, MLX5_IB_ATTR_UAR_OBJ_ALLOC_TYPE,        8U, MLX5_IB_UAPI_UAR_ALLOC_TYPE_NC );
-  fd_uverbs_init_ioctl_attr( req->attrs+2, MLX5_IB_ATTR_UAR_OBJ_ALLOC_MMAP_OFFSET, 8U, (ulong)mmap_offset );
-  fd_uverbs_init_ioctl_attr( req->attrs+3, MLX5_IB_ATTR_UAR_OBJ_ALLOC_MMAP_LENGTH, 4U, (ulong)mmap_sz );
-  fd_uverbs_init_ioctl_attr( req->attrs+4, MLX5_IB_ATTR_UAR_OBJ_ALLOC_PAGE_ID,     4U, (ulong)page_id );
-  return 0;
-}
-
-static int
-fd_uverbs_init_destroy_uar_req( fd_uverbs_destroy_uar_req_t * req,
-                                uint                          handle ) {
-  if( FD_UNLIKELY( !req ) ) return -1;
-  fd_memset( req, 0, sizeof(*req) );
-  req->hdr.length    = (ushort)sizeof(*req);
+fd_uverbs_destroy_uar( fd_uverbs_ctx_t * ctx,
+                       uint              handle ) {
+  fd_uverbs_destroy_uar_req_t req[1];
+  fd_memset( req, 0, sizeof(req) );
+  req->hdr.length    = (ushort)sizeof(req);
   req->hdr.object_id = MLX5_IB_OBJECT_UAR;
   req->hdr.method_id = MLX5_IB_METHOD_UAR_OBJ_DESTROY;
   req->hdr.num_attrs = 1U;
   req->hdr.driver_id = RDMA_DRIVER_MLX5;
   fd_uverbs_init_ioctl_attr( req->attrs, MLX5_IB_ATTR_UAR_OBJ_DESTROY_HANDLE, 0U, handle );
-  return 0;
-}
 
-static int
-fd_uverbs_destroy_uar( fd_uverbs_ctx_t * ctx,
-                       uint              handle ) {
-  fd_uverbs_destroy_uar_req_t req[1];
-  if( FD_UNLIKELY( fd_uverbs_init_destroy_uar_req( req, handle ) ) ) {
-    errno = EINVAL;
-    return -1;
-  }
   return (int)syscall( SYS_ioctl, ctx->cmd_fd, RDMA_VERBS_IOCTL, &req->hdr );
 }
 
@@ -1065,14 +1035,23 @@ static ulong *
 fd_uverbs_alloc_uar( fd_uverbs_ctx_t * ctx,
                      uint *            page_id,
                      ulong *           mmap_offset_out ) {
+  fd_uverbs_alloc_uar_req_t req[1];
+  fd_memset( req, 0, sizeof(req) );
+  req->hdr.length    = (ushort)sizeof(req);
+  req->hdr.object_id = MLX5_IB_OBJECT_UAR;
+  req->hdr.method_id = MLX5_IB_METHOD_UAR_OBJ_ALLOC;
+  req->hdr.num_attrs = 5U;
+  req->hdr.driver_id = RDMA_DRIVER_MLX5;
+
   ulong mmap_offset = 0UL;
   uint  mmap_sz     = 0U;
   uint  uar_page_id = 0U;
-  fd_uverbs_alloc_uar_req_t req[1];
-  if( FD_UNLIKELY( fd_uverbs_init_alloc_uar_req( req, &mmap_offset, &mmap_sz, &uar_page_id ) ) ) {
-    errno = EINVAL;
-    return NULL;
-  }
+  fd_uverbs_init_ioctl_attr( req->attrs+0, MLX5_IB_ATTR_UAR_OBJ_ALLOC_HANDLE,      0U, 0UL );
+  fd_uverbs_init_ioctl_attr( req->attrs+1, MLX5_IB_ATTR_UAR_OBJ_ALLOC_TYPE,        8U, MLX5_IB_UAPI_UAR_ALLOC_TYPE_NC );
+  fd_uverbs_init_ioctl_attr( req->attrs+2, MLX5_IB_ATTR_UAR_OBJ_ALLOC_MMAP_OFFSET, 8U, (ulong)&mmap_offset );
+  fd_uverbs_init_ioctl_attr( req->attrs+3, MLX5_IB_ATTR_UAR_OBJ_ALLOC_MMAP_LENGTH, 4U, (ulong)&mmap_sz );
+  fd_uverbs_init_ioctl_attr( req->attrs+4, MLX5_IB_ATTR_UAR_OBJ_ALLOC_PAGE_ID,     4U, (ulong)&uar_page_id );
+
   if( FD_UNLIKELY( syscall( SYS_ioctl, ctx->cmd_fd, RDMA_VERBS_IOCTL, &req->hdr ) ) ) return NULL;
 
   ulong handle_raw = req->attrs[0].data;
@@ -1080,9 +1059,8 @@ fd_uverbs_alloc_uar( fd_uverbs_ctx_t * ctx,
                    (mmap_offset & (FD_MLX5_PAGE_SZ-1UL)) || mmap_offset>(ulong)LONG_MAX ) ) {
     FD_LOG_WARNING(( "invalid mlx5 UAR response (handle %lu, mapping size %u, mapping offset %#lx)",
                      handle_raw, mmap_sz, mmap_offset ));
-    int err = EPROTO;
     if( handle_raw<=UINT_MAX ) fd_uverbs_destroy_uar( ctx, (uint)handle_raw );
-    errno = err;
+    errno = EPROTO;
     return NULL;
   }
 
@@ -1396,26 +1374,30 @@ fd_uverbs_create_rss_qp( fd_uverbs_ctx_t *  uverbs,
   return rss_qp;
 }
 
-static int
-fd_uverbs_init_udp_flow_req( fd_uverbs_create_udp_flow_req_t *   req,
-                             struct ib_uverbs_create_flow_resp * resp,
-                             uint                                qp_handle,
-                             uint                                port_num,
-                             uint                                dst_ip,
-                             ushort                              dst_port ) {
-  if( FD_UNLIKELY( !req || !resp || !port_num || port_num>UCHAR_MAX || !dst_port ) ) return -1;
+int
+fd_uverbs_create_udp_flow( fd_uverbs_ctx_t *        uverbs,
+                           fd_mlx5_rss_qp_t const * rss_qp,
+                           uint                     dst_ip,
+                           ushort                   dst_port ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !rss_qp || !dst_port ||
+                   !uverbs->port_num || uverbs->port_num>UCHAR_MAX ) ) {
+    errno = EINVAL;
+    return -1;
+  }
 
-  fd_memset( req,  0, sizeof(*req ) );
-  fd_memset( resp, 0, sizeof(*resp) );
+  fd_uverbs_create_udp_flow_req_t   req [1];
+  struct ib_uverbs_create_flow_resp resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
   ulong const core_req_sz = offsetof( fd_uverbs_create_udp_flow_req_t, mlx5_ncounters_data );
   FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_FLOW,
-                                   core_req_sz, sizeof(*req), resp,
-                                   sizeof(*resp), sizeof(*resp) ) );
+                                   core_req_sz, sizeof(req), resp,
+                                   sizeof(resp), sizeof(resp) ) );
 
-  req->qp_handle           = qp_handle;
+  req->qp_handle           = rss_qp->handle;
   req->size                = sizeof(req->eth)+sizeof(req->ipv4)+sizeof(req->udp);
   req->num_of_specs        = 3U;
-  req->port                = (uchar)port_num;
+  req->port                = (uchar)uverbs->port_num;
   req->eth.type            = FD_MLX5_FLOW_SPEC_ETH;
   req->eth.size            = sizeof(req->eth);
   req->eth.val.ether_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
@@ -1428,52 +1410,36 @@ fd_uverbs_init_udp_flow_req( fd_uverbs_create_udp_flow_req_t *   req,
   req->udp.size            = sizeof(req->udp);
   req->udp.val.dst_port    = fd_ushort_bswap( dst_port );
   req->udp.mask.dst_port   = USHORT_MAX;
-  return 0;
-}
 
-int
-fd_uverbs_create_udp_flow( fd_uverbs_ctx_t *        uverbs,
-                           fd_mlx5_rss_qp_t const * rss_qp,
-                           uint                     dst_ip,
-                           ushort                   dst_port ) {
-  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !rss_qp || !dst_port ) ) {
-    errno = EINVAL;
-    return -1;
-  }
-
-  fd_uverbs_create_udp_flow_req_t   req [1];
-  struct ib_uverbs_create_flow_resp resp[1];
-  if( FD_UNLIKELY( fd_uverbs_init_udp_flow_req( req, resp, rss_qp->handle,
-                                                uverbs->port_num, dst_ip,
-                                                dst_port ) ) ) {
-    errno = EINVAL;
-    return -1;
-  }
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return -1;
   return 0;
 }
 
-static int
-fd_uverbs_init_gre_flow_req( fd_uverbs_create_gre_flow_req_t *   req,
-                             struct ib_uverbs_create_flow_resp * resp,
-                             uint                                qp_handle,
-                             uint                                port_num,
-                             uint                                inner_dst_ip,
-                             ushort                              inner_dst_port ) {
-  if( FD_UNLIKELY( !req || !resp || !port_num || port_num>UCHAR_MAX || !inner_dst_port ) ) return -1;
+int
+fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *        uverbs,
+                               fd_mlx5_rss_qp_t const * rss_qp,
+                               uint                     inner_dst_ip,
+                               ushort                   inner_dst_port ) {
+  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !rss_qp || !inner_dst_port ||
+                   !uverbs->port_num || uverbs->port_num>UCHAR_MAX ) ) {
+    errno = EINVAL;
+    return -1;
+  }
 
-  fd_memset( req,  0, sizeof(*req ) );
-  fd_memset( resp, 0, sizeof(*resp) );
+  fd_uverbs_create_gre_flow_req_t   req [1];
+  struct ib_uverbs_create_flow_resp resp[1];
+  fd_memset( req,  0, sizeof(req ) );
+  fd_memset( resp, 0, sizeof(resp) );
   ulong const core_req_sz = offsetof( fd_uverbs_create_gre_flow_req_t, mlx5_ncounters_data );
   FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_FLOW,
-                                   core_req_sz, sizeof(*req), resp,
-                                   sizeof(*resp), sizeof(*resp) ) );
+                                   core_req_sz, sizeof(req), resp,
+                                   sizeof(resp), sizeof(resp) ) );
 
-  req->qp_handle    = qp_handle;
+  req->qp_handle    = rss_qp->handle;
   req->size         = sizeof(req->eth)+sizeof(req->outer_ipv4)+sizeof(req->gre)+
                       sizeof(req->inner_ipv4)+sizeof(req->inner_udp);
   req->num_of_specs = 5U;
-  req->port         = (uchar)port_num;
+  req->port         = (uchar)uverbs->port_num;
   req->eth = (struct ib_uverbs_flow_spec_eth) {
     .type = FD_MLX5_FLOW_SPEC_ETH,
     .size = sizeof(req->eth),
@@ -1504,27 +1470,7 @@ fd_uverbs_init_gre_flow_req( fd_uverbs_create_gre_flow_req_t *   req,
     .val  = { .dst_port = fd_ushort_bswap( inner_dst_port ) },
     .mask = { .dst_port = USHORT_MAX },
   };
-  return 0;
-}
 
-int
-fd_uverbs_create_gre_udp_flow( fd_uverbs_ctx_t *        uverbs,
-                               fd_mlx5_rss_qp_t const * rss_qp,
-                               uint                     inner_dst_ip,
-                               ushort                   inner_dst_port ) {
-  if( FD_UNLIKELY( !uverbs || uverbs->cmd_fd<0 || !rss_qp || !inner_dst_port ) ) {
-    errno = EINVAL;
-    return -1;
-  }
-
-  fd_uverbs_create_gre_flow_req_t   req [1];
-  struct ib_uverbs_create_flow_resp resp[1];
-  if( FD_UNLIKELY( fd_uverbs_init_gre_flow_req( req, resp, rss_qp->handle,
-                                                uverbs->port_num, inner_dst_ip,
-                                                inner_dst_port ) ) ) {
-    errno = EINVAL;
-    return -1;
-  }
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return -1;
   return 0;
 }
