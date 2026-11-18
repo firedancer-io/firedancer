@@ -820,7 +820,7 @@ test_tx_sock_fallback( void ) {
 static void
 test_inactive_rx( void ) {
   test_vfs_init();
-  fd_iavf_hw_rx_desc_t desc[ 2 ][ 128 ] = {0};
+  fd_iavf_rx_desc_t desc[ 2 ][ 128 ] = {0};
   uint chunks[ 128 ]                    = { 1U, 2U };
   uint tail                             = 0U;
   test_tile.batch_size               = 1U;
@@ -891,7 +891,7 @@ test_rx_non_fd_packets( void ) {
     ulong seq=0UL, depth=128UL;
     int reliable=0;
     fd_stem_context_t stem = { .mcaches=mcaches, .seqs=&seq, .depths=&depth, .out_reliable=&reliable };
-    fd_iavf_hw_rx_desc_t desc[ 128 ] = {0};
+    fd_iavf_rx_desc_t desc[ 128 ] = {0};
     uint chunks[ 128 ] = { 1U };
     uint tail = 0U;
     fd_iavf_tile_vf_t * vf = &test_tile.vfs[0];
@@ -966,7 +966,7 @@ recv_vlan_pkt( ushort inner_type ) {
   ulong seq=0UL, depth=128UL;
   int reliable=0;
   fd_stem_context_t stem = { .mcaches=mcaches, .seqs=&seq, .depths=&depth, .out_reliable=&reliable };
-  fd_iavf_hw_rx_desc_t desc[ 128 ] = {0};
+  fd_iavf_rx_desc_t desc[ 128 ] = {0};
   uint chunks[ 128 ] = { 1U };
   uint tail = 0U;
   fd_iavf_tile_vf_t * vf = &test_tile.vfs[0];
@@ -1144,7 +1144,7 @@ test_loopback_send( void ) {
 
 static void
 test_rx_ring( void ) {
-  fd_iavf_hw_rx_desc_t desc[ 128 ] = {0};
+  fd_iavf_rx_desc_t desc[ 128 ] = {0};
   uint chunks[ 128 ]               = {0};
   uint tail                        = 0U;
   fd_memset( &test_tile, 0, sizeof(test_tile) );
@@ -1171,7 +1171,7 @@ test_rx_ring( void ) {
     FD_TEST( 0==fd_iavf_hw_rx_enqueue( vf, vf->rx_pending_cnt ) );
     vf->rx_pending_cnt = 0U;
     FD_TEST( tail==(rx_queue->prod & 127UL) && rx_queue->posted==start+127UL );
-    fd_iavf_hw_rx_desc_t unused = desc[ (start+127UL) & 127UL ];
+    fd_iavf_rx_desc_t unused = desc[ (start+127UL) & 127UL ];
     uint unused_chunk = chunks[ (start+127UL) & 127UL ];
     FD_TEST( -1==fd_iavf_hw_rx_enqueue( vf, 1U ) && errno==ENOSPC );
     FD_TEST( rx_queue->prod==start+127UL && rx_queue->posted==start+127UL && tail==((start+127UL) & 127UL) );
@@ -1214,7 +1214,7 @@ test_rx_ring( void ) {
 
 static void
 test_vf_batches( void ) {
-  fd_iavf_hw_rx_desc_t desc[ 2 ][ 128 ] = {0};
+  fd_iavf_rx_desc_t desc[ 2 ][ 128 ] = {0};
   uint chunks[ 2 ][ 128 ]               = {0};
   uint tail[ 2 ]                        = {0};
   test_vfs_init();
@@ -1314,7 +1314,7 @@ test_packet_memory( void ) {
     packet_end = packet_iova+packet_memory_sz;
 
     for( ulong member=0UL; member<2UL; member++ ) {
-      fd_iavf_hw_rx_desc_t rx_desc[4] = {0};
+      fd_iavf_rx_desc_t rx_desc[4] = {0};
       fd_iavf_tx_desc_t tx_desc[4]    = {0};
       uint rx_chunks[4]               = {0};
       uint tx_chunks[4]               = { (uint)test_tile.net.pkt_buf_chunk0, (uint)test_tile.net.pkt_buf_wmark };
@@ -1368,7 +1368,7 @@ test_queue_join( void ) {
       FD_TEST( (NULL!=vf->adminq.dma_memory)==(0==kind_id) );
       FD_TEST( vf->tx_queue.ring==vf->queue_memory );
       FD_TEST( (ulong)vf->rx_queue.ring>=(ulong)vf->tx_queue.ring+64UL*sizeof(fd_iavf_tx_desc_t) );
-      FD_TEST( (ulong)vf->tx_queue.comp_ring>=(ulong)vf->rx_queue.ring+128UL*sizeof(fd_iavf_hw_rx_desc_t) );
+      FD_TEST( (ulong)vf->tx_queue.comp_ring>=(ulong)vf->rx_queue.ring+128UL*sizeof(fd_iavf_rx_desc_t) );
       FD_TEST( (ulong)(vf->tx_queue.comp_ring+64UL)<=(ulong)vf->queue_memory+fd_iavf_queue_footprint( 64U, 128U ) );
       FD_TEST( vf->rx_queue.depth==128U && vf->tx_queue.depth==64U );
       vf->rx_queue.prod      = 127UL;
@@ -1442,7 +1442,7 @@ test_hardware( char const * pci_addr,
     }
     FD_TEST( 0==fd_iavf_hw_rx_enqueue( vf, 63U ) );
     FD_LOG_NOTICE(( "queue %u packet IOVA %#lx, size %lu, first descriptor %#lx",
-                    i, queues[i].packet_iova, queues[i].packet_memory_sz, ((fd_iavf_hw_rx_desc_t *)vf->rx_queue.ring)[0].qword[0] ));
+                    i, queues[i].packet_iova, queues[i].packet_memory_sz, ((fd_iavf_rx_desc_t *)vf->rx_queue.ring)[0].qword[0] ));
   }
   FD_TEST( 0==fd_iavf_virtchnl_enable_queues( &vfio, &adminq, &info, queues, queue_cnt ) );
   FD_LOG_NOTICE(( "%u queues enabled with RSS delivery and the PF-assigned MAC", queue_cnt ));

@@ -64,9 +64,9 @@ test_queue_footprint( void ) {
   FD_TEST( fd_mlx5_hw_init_queues( tile, queue_memory, 4U, 4U ) );
   FD_TEST( fd_ulong_is_aligned( (ulong)tile->rx_cq.entries, FD_MLX5_PAGE_SZ ) );
   FD_TEST( fd_ulong_is_aligned( (ulong)tile->tx_cq.entries, FD_MLX5_PAGE_SZ ) );
-  FD_TEST( fd_ulong_is_aligned( (ulong)tile->rx_wq.rq,      FD_MLX5_PAGE_SZ ) );
+  FD_TEST( fd_ulong_is_aligned( (ulong)tile->rwq.rq,        FD_MLX5_PAGE_SZ ) );
   FD_TEST( fd_ulong_is_aligned( (ulong)tile->tx_qp.sq,      FD_MLX5_PAGE_SZ ) );
-  FD_TEST( tile->rx_wq.rx_depth==4U && tile->tx_qp.tx_depth==4U );
+  FD_TEST( tile->rwq.depth==4U && tile->tx_qp.depth==4U );
   fd_mlx5_hw_cqe64_t const * rx_cq_entries = (fd_mlx5_hw_cqe64_t const *)tile->rx_cq.entries;
   fd_mlx5_hw_cqe64_t const * tx_cq_entries = (fd_mlx5_hw_cqe64_t const *)tile->tx_cq.entries;
   FD_TEST( rx_cq_entries[0].op_own==(uchar)(FD_MLX5_CQE_OP_INVALID<<4) );
@@ -101,7 +101,7 @@ test_hardware( char const * rdma_name,
     queues[ i ] = (fd_mlx5_uverbs_tile_t) {
       .rx_cq              = &tile[ i ].rx_cq,
       .tx_cq              = &tile[ i ].tx_cq,
-      .rx_wq              = &tile[ i ].rx_wq,
+      .rwq                = &tile[ i ].rwq,
       .tx_qp              = &tile[ i ].tx_qp,
       .lkey               = &tile[ i ].lkey,
       /* Only tile 0 takes the efficient mode path. */
@@ -129,10 +129,10 @@ test_hardware( char const * rdma_name,
     tile[ i ].rx_cq.request_notification_doorbell = uar+FD_MLX5_UAR_CQ_DB_OFFSET;
     FD_TEST( tile[ i ].rx_cq.entries && tile[ i ].rx_cq.control && tile[ i ].rx_cq.depth==rx_depth );
     FD_TEST( tile[ i ].tx_cq.entries && tile[ i ].tx_cq.control && tile[ i ].tx_cq.depth==tx_depth );
-    FD_TEST( tile[ i ].rx_wq.rq && tile[ i ].rx_wq.control );
+    FD_TEST( tile[ i ].rwq.rq && tile[ i ].rwq.control );
     FD_TEST( tile[ i ].tx_qp.sq && tile[ i ].tx_qp.control );
-    FD_TEST( tile[ i ].rx_wq.wqn<=0xffffffU && tile[ i ].tx_qp.qpn<=0xffffffU );
-    FD_TEST( tile[ i ].rx_wq.rx_depth==rx_depth && tile[ i ].tx_qp.tx_depth==tx_depth );
+    FD_TEST( tile[ i ].rwq.wqn<=0xffffffU && tile[ i ].tx_qp.qpn<=0xffffffU );
+    FD_TEST( tile[ i ].rwq.depth==rx_depth && tile[ i ].tx_qp.depth==tx_depth );
     fd_mlx5_hw_cqe64_t const * rx_cq_entries = (fd_mlx5_hw_cqe64_t const *)tile[ i ].rx_cq.entries;
     fd_mlx5_hw_cqe64_t const * tx_cq_entries = (fd_mlx5_hw_cqe64_t const *)tile[ i ].tx_cq.entries;
     FD_TEST( rx_cq_entries[ 0U ].op_own==(uchar)(FD_MLX5_CQE_OP_INVALID<<4) );
@@ -282,14 +282,14 @@ struct fd_mlx5_tile_mock {
 typedef struct fd_mlx5_tile_mock fd_mlx5_tile_mock_t;
 
 static inline uint
-test_rx_wq_cnt( fd_mlx5_tile_mock_t const * mock,
-                fd_mlx5_tile_t const * tile ) {
-  return tile->rx_wq.rq_prod-mock->rq_nic_cons;
+test_rq_cnt( fd_mlx5_tile_mock_t const * mock,
+             fd_mlx5_tile_t const * tile ) {
+  return tile->rwq.rq_prod-mock->rq_nic_cons;
 }
 
 static inline uint
-test_tx_wq_cnt( fd_mlx5_tile_mock_t const * mock,
-                fd_mlx5_tile_t const * tile ) {
+test_sq_cnt( fd_mlx5_tile_mock_t const * mock,
+             fd_mlx5_tile_t const * tile ) {
   return tile->tx_qp.sq_posted-mock->sq_nic_cons;
 }
 
@@ -336,8 +336,8 @@ test_rx_cqe_normal( void ) {
 
   uint rq_wqe_buf_chunk[ depth ];
   for( uint i=0U; i<depth; i++ ) rq_wqe_buf_chunk[ i ] = 1000U+i;
-  fd_mlx5_rx_wq_t rx_wq[1] = {{
-    .rx_cq=cq, .rq_wqe_buf_chunk=rq_wqe_buf_chunk, .rx_depth=depth,
+  fd_mlx5_rwq_t rwq[1] = {{
+    .rx_cq=cq, .rq_wqe_buf_chunk=rq_wqe_buf_chunk, .depth=depth,
     .rq_prod=5U, .rq_cons=3U
   }};
 
@@ -354,21 +354,21 @@ test_rx_cqe_normal( void ) {
   FD_TEST( err_cqe->op_own==(uchar)((FD_MLX5_CQE_OP_RX_ERR<<4) | 1U) );
 
   fd_mlx5_tile_rx_comp_t comp[2];
-  FD_TEST( fd_mlx5_hw_poll_rx_cq( rx_wq, comp, 2U )==2 );
+  FD_TEST( fd_mlx5_hw_poll_rx_cq( rwq, comp, 2U )==2 );
   FD_TEST( comp[0].chunk==rq_wqe_buf_chunk[3] && comp[0].byte_len==64U && comp[0].opcode==FD_MLX5_CQE_OP_RX_OK  );
   FD_TEST( comp[1].chunk==rq_wqe_buf_chunk[0] && comp[1].byte_len== 0U && comp[1].opcode==FD_MLX5_CQE_OP_RX_ERR );
-  FD_TEST( cq->cons_idx==5U && rx_wq->rq_cons==5U );
+  FD_TEST( cq->cons_idx==5U && rwq->rq_cons==5U );
   FD_TEST( fd_uint_bswap( control->consumer_idx )==5U );
 
-  rx_wq->rq_prod += 2U;
-  test_cqe_push( cq, 5U, FD_MLX5_CQE_OP_RX_ERR, rx_wq->rq_cons, 0U );
+  rwq->rq_prod += 2U;
+  test_cqe_push( cq, 5U, FD_MLX5_CQE_OP_RX_ERR, rwq->rq_cons, 0U );
   ((fd_mlx5_hw_cqe64_t *)(entries+1U))->syndrome = 0U;
-  FD_EXPECT_LOG_ERR( fd_mlx5_hw_poll_rx_cq( rx_wq, comp, 1U ) );
+  FD_EXPECT_LOG_ERR( fd_mlx5_hw_poll_rx_cq( rwq, comp, 1U ) );
 
-  test_cqe_push( cq, 5U, FD_MLX5_CQE_OP_RX_OK, rx_wq->rq_cons+1U, 64U );
-  FD_TEST( fd_mlx5_hw_poll_rx_cq( rx_wq, comp, 1U )==-1 );
+  test_cqe_push( cq, 5U, FD_MLX5_CQE_OP_RX_OK, rwq->rq_cons+1U, 64U );
+  FD_TEST( fd_mlx5_hw_poll_rx_cq( rwq, comp, 1U )==-1 );
   FD_TEST( errno==EPROTO );
-  FD_TEST( cq->cons_idx==5U && rx_wq->rq_cons==5U );
+  FD_TEST( cq->cons_idx==5U && rwq->rq_cons==5U );
 }
 
 static void
@@ -429,12 +429,12 @@ static void
 test_park_flushes_tx( void ) {
   static fd_mlx5_tile_t tile[1];
   fd_memset( tile, 0, sizeof(tile) );
-  fd_mlx5_tx_wqe_t     sq[4];
+  fd_mlx5_sq_wqe_t     sq[4];
   fd_mlx5_qp_control_t control = {0};
   ulong                sq_doorbell = 0UL;
   fd_memset( sq, 0, sizeof(sq) );
   tile->tx_qp.sq          = sq;
-  tile->tx_qp.tx_depth    = 4U;
+  tile->tx_qp.depth       = 4U;
   tile->tx_qp.control     = &control;
   tile->tx_qp.sq_doorbell = (volatile uchar *)&sq_doorbell;
   tile->tx_qp.sq_prod     = 2U;
@@ -458,7 +458,7 @@ test_park_flushes_tx( void ) {
 }
 
 static void
-test_tx_wqe( void ) {
+test_sq_wqe( void ) {
   uchar frame[ 64 ] __attribute__((aligned(8)));
   for( ulong i=0UL; i<sizeof(frame); i++ ) frame[ i ] = (uchar)i;
 
@@ -467,9 +467,9 @@ test_tx_wqe( void ) {
   uint const lkey   = 42U;
   ulong const frame_iova = 0x1234000UL;
   ulong const inline_hdr_sz = 18UL;
-  fd_mlx5_tx_wqe_t wqe[1];
+  fd_mlx5_sq_wqe_t wqe[1];
 
-  FD_TEST( fd_mlx5_hw_init_tx_wqe( wqe, sq_idx, qpn, frame, frame_iova, sizeof(frame), lkey, 0UL ) );
+  FD_TEST( fd_mlx5_hw_init_sq_wqe( wqe, sq_idx, qpn, frame, frame_iova, sizeof(frame), lkey, 0UL ) );
   FD_TEST( fd_uint_bswap( FD_LOAD( uint, wqe->bytes    ) )==((sq_idx & 0xffffU)<<8 | FD_MLX5_SQ_SEND_PKT) );
   FD_TEST( fd_uint_bswap( FD_LOAD( uint, wqe->bytes+ 4 ) )==(qpn<<8 | 3U) );
   FD_TEST( !wqe->bytes[ 11 ] );
@@ -478,7 +478,7 @@ test_tx_wqe( void ) {
   FD_TEST( fd_uint_bswap(  FD_LOAD( uint,  wqe->bytes+36 ) )==lkey );
   FD_TEST( fd_ulong_bswap( FD_LOAD( ulong, wqe->bytes+40 ) )==frame_iova );
 
-  FD_TEST( fd_mlx5_hw_init_tx_wqe( wqe, sq_idx, qpn, frame, frame_iova, sizeof(frame), lkey, inline_hdr_sz ) );
+  FD_TEST( fd_mlx5_hw_init_sq_wqe( wqe, sq_idx, qpn, frame, frame_iova, sizeof(frame), lkey, inline_hdr_sz ) );
   FD_TEST( fd_uint_bswap( FD_LOAD( uint, wqe->bytes+4 ) )==(qpn<<8 | 4U) );
   FD_TEST( !wqe->bytes[ 11 ] );
   FD_TEST( fd_ushort_bswap( FD_LOAD( ushort, wqe->bytes+28 ) )==inline_hdr_sz );
@@ -487,11 +487,11 @@ test_tx_wqe( void ) {
   FD_TEST( fd_uint_bswap(  FD_LOAD( uint,  wqe->bytes+52 ) )==lkey );
   FD_TEST( fd_ulong_bswap( FD_LOAD( ulong, wqe->bytes+56 ) )==frame_iova+inline_hdr_sz );
 
-  FD_TEST( !fd_mlx5_hw_init_tx_wqe( wqe, sq_idx, qpn, frame, frame_iova, 0UL, lkey, 0UL ) );
-  FD_TEST( !fd_mlx5_hw_init_tx_wqe( wqe, sq_idx, 0x1000000U, frame, frame_iova, sizeof(frame), lkey, 0UL ) );
-  FD_TEST( !fd_mlx5_hw_init_tx_wqe( wqe, sq_idx, qpn, frame, frame_iova, sizeof(frame), lkey, sizeof(frame)+1UL ) );
-  FD_TEST( !fd_mlx5_hw_init_tx_wqe( wqe, sq_idx, qpn, frame, frame_iova, (ulong)UINT_MAX+1UL, lkey, 0UL ) );
-  FD_TEST( !fd_mlx5_hw_init_tx_wqe( wqe, sq_idx, qpn, frame, ULONG_MAX, sizeof(frame), lkey, 1UL ) );
+  FD_TEST( !fd_mlx5_hw_init_sq_wqe( wqe, sq_idx, qpn, frame, frame_iova, 0UL, lkey, 0UL ) );
+  FD_TEST( !fd_mlx5_hw_init_sq_wqe( wqe, sq_idx, 0x1000000U, frame, frame_iova, sizeof(frame), lkey, 0UL ) );
+  FD_TEST( !fd_mlx5_hw_init_sq_wqe( wqe, sq_idx, qpn, frame, frame_iova, sizeof(frame), lkey, sizeof(frame)+1UL ) );
+  FD_TEST( !fd_mlx5_hw_init_sq_wqe( wqe, sq_idx, qpn, frame, frame_iova, (ulong)UINT_MAX+1UL, lkey, 0UL ) );
+  FD_TEST( !fd_mlx5_hw_init_sq_wqe( wqe, sq_idx, qpn, frame, ULONG_MAX, sizeof(frame), lkey, 1UL ) );
 
   ulong sq_doorbell = 0UL;
   fd_mlx5_qp_control_t control = {0};
@@ -502,7 +502,7 @@ test_tx_wqe( void ) {
   FD_TEST( fd_uint_bswap( control.sq_prod )==1U );
   FD_TEST( sq_doorbell==FD_LOAD( ulong, wqe->bytes ) );
   ulong const first_doorbell = sq_doorbell;
-  FD_TEST( fd_mlx5_hw_init_tx_wqe( wqe, sq_idx+1U, qpn, frame, frame_iova, sizeof(frame), lkey, inline_hdr_sz ) );
+  FD_TEST( fd_mlx5_hw_init_sq_wqe( wqe, sq_idx+1U, qpn, frame, frame_iova, sizeof(frame), lkey, inline_hdr_sz ) );
   tx_qp.sq_prod = 2U;
   fd_mlx5_hw_ring_sq( &tx_qp, wqe );
   FD_TEST( tx_qp.sq_posted==2U && wqe->bytes[ 11 ]==FD_MLX5_SQ_REQUEST_CQE );
@@ -525,7 +525,7 @@ test_tx_cqe_normal( void ) {
   sq_wqe_frame_sz[1] = 30U;
   sq_wqe_frame_sz[2] = 40U;
   fd_mlx5_tx_qp_t tx_qp[1] = {{
-    .tx_cq=cq, .sq_wqe_frame_sz=sq_wqe_frame_sz, .tx_depth=depth,
+    .tx_cq=cq, .sq_wqe_frame_sz=sq_wqe_frame_sz, .depth=depth,
     .sq_prod=65538U, .sq_posted=65538U, .sq_cons=65535U
   }};
 
@@ -615,8 +615,8 @@ rx_comp_one( fd_mlx5_tile_mock_t * mock,
              uint                  opcode,
              ulong                 sz ) {
   uint wqe_counter = mock->rq_nic_cons++;
-  FD_TEST( wqe_counter<tile->rx_wq.rq_prod );
-  uint chunk = tile->rx_wq.rq_wqe_buf_chunk[ wqe_counter & (tile->rx_wq.rx_depth-1U) ];
+  FD_TEST( wqe_counter<tile->rwq.rq_prod );
+  uint chunk = tile->rwq.rq_wqe_buf_chunk[ wqe_counter & (tile->rwq.depth-1U) ];
   test_cqe_push( &tile->rx_cq, mock->rx_cq_prod++, opcode, wqe_counter, (uint)sz );
   return chunk;
 }
@@ -700,7 +700,7 @@ send_fallback_pkt( fd_mlx5_tile_t *            tile,
   ulong const pkt_sz = sizeof(pkt);
 
   uint const sq_prod_before = tile->tx_qp.sq_prod;
-  uint const wq_cnt_before  = test_tx_wq_cnt( mock, tile );
+  uint const wq_cnt_before  = test_sq_cnt( mock, tile );
   uint const chunk_before   = fd_mlx5_tile_tx_chunk( tile, sq_prod_before );
 
   memset( &mock_sock, 0, sizeof(mock_sock) );
@@ -731,7 +731,7 @@ send_fallback_pkt( fd_mlx5_tile_t *            tile,
 
   /* Nothing was submitted to the SQ */
   FD_TEST( tile->tx_qp.sq_prod==sq_prod_before );
-  FD_TEST( test_tx_wq_cnt( mock, tile )==wq_cnt_before );
+  FD_TEST( test_sq_cnt( mock, tile )==wq_cnt_before );
 
   /* The buffer stays in the SQ slot */
   FD_TEST( fd_mlx5_tile_tx_chunk( tile, tile->tx_qp.sq_prod )==chunk_before );
@@ -753,7 +753,7 @@ main( int     argc,
   test_rx_cqe_normal();
   test_rx_cq_arm();
   test_park_flushes_tx();
-  test_tx_wqe();
+  test_sq_wqe();
   test_tx_cqe_normal();
   test_rx_comp_channel_wake();
 
@@ -964,8 +964,8 @@ main( int     argc,
   FD_TEST( fd_fib4_insert( tile->net.router.fib_main, FD_IP4_ADDR( 192,168,1,0 ), 24, 0U, &hop ) );
 
   /* Verify initial assignment */
-  FD_TEST( test_rx_wq_cnt( mock, tile )==rx_fill_cnt );
-  FD_TEST( !test_tx_wq_cnt( mock, tile ) );
+  FD_TEST( test_rq_cnt( mock, tile )==rx_fill_cnt );
+  FD_TEST( !test_sq_cnt( mock, tile ) );
   FD_TEST( !test_rx_cq_cnt( mock, tile ) );
   FD_TEST( !test_tx_cq_cnt( mock, tile ) );
   FD_TEST( stem_seq[0]==0UL );
@@ -982,17 +982,17 @@ main( int     argc,
   for( ulong i=1UL; i<batch_size; i++ ) {
     rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_ERR, 0UL );
   }
-  FD_TEST( test_rx_wq_cnt( mock, tile )==rx_fill_cnt-batch_size+1UL );
+  FD_TEST( test_rq_cnt( mock, tile )==rx_fill_cnt-batch_size+1UL );
   FD_TEST( test_rx_cq_cnt( mock, tile )==batch_size-1U );
   int poll_in     = 1;
   int charge_busy = 0;
   after_credit( tile, stem, &poll_in, &charge_busy );
   FD_TEST( charge_busy==!!(batch_size-1U) );
-  FD_TEST( test_rx_wq_cnt( mock, tile )==rx_fill_cnt-batch_size+1UL );
+  FD_TEST( test_rq_cnt( mock, tile )==rx_fill_cnt-batch_size+1UL );
 
   rx_comp_one( mock, tile, FD_MLX5_CQE_OP_RX_ERR, 0UL );
   after_credit( tile, stem, &poll_in, &charge_busy );
-  FD_TEST( test_rx_wq_cnt( mock, tile )==rx_fill_cnt );
+  FD_TEST( test_rq_cnt( mock, tile )==rx_fill_cnt );
   FD_TEST( !tile->net.metrics.rx_pkt_cnt );
   FD_TEST( !tile->net.metrics.rx_bytes_total );
   FD_TEST( tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_MALFORMED_IDX ]==(ulong)batch_size );
@@ -1437,7 +1437,7 @@ main( int     argc,
   /* TX packet with no free buffer is dropped, not routed */
   ulong const tx_no_buffer_before = tile->metrics.tx_no_buffer_cnt;
   uint const full_sq_prod = tile->tx_qp.sq_prod;
-  tile->tx_qp.sq_prod = tile->tx_qp.sq_cons+tile->tx_qp.tx_depth;
+  tile->tx_qp.sq_prod = tile->tx_qp.sq_cons+tile->tx_qp.depth;
   FD_TEST( 1==before_frag( tile, 0UL, tx_seq, tx_sig ) );
   tile->tx_qp.sq_prod = full_sq_prod;
   FD_TEST( tile->metrics.tx_no_buffer_cnt==tx_no_buffer_before+1UL );
@@ -1502,7 +1502,7 @@ main( int     argc,
   FD_EXPECT_LOG_ERR( during_frag( tile, 0UL, tx_seq, tx_sig, tx_chunk, FD_ETH_PAYLOAD_MAX+1UL, 1UL ) );
 
   FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_INVALID_IDX ]==tx_invalid_before+3UL );
-  FD_TEST( !test_tx_wq_cnt( mock, tile ) );
+  FD_TEST( !test_sq_cnt( mock, tile ) );
 
   /* TX packet with no usable source address */
   uint const tx_src_ip = tile->net.tx_route.src_ip;
@@ -1513,24 +1513,24 @@ main( int     argc,
   tile->net.tx_route.src_ip = tx_src_ip;
   FD_TEST( tile->net.metrics.tx_drop_cnt[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ]==
            tx_drop_before[ FD_METRICS_ENUM_PKT_TX_DROP_REASON_V_SOURCE_IP_MISSING_IDX ]+1UL );
-  FD_TEST( !test_tx_wq_cnt( mock, tile ) );
+  FD_TEST( !test_sq_cnt( mock, tile ) );
 
   fd_memcpy( tx_packet, &tx_pkt_templ, sizeof(tx_pkt_templ) );
   during_frag( tile, 0UL, tx_seq, tx_sig, tx_chunk, sizeof(tx_pkt_templ), 1UL );
   after_frag( tile, 0UL, tx_seq, tx_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem );
   charge_busy = 0;
   if( batch_size>1U ) {
-    FD_TEST( !test_tx_wq_cnt( mock, tile ) );
+    FD_TEST( !test_sq_cnt( mock, tile ) );
     tile->sq_flush_deadline_ticks = LONG_MAX;
     before_credit( tile, stem, &charge_busy );
-    FD_TEST( !test_tx_wq_cnt( mock, tile ) );
+    FD_TEST( !test_sq_cnt( mock, tile ) );
     tile->sq_flush_deadline_ticks = fd_tickcount()-1L;
     before_credit( tile, stem, &charge_busy );
     FD_TEST( charge_busy );
   }
-  FD_TEST( test_tx_wq_cnt( mock, tile )==1U );
-  uint const tx_wqe_idx = mock->sq_nic_cons & (tile->tx_qp.tx_depth-1U);
-  fd_mlx5_tx_wqe_t const * tx_wqe = tile->tx_qp.sq+tx_wqe_idx;
+  FD_TEST( test_sq_cnt( mock, tile )==1U );
+  uint const sq_wqe_idx = mock->sq_nic_cons & (tile->tx_qp.depth-1U);
+  fd_mlx5_sq_wqe_t const * sq_wqe = tile->tx_qp.sq+sq_wqe_idx;
   uint const tx_wr_chunk = fd_mlx5_tile_tx_chunk( tile, mock->sq_nic_cons );
   uchar * tx_frame = fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, tx_wr_chunk );
   FD_TEST( 0==memcmp( tx_frame+0, "\xff\x23\x45\x67\x89\xab", 6 ) ); // eth.dst
@@ -1541,9 +1541,9 @@ main( int     argc,
   FD_TEST( FD_LOAD( uint,  tx_frame+26 )==public_ip4_addr         ); // ip4.saddr
   FD_TEST( FD_LOAD( uint,  tx_frame+30 )==FD_IP4_ADDR( 1,1,1,1 )  ); // ip4.daddr
   FD_TEST( fd_ip4_hdr_check( tx_frame+14 )==0 );
-  FD_TEST( fd_uint_bswap( FD_LOAD( uint, tx_wqe->bytes+32 ) )==sizeof(tx_pkt_templ) );
-  FD_TEST( fd_uint_bswap( FD_LOAD( uint, tx_wqe->bytes+36 ) )==tile->lkey );
-  FD_TEST( fd_ulong_bswap( FD_LOAD( ulong, tx_wqe->bytes+40 ) )==((ulong)tx_wr_chunk<<FD_CHUNK_LG_SZ) );
+  FD_TEST( fd_uint_bswap( FD_LOAD( uint, sq_wqe->bytes+32 ) )==sizeof(tx_pkt_templ) );
+  FD_TEST( fd_uint_bswap( FD_LOAD( uint, sq_wqe->bytes+36 ) )==tile->lkey );
+  FD_TEST( fd_ulong_bswap( FD_LOAD( ulong, sq_wqe->bytes+40 ) )==((ulong)tx_wr_chunk<<FD_CHUNK_LG_SZ) );
   tx_chunk = fd_dcache_compact_next( tx_chunk, sizeof(tx_pkt_templ), tx_chunk0, tx_wmark );
   tx_packet = fd_chunk_to_laddr( wksp, tx_chunk );
   ulong const tx_pkt_before   = tile->net.metrics.tx_pkt_cnt;
@@ -1564,10 +1564,10 @@ main( int     argc,
     after_frag( tile, 0UL, tx_seq, tx_sig, tx_sz, 0UL, 0UL, stem );
     expected_tx_bytes += tx_sz;
   }
-  FD_TEST( test_tx_wq_cnt( mock, tile )==batch_size );
+  FD_TEST( test_sq_cnt( mock, tile )==batch_size );
   uint const batch_first = mock->sq_nic_cons;
   for( uint i=0U; i<batch_size; i++ ) {
-    fd_mlx5_tx_wqe_t const * batch_wqe = tile->tx_qp.sq+((batch_first+i) & (tile->tx_qp.tx_depth-1U));
+    fd_mlx5_sq_wqe_t const * batch_wqe = tile->tx_qp.sq+((batch_first+i) & (tile->tx_qp.depth-1U));
     FD_TEST( batch_wqe->bytes[ 11 ]==(i==batch_size-1U ? FD_MLX5_SQ_REQUEST_CQE : 0U) );
   }
 
@@ -1603,7 +1603,7 @@ main( int     argc,
   after_frag( tile, 0UL, tx_seq, gre_tx_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem );
   FD_TEST( tile->net.metrics.tx_gre_cnt==tx_gre_before+1UL );
   fd_mlx5_tile_sq_flush( tile );
-  FD_TEST( test_tx_wq_cnt( mock, tile )==1U );
+  FD_TEST( test_sq_cnt( mock, tile )==1U );
 
   uint const gre_wqe_counter = tile->tx_qp.sq_prod-1U;
   uint const gre_tx_chunk = fd_mlx5_tile_tx_chunk( tile, gre_wqe_counter );
@@ -1628,7 +1628,7 @@ main( int     argc,
 
   /* A failed TX submission is fatal. */
   uint const sq_prod = tile->tx_qp.sq_prod;
-  tile->tx_qp.sq_prod = tile->tx_qp.sq_cons+tile->tx_qp.tx_depth;
+  tile->tx_qp.sq_prod = tile->tx_qp.sq_cons+tile->tx_qp.depth;
   uint const full_sq_chunk = fd_mlx5_tile_tx_chunk( tile, tile->tx_qp.sq_prod );
   fd_memcpy( fd_chunk_to_laddr( tile->net.pkt_buf_wksp_base, full_sq_chunk ), &tx_pkt_templ, sizeof(tx_pkt_templ) );
   FD_EXPECT_LOG_ERR( after_frag( tile, 0UL, tx_seq, tx_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem ) );
@@ -1657,10 +1657,10 @@ main( int     argc,
   loopback_udp->net_sport = fd_ushort_bswap( 4321U );
   loopback_udp->net_dport = fd_ushort_bswap( SHRED_PORT );
 
-  uint const loopback_sq_idx = tile->tx_qp.sq_prod & (tile->tx_qp.tx_depth-1U);
+  uint const loopback_sq_idx = tile->tx_qp.sq_prod & (tile->tx_qp.depth-1U);
   uint const loopback_tx_chunk = tile->sq_wqe_buf_chunk[ loopback_sq_idx ];
   fd_frag_meta_t * loopback_mline = rx_link->mcache+fd_mcache_line_idx( rx_seq, link_depth );
-  uint const loopback_wq_cnt = test_tx_wq_cnt( mock, tile );
+  uint const loopback_wq_cnt = test_sq_cnt( mock, tile );
   ulong const loopback_route_fail_cnt = tile->net.metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ];
   ulong const loopback_rx_pkt_cnt = tile->net.metrics.rx_pkt_cnt;
   ulong const loopback_tx_pkt_cnt = tile->net.metrics.tx_pkt_cnt;
@@ -1679,7 +1679,7 @@ main( int     argc,
   during_frag( tile, 0UL, tx_seq, loopback_sig, tx_chunk, sizeof(tx_pkt_templ), 0UL );
   after_frag( tile, 0UL, tx_seq, loopback_sig, sizeof(tx_pkt_templ), 0UL, 0UL, stem );
 
-  FD_TEST( test_tx_wq_cnt( mock, tile )==loopback_wq_cnt );
+  FD_TEST( test_sq_cnt( mock, tile )==loopback_wq_cnt );
   FD_TEST( tile->net.metrics.rx_pkt_cnt==loopback_rx_pkt_cnt+1UL );
   FD_TEST( tile->net.metrics.tx_pkt_cnt==loopback_tx_pkt_cnt+1UL );
   FD_TEST( loopback_mline->chunk==loopback_tx_chunk );
@@ -1752,7 +1752,7 @@ main( int     argc,
   {
     ulong const fb_no_buffer_before = tile->metrics.tx_no_buffer_cnt;
     uint  const fb_sq_prod          = tile->tx_qp.sq_prod;
-    tile->tx_qp.sq_prod = tile->tx_qp.sq_cons+tile->tx_qp.tx_depth;
+    tile->tx_qp.sq_prod = tile->tx_qp.sq_cons+tile->tx_qp.depth;
     FD_TEST( 1==before_frag( tile, 0UL, tx_seq,
              fd_disco_netmux_sig( 0U, SHRED_PORT, no_route_ip4_addr, DST_PROTO_OUTGOING, 0UL ) ) );
     tile->tx_qp.sq_prod = fb_sq_prod;
@@ -1840,7 +1840,7 @@ main( int     argc,
       ulong const sock_before = tile->net.metrics.tx_slow_path_submit_cnt;
       ulong const pkt_before  = tile->net.metrics.tx_pkt_cnt;
       uint  const sq_before   = tile->tx_qp.sq_prod;
-      uint  const wq_before   = test_tx_wq_cnt( mock, tile );
+      uint  const wq_before   = test_sq_cnt( mock, tile );
       uchar const * frame     = fd_chunk_to_laddr_const( tile->net.pkt_buf_wksp_base,
                                                          fd_mlx5_tile_tx_chunk( tile, sq_before ) );
       memset( &mock_sock, 0, sizeof(mock_sock) );
@@ -1875,7 +1875,7 @@ main( int     argc,
 
       /* Nothing was submitted to the SQ */
       FD_TEST( tile->tx_qp.sq_prod==sq_before );
-      FD_TEST( test_tx_wq_cnt( mock, tile )==wq_before );
+      FD_TEST( test_sq_cnt( mock, tile )==wq_before );
 
       FD_TEST( tile->net.metrics.tx_gre_cnt             ==gre_before+1UL  );
       FD_TEST( tile->net.metrics.tx_slow_path_submit_cnt==sock_before+1UL );

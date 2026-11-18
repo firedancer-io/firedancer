@@ -1798,7 +1798,7 @@ fd_iavf_queue_footprint( uint tx_depth,
                    rx_depth<FD_IAVF_QUEUE_DEPTH_MIN || rx_depth>FD_IAVF_QUEUE_DEPTH_MAX || !fd_uint_is_pow2( rx_depth ) ) ) return 0UL;
   /* TX and RX descriptor rings followed by software TX completion tracking */
   ulong tx_ring_sz = fd_ulong_align_up( (ulong)tx_depth*sizeof(fd_iavf_tx_desc_t), FD_IAVF_PAGE_SZ );
-  ulong rx_ring_sz = fd_ulong_align_up( (ulong)rx_depth*sizeof(fd_iavf_hw_rx_desc_t), FD_IAVF_PAGE_SZ );
+  ulong rx_ring_sz = fd_ulong_align_up( (ulong)rx_depth*sizeof(fd_iavf_rx_desc_t), FD_IAVF_PAGE_SZ );
   ulong tx_comp_sz = fd_ulong_align_up( (ulong)tx_depth*sizeof(ulong), FD_IAVF_PAGE_SZ );
   return tx_ring_sz + rx_ring_sz + tx_comp_sz;
 }
@@ -1872,7 +1872,7 @@ fd_iavf_virtchnl_configure_queues( fd_iavf_vfio_t *            vfio,
     uint  tx_depth   = tile->tx_queue->depth;
     uint  rx_depth   = tile->rx_queue->depth;
     ulong tx_ring_sz = fd_ulong_align_up( (ulong)tx_depth*sizeof(fd_iavf_tx_desc_t), FD_IAVF_PAGE_SZ );
-    ulong rx_ring_sz = fd_ulong_align_up( (ulong)rx_depth*sizeof(fd_iavf_hw_rx_desc_t), FD_IAVF_PAGE_SZ );
+    ulong rx_ring_sz = fd_ulong_align_up( (ulong)rx_depth*sizeof(fd_iavf_rx_desc_t), FD_IAVF_PAGE_SZ );
     ulong tx_comp_sz = fd_ulong_align_up( (ulong)tx_depth*sizeof(ulong), FD_IAVF_PAGE_SZ );
     ulong footprint  = tx_ring_sz + rx_ring_sz + tx_comp_sz;
     if( FD_UNLIKELY( -1==fd_iavf_vfio_dma_map( vfio, tile->queue_memory, footprint, queue_iova ) ) ) return -1;

@@ -79,14 +79,14 @@ typedef struct fd_iavf_tx_desc fd_iavf_tx_desc_t;
 
 FD_STATIC_ASSERT( sizeof(fd_iavf_tx_desc_t)==16UL, iavf_tx_desc_sz );
 
-/* fd_iavf_hw_rx_desc is the Intel 32-byte receive descriptor. */
-struct fd_iavf_hw_rx_desc {
+/* fd_iavf_rx_desc is the Intel 32-byte receive descriptor. */
+struct fd_iavf_rx_desc {
   ulong qword[ 4 ];
 };
 
-typedef struct fd_iavf_hw_rx_desc fd_iavf_hw_rx_desc_t;
+typedef struct fd_iavf_rx_desc fd_iavf_rx_desc_t;
 
-FD_STATIC_ASSERT( sizeof(fd_iavf_hw_rx_desc_t)==32UL, iavf_rx_desc_sz );
+FD_STATIC_ASSERT( sizeof(fd_iavf_rx_desc_t)==32UL, iavf_rx_desc_sz );
 
 /* fd_iavf_queue owns one Intel transmit or receive descriptor ring. */
 struct fd_iavf_queue {

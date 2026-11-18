@@ -142,7 +142,7 @@ typedef struct fd_mlx5_tile_rx_comp fd_mlx5_tile_rx_comp_t;
 
 /* fd_mlx5_tile_t is private tile state */
 struct __attribute__((aligned(64UL))) fd_mlx5_tile {
-  fd_mlx5_rx_wq_t  rx_wq;
+  fd_mlx5_rwq_t    rwq;
   uint             batch_size; /* used for both SQ/RQ and TX/RX CQ batching */
   fd_mlx5_cq_t     rx_cq;
   uint             lo_tx_cnt;
@@ -197,8 +197,8 @@ fd_mlx5_queue_footprint( uint rx_depth,
   ulong layout = FD_LAYOUT_INIT;
   layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, rx_depth*sizeof(fd_mlx5_cqe_t)    );
   layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, tx_depth*sizeof(fd_mlx5_cqe_t)    );
-  layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, rx_depth*sizeof(fd_mlx5_rx_wqe_t) );
-  layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, tx_depth*sizeof(fd_mlx5_tx_wqe_t) );
+  layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, rx_depth*sizeof(fd_mlx5_rq_wqe_t) );
+  layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, tx_depth*sizeof(fd_mlx5_sq_wqe_t) );
   layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, rx_depth*sizeof(uint)             );
   layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, tx_depth*sizeof(uint)             );
   layout = FD_LAYOUT_APPEND( layout, FD_MLX5_PAGE_SZ, FD_MLX5_PAGE_SZ                   );
@@ -223,8 +223,8 @@ fd_mlx5_hw_join_queues( fd_mlx5_tile_t * ctx,
   FD_SCRATCH_ALLOC_INIT( queue, queue_memory );
   fd_mlx5_cqe_t *    rx_cqes          = FD_SCRATCH_ALLOC_APPEND( queue, FD_MLX5_PAGE_SZ, rx_depth*sizeof(fd_mlx5_cqe_t)    );
   fd_mlx5_cqe_t *    tx_cqes          = FD_SCRATCH_ALLOC_APPEND( queue, FD_MLX5_PAGE_SZ, tx_depth*sizeof(fd_mlx5_cqe_t)    );
-  fd_mlx5_rx_wqe_t * rq               = FD_SCRATCH_ALLOC_APPEND( queue, FD_MLX5_PAGE_SZ, rx_depth*sizeof(fd_mlx5_rx_wqe_t) );
-  fd_mlx5_tx_wqe_t * sq               = FD_SCRATCH_ALLOC_APPEND( queue, FD_MLX5_PAGE_SZ, tx_depth*sizeof(fd_mlx5_tx_wqe_t) );
+  fd_mlx5_rq_wqe_t * rq               = FD_SCRATCH_ALLOC_APPEND( queue, FD_MLX5_PAGE_SZ, rx_depth*sizeof(fd_mlx5_rq_wqe_t) );
+  fd_mlx5_sq_wqe_t * sq               = FD_SCRATCH_ALLOC_APPEND( queue, FD_MLX5_PAGE_SZ, tx_depth*sizeof(fd_mlx5_sq_wqe_t) );
   uint *             rq_wqe_buf_chunk = FD_SCRATCH_ALLOC_APPEND( queue, FD_MLX5_PAGE_SZ, rx_depth*sizeof(uint)             );
   uint *             sq_wqe_frame_sz  = FD_SCRATCH_ALLOC_APPEND( queue, FD_MLX5_PAGE_SZ, tx_depth*sizeof(uint)             );
   uchar *            control          = FD_SCRATCH_ALLOC_APPEND( queue, FD_MLX5_PAGE_SZ, FD_MLX5_PAGE_SZ                   );
@@ -238,17 +238,17 @@ fd_mlx5_hw_join_queues( fd_mlx5_tile_t * ctx,
   ctx->tx_cq.control = (fd_mlx5_cq_control_t *)(control+sizeof(fd_mlx5_cq_control_t));
   ctx->tx_cq.depth   = tx_depth;
 
-  ctx->rx_wq.rq               = rq;
-  ctx->rx_wq.rx_cq            = &ctx->rx_cq;
-  ctx->rx_wq.rx_depth         = rx_depth;
-  ctx->rx_wq.rq_wqe_buf_chunk = rq_wqe_buf_chunk;
-  ctx->rx_wq.control          = (fd_mlx5_rx_wq_control_t *)(control+2UL*sizeof(fd_mlx5_cq_control_t));
+  ctx->rwq.rq                 = rq;
+  ctx->rwq.rx_cq              = &ctx->rx_cq;
+  ctx->rwq.depth              = rx_depth;
+  ctx->rwq.rq_wqe_buf_chunk   = rq_wqe_buf_chunk;
+  ctx->rwq.control            = (fd_mlx5_rwq_control_t *)(control+2UL*sizeof(fd_mlx5_cq_control_t));
 
   ctx->tx_qp.sq              = sq;
   ctx->tx_qp.tx_cq           = &ctx->tx_cq;
-  ctx->tx_qp.tx_depth        = tx_depth;
+  ctx->tx_qp.depth           = tx_depth;
   ctx->tx_qp.sq_wqe_frame_sz = sq_wqe_frame_sz;
-  ctx->tx_qp.control         = (fd_mlx5_qp_control_t *)(control+2UL*sizeof(fd_mlx5_cq_control_t)+sizeof(fd_mlx5_rx_wq_control_t));
+  ctx->tx_qp.control         = (fd_mlx5_qp_control_t *)(control+2UL*sizeof(fd_mlx5_cq_control_t)+sizeof(fd_mlx5_rwq_control_t));
   return ctx;
 }
 
@@ -269,7 +269,7 @@ fd_mlx5_hw_init_queues( fd_mlx5_tile_t * ctx,
 static inline uint
 fd_mlx5_tile_tx_chunk( fd_mlx5_tile_t const * ctx,
                        uint                   sq_idx ) {
-  return ctx->sq_wqe_buf_chunk[ sq_idx & (ctx->tx_qp.tx_depth-1U) ];
+  return ctx->sq_wqe_buf_chunk[ sq_idx & (ctx->tx_qp.depth-1U) ];
 }
 
 static inline void
@@ -299,7 +299,7 @@ fd_mlx5_hw_dma_from_device( void ) {
 }
 
 static inline int
-fd_mlx5_hw_init_tx_wqe( fd_mlx5_tx_wqe_t * wqe,
+fd_mlx5_hw_init_sq_wqe( fd_mlx5_sq_wqe_t * wqe,
                         uint               sq_idx,
                         uint               qpn,
                         void const *       frame,
@@ -330,7 +330,7 @@ fd_mlx5_hw_init_tx_wqe( fd_mlx5_tx_wqe_t * wqe,
 }
 
 static inline void
-fd_mlx5_hw_init_rx_wqe( fd_mlx5_rx_wqe_t * wqe,
+fd_mlx5_hw_init_rq_wqe( fd_mlx5_rq_wqe_t * wqe,
                         ulong              frame_iova,
                         ulong              frame_sz,
                         uint               lkey ) {
@@ -343,7 +343,7 @@ fd_mlx5_hw_init_rx_wqe( fd_mlx5_rx_wqe_t * wqe,
 
 static inline void
 fd_mlx5_hw_ring_sq( fd_mlx5_tx_qp_t *  tx_qp,
-                    fd_mlx5_tx_wqe_t * wqe ) {
+                    fd_mlx5_sq_wqe_t * wqe ) {
   fd_mlx5_hw_wqe_ctrl_seg_t * wqe_ctrl_seg = (fd_mlx5_hw_wqe_ctrl_seg_t *)wqe;
   wqe_ctrl_seg->flags                      = FD_MLX5_SQ_REQUEST_CQE;
 
@@ -364,7 +364,7 @@ fd_mlx5_hw_sq_enqueue( fd_mlx5_tile_t * ctx,
                        uint             frame_sz ) {
   fd_mlx5_tx_qp_t * tx_qp = &ctx->tx_qp;
   uint const outstanding  = tx_qp->sq_prod-tx_qp->sq_cons;
-  if( FD_UNLIKELY( outstanding>=tx_qp->tx_depth ) ) {
+  if( FD_UNLIKELY( outstanding>=tx_qp->depth ) ) {
     errno = ENOSPC;
     return -1;
   }
@@ -372,14 +372,14 @@ fd_mlx5_hw_sq_enqueue( fd_mlx5_tile_t * ctx,
   uint const  sq_idx     = tx_qp->sq_prod;
   uint const  chunk      = fd_mlx5_tile_tx_chunk( ctx, sq_idx );
   ulong const frame_iova = (ulong)chunk<<FD_CHUNK_LG_SZ;
-  fd_mlx5_tx_wqe_t * wqe = tx_qp->sq+(sq_idx & (tx_qp->tx_depth-1U));
-  if( FD_UNLIKELY( !fd_mlx5_hw_init_tx_wqe( wqe, sq_idx, tx_qp->qpn,
+  fd_mlx5_sq_wqe_t * wqe = tx_qp->sq+(sq_idx & (tx_qp->depth-1U));
+  if( FD_UNLIKELY( !fd_mlx5_hw_init_sq_wqe( wqe, sq_idx, tx_qp->qpn,
                                             fd_chunk_to_laddr( ctx->net.pkt_buf_wksp_base, chunk ), frame_iova, frame_sz,
                                             ctx->lkey, tx_qp->tx_inline_hdr_sz ) ) ) {
     errno = EINVAL;
     return -1;
   }
-  tx_qp->sq_wqe_frame_sz[ sq_idx & (tx_qp->tx_depth-1U) ] = frame_sz;
+  tx_qp->sq_wqe_frame_sz[ sq_idx & (tx_qp->depth-1U) ] = frame_sz;
   tx_qp->sq_prod++;
   return 0;
 }
@@ -387,24 +387,24 @@ fd_mlx5_hw_sq_enqueue( fd_mlx5_tile_t * ctx,
 static inline int
 fd_mlx5_hw_rq_enqueue( fd_mlx5_tile_t * ctx,
                        uint             recv_cnt ) {
-  fd_mlx5_rx_wq_t * rx_wq = &ctx->rx_wq;
-  uint const outstanding  = rx_wq->rq_prod-rx_wq->rq_cons;
-  if( FD_UNLIKELY( outstanding>rx_wq->rx_depth || recv_cnt>rx_wq->rx_depth-outstanding ) ) {
+  fd_mlx5_rwq_t *   rwq   = &ctx->rwq;
+  uint const outstanding  = rwq->rq_prod-rwq->rq_cons;
+  if( FD_UNLIKELY( outstanding>rwq->depth || recv_cnt>rwq->depth-outstanding ) ) {
     errno = ENOSPC;
     return -1;
   }
 
-  uint const rq_prod = rx_wq->rq_prod;
+  uint const rq_prod = rwq->rq_prod;
   for( uint i=0U; i<recv_cnt; i++ ) {
     uint const chunk  = ctx->rq_pending_chunk[ i ];
     uint const rq_idx = rq_prod+i;
-    fd_mlx5_hw_init_rx_wqe( rx_wq->rq+(rq_idx & (rx_wq->rx_depth-1U)),
+    fd_mlx5_hw_init_rq_wqe( rwq->rq+(rq_idx & (rwq->depth-1U)),
                             (ulong)chunk<<FD_CHUNK_LG_SZ, FD_NET_MTU, ctx->lkey );
-    rx_wq->rq_wqe_buf_chunk[ rq_idx & (rx_wq->rx_depth-1U) ] = chunk;
+    rwq->rq_wqe_buf_chunk[ rq_idx & (rwq->depth-1U) ] = chunk;
   }
-  rx_wq->rq_prod += recv_cnt;
+  rwq->rq_prod += recv_cnt;
   fd_mlx5_hw_dma_to_device();
-  FD_VOLATILE( rx_wq->control->rq_prod ) = fd_uint_bswap( rx_wq->rq_prod & 0xffffU );
+  FD_VOLATILE( rwq->control->rq_prod ) = fd_uint_bswap( rwq->rq_prod & 0xffffU );
   return 0;
 }
 
@@ -417,15 +417,15 @@ fd_mlx5_hw_rx_cqe_is_owned( fd_mlx5_cq_t const * rx_cq,
 }
 
 static inline int
-fd_mlx5_hw_poll_rx_cq( fd_mlx5_rx_wq_t *        rx_wq,
+fd_mlx5_hw_poll_rx_cq( fd_mlx5_rwq_t *          rwq,
                        fd_mlx5_tile_rx_comp_t * comp,
                        uint                     comp_capacity ) {
-  fd_mlx5_cq_t * rx_cq       = rx_wq->rx_cq;
+  fd_mlx5_cq_t * rx_cq       = rwq->rx_cq;
   uint const     comp_limit  = fd_uint_min( comp_capacity, rx_cq->depth );
   uint           cq_cons_idx = rx_cq->cons_idx;
-  uint           rq_cons_idx = rx_wq->rq_cons;
-  uint const     rq_prod_idx = rx_wq->rq_prod;
-  FD_TEST( rq_prod_idx-rq_cons_idx<=rx_wq->rx_depth );
+  uint           rq_cons_idx = rwq->rq_cons;
+  uint const     rq_prod_idx = rwq->rq_prod;
+  FD_TEST( rq_prod_idx-rq_cons_idx<=rwq->depth );
 
   uint comp_cnt    = 0U;
   int  poll_failed = 0;
@@ -457,7 +457,7 @@ fd_mlx5_hw_poll_rx_cq( fd_mlx5_rx_wq_t *        rx_wq,
     }
 
     comp[ comp_cnt++ ] = (fd_mlx5_tile_rx_comp_t) {
-      .chunk    = rx_wq->rq_wqe_buf_chunk[ wqe_counter & (rx_wq->rx_depth-1U) ],
+      .chunk    = rwq->rq_wqe_buf_chunk[ wqe_counter & (rwq->depth-1U) ],
       .byte_len = fd_uint_bswap( rx_cqe->byte_cnt ),
       .opcode   = opcode
     };
@@ -466,7 +466,7 @@ fd_mlx5_hw_poll_rx_cq( fd_mlx5_rx_wq_t *        rx_wq,
   }
 
   if( comp_cnt ) {
-    rx_wq->rq_cons  = rq_cons_idx;
+    rwq->rq_cons    = rq_cons_idx;
     rx_cq->cons_idx = cq_cons_idx;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( rx_cq->control->consumer_idx ) = fd_uint_bswap( cq_cons_idx & FD_MLX5_CQ_CONS_IDX_MASK );
@@ -522,14 +522,14 @@ fd_mlx5_hw_poll_tx_cq( fd_mlx5_tx_qp_t * tx_qp,
   uint const outstanding = tx_qp->sq_posted-sq_cons_idx;
   uint const comp_cnt    = (uint)(ushort)(wqe_counter-sq_cons_idx)+1U;
 
-  if( FD_UNLIKELY( !outstanding || outstanding>tx_qp->tx_depth || comp_cnt>outstanding ) ) {
+  if( FD_UNLIKELY( !outstanding || outstanding>tx_qp->depth || comp_cnt>outstanding ) ) {
     errno = EPROTO;
     return -1;
   }
 
   *comp_bytes = 0UL;
   for( uint i=0U; i<comp_cnt; i++ ) {
-    *comp_bytes += tx_qp->sq_wqe_frame_sz[ (sq_cons_idx+i) & (tx_qp->tx_depth-1U) ];
+    *comp_bytes += tx_qp->sq_wqe_frame_sz[ (sq_cons_idx+i) & (tx_qp->depth-1U) ];
   }
   tx_qp->sq_cons  = sq_cons_idx+comp_cnt;
   tx_cq->cons_idx = cq_cons_idx+1U;
@@ -544,7 +544,7 @@ fd_mlx5_tile_sq_flush( fd_mlx5_tile_t * ctx ) {
   if( FD_UNLIKELY( tx_qp->sq_posted==tx_qp->sq_prod ) ) return;
 
   uint const         last_sq_idx = tx_qp->sq_prod-1U;
-  fd_mlx5_tx_wqe_t * last_wqe    = tx_qp->sq+(last_sq_idx & (tx_qp->tx_depth-1U));
+  fd_mlx5_sq_wqe_t * last_wqe    = tx_qp->sq+(last_sq_idx & (tx_qp->depth-1U));
   fd_mlx5_hw_ring_sq( tx_qp, last_wqe );
 }
 
@@ -566,7 +566,7 @@ static inline int
 fd_mlx5_tile_poll_rx( fd_mlx5_tile_t *    ctx,
                       fd_stem_context_t * stem ) {
   fd_mlx5_tile_rx_comp_t comp[ FD_MLX5_BATCH_SIZE ];
-  int comp_cnt = fd_mlx5_hw_poll_rx_cq( &ctx->rx_wq, comp, ctx->batch_size );
+  int comp_cnt = fd_mlx5_hw_poll_rx_cq( &ctx->rwq, comp, ctx->batch_size );
 
   if( FD_UNLIKELY( comp_cnt<0 ) ) {
     FD_LOG_ERR(( "direct mlx5 RX CQ poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -835,7 +835,7 @@ before_frag( fd_mlx5_tile_t * ctx,
   /* Drop the packet if no SQ WQE is available. */
   fd_mlx5_tx_qp_t const * tx_qp       = &ctx->tx_qp;
   uint const              outstanding = tx_qp->sq_prod-tx_qp->sq_cons;
-  if( FD_UNLIKELY( outstanding>=tx_qp->tx_depth ) ) {
+  if( FD_UNLIKELY( outstanding>=tx_qp->depth ) ) {
     ctx->metrics.tx_no_buffer_cnt++;
     return 1;
   }
@@ -947,7 +947,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
 
     ulong freed_chunk;
     if( fd_net_rx_pkt( &ctx->net, stem, chunk, 0UL, frame_sz, (ulong)fd_frag_meta_ts_comp( fd_tickcount() ), &freed_chunk, NULL ) ) {
-      ctx->sq_wqe_buf_chunk[ ctx->tx_qp.sq_prod & (ctx->tx_qp.tx_depth-1U) ] = (uint)freed_chunk;
+      ctx->sq_wqe_buf_chunk[ ctx->tx_qp.sq_prod & (ctx->tx_qp.depth-1U) ] = (uint)freed_chunk;
     }
     ctx->net.metrics.tx_pkt_cnt++;
     ctx->net.metrics.tx_bytes_total += frame_sz;
@@ -961,7 +961,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
   fd_mlx5_tx_qp_t * tx_qp          = &ctx->tx_qp;
   uint const        sq_pending_cnt = tx_qp->sq_prod-tx_qp->sq_posted;
 
-  if( sq_pending_cnt>=ctx->batch_size || tx_qp->sq_prod-tx_qp->sq_cons>=tx_qp->tx_depth ) {
+  if( sq_pending_cnt>=ctx->batch_size || tx_qp->sq_prod-tx_qp->sq_cons>=tx_qp->depth ) {
     fd_mlx5_tile_sq_flush( ctx );
   } else if( sq_pending_cnt==1U ) {
     ctx->sq_flush_deadline_ticks = fd_tickcount()+ctx->sq_flush_timeout_ticks;
@@ -973,12 +973,12 @@ after_frag( fd_mlx5_tile_t *    ctx,
 
 static inline void
 metrics_write( fd_mlx5_tile_t * ctx ) {
-  fd_mlx5_rx_wq_t const * rx_wq  = &ctx->rx_wq;
+  fd_mlx5_rwq_t const *   rwq    = &ctx->rwq;
   fd_mlx5_tx_qp_t const * tx_qp  = &ctx->tx_qp;
-  ulong const rx_buffer_idle_cnt = fd_ulong_min( (ulong)(rx_wq->rq_prod-rx_wq->rq_cons), rx_wq->rx_depth );
-  ulong const rx_buffer_busy_cnt = rx_wq->rx_depth-rx_buffer_idle_cnt;
-  ulong const tx_buffer_busy_cnt = fd_ulong_min( (ulong)(tx_qp->sq_prod-tx_qp->sq_cons), tx_qp->tx_depth );
-  ulong const tx_buffer_idle_cnt = tx_qp->tx_depth-tx_buffer_busy_cnt;
+  ulong const rx_buffer_idle_cnt = fd_ulong_min( (ulong)(rwq->rq_prod-rwq->rq_cons), rwq->depth );
+  ulong const rx_buffer_busy_cnt = rwq->depth-rx_buffer_idle_cnt;
+  ulong const tx_buffer_busy_cnt = fd_ulong_min( (ulong)(tx_qp->sq_prod-tx_qp->sq_cons), tx_qp->depth );
+  ulong const tx_buffer_idle_cnt = tx_qp->depth-tx_buffer_busy_cnt;
 
   FD_MCNT_SET(   MLX5, PKT_RX,             ctx->net.metrics.rx_pkt_cnt           );
   FD_MCNT_SET(   MLX5, PKT_RX_BYTES,       ctx->net.metrics.rx_bytes_total       );
@@ -1166,7 +1166,7 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
     queues[ i ] = (fd_mlx5_uverbs_tile_t) {
       .rx_cq              = &ctx->rx_cq,
       .tx_cq              = &ctx->tx_cq,
-      .rx_wq              = &ctx->rx_wq,
+      .rwq                = &ctx->rwq,
       .tx_qp              = &ctx->tx_qp,
       .lkey               = &ctx->lkey,
       .rx_comp_channel_fd = tile->sleep_eventfd ? &ctx->rx_comp_channel_fd : NULL,

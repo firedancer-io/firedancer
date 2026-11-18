@@ -115,7 +115,7 @@ fd_iavf_hw_join_queues( fd_iavf_tile_t *       ctx,
   (void)FD_SCRATCH_ALLOC_APPEND( scratch, alignof(fd_iavf_tile_t), sizeof(fd_iavf_tile_t) );
   ulong const queue_sz   = fd_iavf_queue_footprint( tile->iavf.tx_queue_size, tile->iavf.rx_queue_size );
   ulong const tx_ring_sz = fd_ulong_align_up( tile->iavf.tx_queue_size*sizeof(fd_iavf_tx_desc_t), FD_IAVF_PAGE_SZ );
-  ulong const rx_ring_sz = fd_ulong_align_up( tile->iavf.rx_queue_size*sizeof(fd_iavf_hw_rx_desc_t), FD_IAVF_PAGE_SZ );
+  ulong const rx_ring_sz = fd_ulong_align_up( tile->iavf.rx_queue_size*sizeof(fd_iavf_rx_desc_t), FD_IAVF_PAGE_SZ );
 
   for( ulong vf_idx=0UL; vf_idx<tile->iavf.member_cnt; vf_idx++ ) {
     fd_iavf_tile_vf_t * vf = &ctx->vfs[vf_idx];
@@ -162,7 +162,7 @@ fd_iavf_hw_rx_enqueue( fd_iavf_tile_vf_t * vf,
   for( uint i=0U; i<recv_cnt; i++ ) {
     uint const            chunk    = vf->rx_pending_chunk[i];
     uint const            desc_idx = (uint)((rx_queue->prod+i) & (rx_queue->depth-1U));
-    fd_iavf_hw_rx_desc_t * desc     = (fd_iavf_hw_rx_desc_t *)rx_queue->ring + desc_idx;
+    fd_iavf_rx_desc_t *    desc     = (fd_iavf_rx_desc_t *)rx_queue->ring + desc_idx;
 
     desc->qword[0] = (ulong)chunk<<FD_CHUNK_LG_SZ;
     desc->qword[1] = 0UL;
@@ -252,7 +252,7 @@ fd_iavf_hw_poll_rx( fd_iavf_tile_vf_t *      vf,
   uint              comp_cnt   = 0U;
   while( comp_cnt<comp_limit && rx_cons<rx_queue->posted ) {
     uint const             desc_idx = (uint)(rx_cons & (rx_queue->depth-1U));
-    fd_iavf_hw_rx_desc_t * desc     = (fd_iavf_hw_rx_desc_t *)rx_queue->ring + desc_idx;
+    fd_iavf_rx_desc_t *    desc     = (fd_iavf_rx_desc_t *)rx_queue->ring + desc_idx;
     ulong const            status   = FD_VOLATILE_CONST( desc->qword[1] );
 
     if( !(status & FD_IAVF_RX_DESC_DONE) ) break;
