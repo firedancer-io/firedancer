@@ -3,14 +3,9 @@
 
 #include "../../util/fd_util_base.h"
 
-/* The snapct tile at a high level is a state machine that downloads
-   snapshots from the network or reads snapshots from disk and produces
-   a byte stream that is parsed by downstream snapshot consumer tiles.
-   The snapct tile gathers the latest SnapshotHashes information from
-   gossip to decide whether to download snapshots or read local
-   snapshots from disk.  If the snapct tile needs to download a snapshot,
-   it goes through the process of discovering and selecting eligible
-   peers from gossip to download from. */
+/* The snapct tile selects snapshots from local files, gossip peers,
+   and configured servers, and coordinates loading.  The snapld tile
+   reads or downloads the selected snapshot and streams it downstream. */
 
 #define FD_SNAPCT_STATE_INIT                            ( 0) /* Initialization step, it determines whether to start loading from file or to download */
 
