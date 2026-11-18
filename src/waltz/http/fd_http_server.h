@@ -463,10 +463,11 @@ int
 fd_http_server_stage_body( fd_http_server_t *          http,
                            fd_http_server_response_t * response );
 
-/* Send the contents of the staging buffer as a a WebSocket message to a
-   single client.  The staging buffer is then cleared.  Returns -1 on
-   failure if the ring buffer is an error state, and then clears the
-   error state.
+/* Send the contents of the staging buffer as a WebSocket message to a
+   single client.  The staging buffer is then cleared.  Returns -1 if
+   staging failed or the frame is oversized, clearing the error state.
+   Returns 0 otherwise, including if the connection is already closed
+   or is disconnected because its send queue is full.
 
    The contents are marked as needing to be sent to the client, but this
    does not block or wait for them to send, which happens async as the
@@ -476,7 +477,7 @@ fd_http_server_stage_body( fd_http_server_t *          http,
 
 int
 fd_http_server_ws_send( fd_http_server_t * http,
-                        ulong              ws_conn_id ); /* An existing, open connection.  In [0, max_ws_connection_cnt) */
+                        ulong              ws_conn_id ); /* In [0, max_ws_connection_cnt) */
 
 /* Broadcast the contents of the staging buffer as a WebSocket message
    to all connected clients.  The staging buffer is then cleared.
