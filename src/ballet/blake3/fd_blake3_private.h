@@ -156,10 +156,13 @@ fd_blake3_sve2_xof4( uchar const * restrict root_msg,  /* len==block_sz */
      a vector of 1024 uint16).  These vectors are then added together
      and the result is written to lthash.  The root flag MUST be set for
      all batch_flags inputs, otherwise this function will read OOB.
-   - "Simple": Otherwise, _batch_hash[i] must be 32-byte aligned and is
-      populated with the 32-byte output chaining value.  (If node i is a
-      root node, this is 'the BLAKE3 hash', i.e. the first 32 bytes of the
-      XOF stream).
+   - "Simple": If lthash is NULL and out_sz==32, _batch_hash[i] must be
+      32-byte aligned and is populated with the 32-byte output chaining
+      value.  (If node i is a root node, this is 'the BLAKE3 hash', i.e.
+      the first 32 bytes of the XOF stream).
+   - "XOF": If lthash is NULL and out_sz==64, _batch_hash[i] receives
+      the full 64-byte compression output.  Root nodes produce one block
+      of the XOF stream.
 
    These modes are all packed into the same function because the
    alternatives are worse (either worse code footprint due to duplicated
