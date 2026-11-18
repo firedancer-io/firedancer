@@ -491,25 +491,25 @@ struct fd_uverbs_modify_qp_req {
 typedef struct fd_uverbs_modify_qp_req fd_uverbs_modify_qp_req_t;
 FD_STATIC_ASSERT( sizeof(fd_uverbs_modify_qp_req_t)==120UL, uverbs_modify_qp_req_sz );
 
-struct fd_uverbs_create_rx_wq_req {
+struct fd_uverbs_create_rwq_req {
   fd_uverbs_ex_hdr_t            hdr;
   struct ib_uverbs_ex_create_wq core;
   struct mlx5_ib_create_wq      mlx5;
 };
-typedef struct fd_uverbs_create_rx_wq_req fd_uverbs_create_rx_wq_req_t;
+typedef struct fd_uverbs_create_rwq_req fd_uverbs_create_rwq_req_t;
 
-struct fd_uverbs_create_rx_wq_resp {
+struct fd_uverbs_create_rwq_resp {
   struct ib_uverbs_ex_create_wq_resp core;
   struct mlx5_ib_create_wq_resp      mlx5;
 };
-typedef struct fd_uverbs_create_rx_wq_resp fd_uverbs_create_rx_wq_resp_t;
+typedef struct fd_uverbs_create_rwq_resp fd_uverbs_create_rwq_resp_t;
 
-struct fd_uverbs_modify_rx_wq_req {
+struct fd_uverbs_modify_rwq_req {
   fd_uverbs_ex_hdr_t            hdr;
   struct ib_uverbs_ex_modify_wq core;
   struct mlx5_ib_modify_wq      mlx5;
 };
-typedef struct fd_uverbs_modify_rx_wq_req fd_uverbs_modify_rx_wq_req_t;
+typedef struct fd_uverbs_modify_rwq_req fd_uverbs_modify_rwq_req_t;
 
 struct fd_uverbs_create_rwq_ind_table_req {
   fd_uverbs_ex_hdr_t hdr;
@@ -795,8 +795,8 @@ fd_uverbs_get_context( fd_uverbs_ctx_t * ctx,
                             sizeof(resp->mlx5.num_uars_per_page);
   if( FD_UNLIKELY( resp->mlx5.response_length<uar_resp_sz                              ||
                    resp->mlx5.cqe_version>1U                                           ||
-                   resp->mlx5.max_sq_desc_sz<sizeof(fd_mlx5_tx_wqe_t)                  ||
-                   resp->mlx5.max_rq_desc_sz<sizeof(fd_mlx5_rx_wqe_t)                  ||
+                   resp->mlx5.max_sq_desc_sz<sizeof(fd_mlx5_sq_wqe_t)                  ||
+                   resp->mlx5.max_rq_desc_sz<sizeof(fd_mlx5_rq_wqe_t)                  ||
                    resp->mlx5.log_uar_size!=(uint)fd_ulong_find_lsb( FD_MLX5_PAGE_SZ ) ||
                    resp->mlx5.num_uars_per_page!=1U                                    ||
                    resp->mlx5.tot_bfregs ) ) {
@@ -1217,11 +1217,11 @@ fd_uverbs_create_tx_qp( fd_uverbs_ctx_t * uverbs,
   req->send_cq_handle    = tx_cq_handle;
   /* Linux requires both CQ handles even when max_recv_wr is zero. */
   req->recv_cq_handle    = tx_cq_handle;
-  req->max_send_wr       = tx_qp->tx_depth;
+  req->max_send_wr       = tx_qp->depth;
   req->max_send_sge      = 1U;
   req->qp_type           = IB_UVERBS_QPT_RAW_PACKET;
   req->mlx5.db_addr      = (ulong)tx_qp->control;
-  req->mlx5.sq_wqe_count = tx_qp->tx_depth;
+  req->mlx5.sq_wqe_count = tx_qp->depth;
   req->mlx5.flags        = MLX5_QP_FLAG_UAR_PAGE_INDEX;
   req->mlx5.uidx         = 0U;
   req->mlx5.bfreg_index  = uar_page_id;
@@ -1230,7 +1230,7 @@ fd_uverbs_create_tx_qp( fd_uverbs_ctx_t * uverbs,
                                     sizeof(req), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
 
-  if( FD_UNLIKELY( resp->core.max_send_wr<tx_qp->tx_depth ||
+  if( FD_UNLIKELY( resp->core.max_send_wr<tx_qp->depth    ||
                    resp->core.max_recv_wr                 ||
                    resp->core.max_send_sge<1U             ||
                    resp->core.max_recv_sge                ||
@@ -1257,34 +1257,34 @@ fd_uverbs_start_tx_qp( fd_uverbs_ctx_t * uverbs,
   return tx_qp;
 }
 
-static fd_mlx5_rx_wq_t *
-fd_uverbs_create_rx_wq( fd_uverbs_ctx_t * uverbs,
-                        fd_mlx5_rx_wq_t * rx_wq,
-                        fd_mlx5_pd_t *    pd,
-                        uint              rx_cq_handle ) {
-  fd_uverbs_create_rx_wq_req_t  req [1];
-  fd_uverbs_create_rx_wq_resp_t resp[1];
+static fd_mlx5_rwq_t *
+fd_uverbs_create_rwq( fd_uverbs_ctx_t * uverbs,
+                      fd_mlx5_rwq_t *   rwq,
+                      fd_mlx5_pd_t *    pd,
+                      uint              rx_cq_handle ) {
+  fd_uverbs_create_rwq_req_t  req [1];
+  fd_uverbs_create_rwq_resp_t resp[1];
   fd_memset( req,  0, sizeof(req ) );
   fd_memset( resp, 0, sizeof(resp) );
 
   req->core.wq_type      = IB_UVERBS_WQT_RQ;
-  req->core.user_handle  = (ulong)rx_wq;
+  req->core.user_handle  = (ulong)rwq;
   req->core.pd_handle    = pd->handle;
   req->core.cq_handle    = rx_cq_handle;
-  req->core.max_wr       = rx_wq->rx_depth;
+  req->core.max_wr       = rwq->depth;
   req->core.max_sge      = 1U;
-  req->mlx5.buf_addr     = (ulong)rx_wq->rq;
-  req->mlx5.db_addr      = (ulong)rx_wq->control;
-  req->mlx5.rq_wqe_count = rx_wq->rx_depth;
-  req->mlx5.rq_wqe_shift = (uint)fd_ulong_find_lsb( sizeof(fd_mlx5_rx_wqe_t) );
-  ulong const core_req_sz  = offsetof( fd_uverbs_create_rx_wq_req_t,  mlx5 );
-  ulong const core_resp_sz = offsetof( fd_uverbs_create_rx_wq_resp_t, mlx5 );
+  req->mlx5.buf_addr     = (ulong)rwq->rq;
+  req->mlx5.db_addr      = (ulong)rwq->control;
+  req->mlx5.rq_wqe_count = rwq->depth;
+  req->mlx5.rq_wqe_shift = (uint)fd_ulong_find_lsb( sizeof(fd_mlx5_rq_wqe_t) );
+  ulong const core_req_sz  = offsetof( fd_uverbs_create_rwq_req_t,  mlx5 );
+  ulong const core_resp_sz = offsetof( fd_uverbs_create_rwq_resp_t, mlx5 );
   FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_WQ,
                                    core_req_sz, sizeof(req), resp,
                                    core_resp_sz, sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
-  if( FD_UNLIKELY( resp->core.max_wr<rx_wq->rx_depth ||
-                   resp->core.max_sge<1U             ||
+  if( FD_UNLIKELY( resp->core.max_wr<rwq->depth ||
+                   resp->core.max_sge<1U        ||
                    resp->core.wqn>0xffffffU ) ) {
     FD_LOG_WARNING(( "invalid mlx5 receive WQ response (max WRs %u, max SGEs %u, WQN %u)",
                      resp->core.max_wr, resp->core.max_sge, resp->core.wqn ));
@@ -1292,21 +1292,21 @@ fd_uverbs_create_rx_wq( fd_uverbs_ctx_t * uverbs,
     return NULL;
   }
 
-  rx_wq->handle = resp->core.wq_handle;
-  rx_wq->wqn    = resp->core.wqn;
-  return rx_wq;
+  rwq->handle = resp->core.wq_handle;
+  rwq->wqn    = resp->core.wqn;
+  return rwq;
 }
 
-static fd_mlx5_rx_wq_t *
-fd_uverbs_start_rx_wq( fd_uverbs_ctx_t * uverbs,
-                       fd_mlx5_rx_wq_t * rx_wq ) {
-  fd_uverbs_modify_rx_wq_req_t req[1];
+static fd_mlx5_rwq_t *
+fd_uverbs_start_rwq( fd_uverbs_ctx_t * uverbs,
+                     fd_mlx5_rwq_t *   rwq ) {
+  fd_uverbs_modify_rwq_req_t req[1];
   fd_memset( req, 0, sizeof(req) );
   req->core.attr_mask     = FD_MLX5_WQ_ATTR_STATE | FD_MLX5_WQ_ATTR_CUR_STATE;
-  req->core.wq_handle     = rx_wq->handle;
+  req->core.wq_handle     = rwq->handle;
   req->core.wq_state      = FD_MLX5_WQS_RDY;
   req->core.curr_wq_state = FD_MLX5_WQS_RESET;
-  ulong const core_req_sz = offsetof( fd_uverbs_modify_rx_wq_req_t, mlx5 );
+  ulong const core_req_sz = offsetof( fd_uverbs_modify_rwq_req_t, mlx5 );
   FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_MODIFY_WQ,
                                    core_req_sz, sizeof(req), NULL, 0UL, 0UL ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) return NULL;
@@ -1316,7 +1316,7 @@ fd_uverbs_start_rx_wq( fd_uverbs_ctx_t * uverbs,
     follow the same software path. */
   fd_memset( req, 0, sizeof(req) );
   req->core.attr_mask     = FD_MLX5_WQ_ATTR_STATE | FD_MLX5_WQ_ATTR_CUR_STATE | FD_MLX5_WQ_ATTR_FLAGS;
-  req->core.wq_handle     = rx_wq->handle;
+  req->core.wq_handle     = rwq->handle;
   req->core.wq_state      = FD_MLX5_WQS_RDY;
   req->core.curr_wq_state = FD_MLX5_WQS_RDY;
   req->core.flags         = 0U;
@@ -1325,9 +1325,9 @@ fd_uverbs_start_rx_wq( fd_uverbs_ctx_t * uverbs,
                                    core_req_sz, sizeof(req), NULL, 0UL, 0UL ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( uverbs->cmd_fd, req, sizeof(req) ) ) ) {
     FD_LOG_WARNING(( "failed to disable mlx5 CVLAN stripping on WQ %u (%i-%s)",
-                     rx_wq->wqn, errno, fd_io_strerror( errno ) ));
+                     rwq->wqn, errno, fd_io_strerror( errno ) ));
   }
-  return rx_wq;
+  return rwq;
 }
 
 static uint *
@@ -1347,7 +1347,7 @@ fd_uverbs_create_rwq_ind_table( uint *                        handle,
   fd_memset( req,  0, req_sz );
   fd_memset( resp, 0, sizeof(resp) );
   req->log_ind_tbl_size = (uint)fd_ulong_find_lsb( FD_MLX5_INDIRECTION_COUNT );
-  for( ulong i=0UL; i<FD_MLX5_INDIRECTION_COUNT; i++ ) req->wq_handles[ i ] = tiles[ i%tile_cnt ].rx_wq->handle;
+  for( ulong i=0UL; i<FD_MLX5_INDIRECTION_COUNT; i++ ) req->wq_handles[ i ] = tiles[ i%tile_cnt ].rwq->handle;
   FD_TEST( !fd_uverbs_init_ex_hdr( &req->hdr, IB_USER_VERBS_EX_CMD_CREATE_RWQ_IND_TBL,
                                    req_sz, req_sz, resp,
                                    sizeof(resp), sizeof(resp) ) );
@@ -1543,10 +1543,10 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
   }
   for( ulong i=0UL; i<tile_cnt; i++ ) {
     fd_mlx5_uverbs_tile_t const * tile = tiles+i;
-    if( FD_UNLIKELY( !tile->rx_cq || !tile->tx_cq || !tile->rx_wq || !tile->tx_qp || !tile->lkey ||
-                     !tile->packet_memory || !tile->packet_memory_sz || !tile->rx_wq->rq ||
-                     !tile->rx_wq->control || tile->rx_wq->rx_cq!=tile->rx_cq || tile->tx_qp->tx_cq!=tile->tx_cq ||
-                     tile->rx_wq->rx_depth!=tile->rx_cq->depth || tile->tx_qp->tx_depth!=tile->tx_cq->depth ) ) {
+    if( FD_UNLIKELY( !tile->rx_cq || !tile->tx_cq || !tile->rwq || !tile->tx_qp || !tile->lkey ||
+                     !tile->packet_memory || !tile->packet_memory_sz || !tile->rwq->rq ||
+                     !tile->rwq->control || tile->rwq->rx_cq!=tile->rx_cq || tile->tx_qp->tx_cq!=tile->tx_cq ||
+                     tile->rwq->depth!=tile->rx_cq->depth || tile->tx_qp->depth!=tile->tx_cq->depth ) ) {
       errno = EINVAL;
       return NULL;
     }
@@ -1560,14 +1560,14 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
 
   for( ulong i=0UL; i<tile_cnt; i++ ) {
     fd_mlx5_uverbs_tile_t * tile = tiles+i;
-    fd_mlx5_rx_wq_t * rx_wq = tile->rx_wq;
+    fd_mlx5_rwq_t *   rwq   = tile->rwq;
     fd_mlx5_tx_qp_t * tx_qp = tile->tx_qp;
-    if( FD_UNLIKELY( !fd_uint_is_pow2( rx_wq->rx_depth ) ||
-                     !fd_uint_is_pow2( tx_qp->tx_depth ) ||
-                     rx_wq->rx_depth>caps->max_recv_wr   ||
-                     tx_qp->tx_depth>caps->max_send_wqe  ||
-                     rx_wq->rx_depth-1U>caps->max_cqe    ||
-                     tx_qp->tx_depth-1U>caps->max_cqe ) ) {
+    if( FD_UNLIKELY( !fd_uint_is_pow2( rwq->depth )      ||
+                     !fd_uint_is_pow2( tx_qp->depth )    ||
+                     rwq->depth>caps->max_recv_wr        ||
+                     tx_qp->depth>caps->max_send_wqe     ||
+                     rwq->depth-1U>caps->max_cqe         ||
+                     tx_qp->depth-1U>caps->max_cqe ) ) {
       errno = EINVAL;
       return NULL;
     }
@@ -1588,8 +1588,8 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
                      !fd_uverbs_register_mr( tile->lkey, pd, tile->packet_memory, tile->packet_memory_sz, tile->packet_iova, caps->max_mr_size ) ||
                      !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id )                                                     ||
                      !fd_uverbs_start_tx_qp( uverbs, tx_qp )                                                                                     ||
-                     !fd_uverbs_create_rx_wq( uverbs, rx_wq, pd, rx_cq_handle )                                                                  ||
-                     !fd_uverbs_start_rx_wq( uverbs, rx_wq ) ) ) {
+                     !fd_uverbs_create_rwq( uverbs, rwq, pd, rx_cq_handle )                                                                      ||
+                     !fd_uverbs_start_rwq( uverbs, rwq ) ) ) {
       return NULL;
     }
     tx_qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;

@@ -16,9 +16,9 @@
    queues and doorbells directly.
 
    mlx5 queue fields are big-endian.  This implementation reserves 64
-   bytes for each TX WQE and 16 bytes for each RX WQE. */
+   bytes for each SQ WQE and 16 bytes for each RQ WQE. */
 
-#define FD_MLX5_TX_WQE_SZ     (64UL)
+#define FD_MLX5_SQ_WQE_SZ     (64UL)
 #define FD_MLX5_RQ_WQE_SZ     (16UL)
 #define FD_MLX5_CQE_SZ        (64UL)
 #define FD_MLX5_PAGE_SZ       (4096UL)
@@ -26,23 +26,23 @@
 /* mlx5 CQ consumer indices are 24 bits. */
 #define FD_MLX5_CQ_CONS_IDX_MASK (0xffffffU)
 
-struct __attribute__((aligned(FD_MLX5_TX_WQE_SZ))) fd_mlx5_tx_wqe {
-  uchar bytes[ FD_MLX5_TX_WQE_SZ ];
+struct __attribute__((aligned(FD_MLX5_SQ_WQE_SZ))) fd_mlx5_sq_wqe {
+  uchar bytes[ FD_MLX5_SQ_WQE_SZ ];
 };
-typedef struct fd_mlx5_tx_wqe fd_mlx5_tx_wqe_t;
+typedef struct fd_mlx5_sq_wqe fd_mlx5_sq_wqe_t;
 
-struct __attribute__((aligned(FD_MLX5_RQ_WQE_SZ))) fd_mlx5_rx_wqe {
+struct __attribute__((aligned(FD_MLX5_RQ_WQE_SZ))) fd_mlx5_rq_wqe {
   uchar bytes[ FD_MLX5_RQ_WQE_SZ ];
 };
-typedef struct fd_mlx5_rx_wqe fd_mlx5_rx_wqe_t;
+typedef struct fd_mlx5_rq_wqe fd_mlx5_rq_wqe_t;
 
 struct __attribute__((aligned(FD_MLX5_CQE_SZ))) fd_mlx5_cqe {
   uchar bytes[ FD_MLX5_CQE_SZ ];
 };
 typedef struct fd_mlx5_cqe fd_mlx5_cqe_t;
 
-FD_STATIC_ASSERT( sizeof(fd_mlx5_tx_wqe_t)==FD_MLX5_TX_WQE_SZ, mlx5_tx_wqe_sz );
-FD_STATIC_ASSERT( sizeof(fd_mlx5_rx_wqe_t)==FD_MLX5_RQ_WQE_SZ, mlx5_rx_wqe_sz );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_sq_wqe_t)==FD_MLX5_SQ_WQE_SZ, mlx5_sq_wqe_sz );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_rq_wqe_t)==FD_MLX5_RQ_WQE_SZ, mlx5_rq_wqe_sz );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_cqe_t   )==FD_MLX5_CQE_SZ,    mlx5_cqe_sz    );
 
 /* fd_uverbs_ctx owns a uverbs command descriptor and the async
@@ -72,16 +72,16 @@ struct __attribute__((aligned(8UL))) fd_mlx5_qp_control {
 };
 typedef struct fd_mlx5_qp_control fd_mlx5_qp_control_t;
 
-/* fd_mlx5_rx_wq_control is the mlx5 receive WQ doorbell record. */
-struct __attribute__((aligned(8UL))) fd_mlx5_rx_wq_control {
+/* fd_mlx5_rwq_control is the mlx5 receive WQ doorbell record. */
+struct __attribute__((aligned(8UL))) fd_mlx5_rwq_control {
   uint rq_prod;
   uint reserved;
 };
-typedef struct fd_mlx5_rx_wq_control fd_mlx5_rx_wq_control_t;
+typedef struct fd_mlx5_rwq_control fd_mlx5_rwq_control_t;
 
 FD_STATIC_ASSERT( sizeof(fd_mlx5_cq_control_t)==8UL, mlx5_cq_control_sz );
 FD_STATIC_ASSERT( sizeof(fd_mlx5_qp_control_t)==8UL, mlx5_qp_control_sz );
-FD_STATIC_ASSERT( sizeof(fd_mlx5_rx_wq_control_t)==8UL, mlx5_rx_wq_control_sz );
+FD_STATIC_ASSERT( sizeof(fd_mlx5_rwq_control_t)==8UL, mlx5_rwq_control_sz );
 
 struct fd_mlx5_cq {
   fd_mlx5_cqe_t *        entries;
@@ -96,26 +96,26 @@ struct fd_mlx5_cq {
 };
 typedef struct fd_mlx5_cq fd_mlx5_cq_t;
 
-/* fd_mlx5_rx_wq owns one standalone Linux receive WQ. */
-struct fd_mlx5_rx_wq {
-  fd_mlx5_rx_wqe_t * rq;
+/* fd_mlx5_rwq owns one standalone Linux receive WQ. */
+struct fd_mlx5_rwq {
+  fd_mlx5_rq_wqe_t * rq;
   fd_mlx5_cq_t *     rx_cq;
-  uint               rx_depth;
+  uint               depth;
   uint               rq_prod;
   uint               rq_cons;
   uint *             rq_wqe_buf_chunk;
 
-  fd_mlx5_rx_wq_control_t * control;
+  fd_mlx5_rwq_control_t *   control;
   uint                      handle;
   uint                      wqn;
 };
-typedef struct fd_mlx5_rx_wq fd_mlx5_rx_wq_t;
+typedef struct fd_mlx5_rwq fd_mlx5_rwq_t;
 
 /* fd_mlx5_tx_qp owns one send-only raw-packet QP. */
 struct fd_mlx5_tx_qp {
-  fd_mlx5_tx_wqe_t *     sq;
+  fd_mlx5_sq_wqe_t *     sq;
   fd_mlx5_cq_t *         tx_cq;
-  uint                   tx_depth;
+  uint                   depth;
   uint                   sq_prod;
   uint                   sq_posted;
   uint                   sq_cons;
@@ -126,7 +126,7 @@ struct fd_mlx5_tx_qp {
   ulong                  uar_mmap_offset;  /* maps this QP's non-cached mlx5 UAR page. */
   uint                   handle;           /* identifies this QP in later Linux uverbs commands. */
   uint                   qpn;              /* identifies this QP to the NIC. */
-  uchar                  tx_inline_hdr_sz; /* number of Ethernet header bytes copied into each TX WQE. */
+  uchar                  tx_inline_hdr_sz; /* number of Ethernet header bytes copied into each SQ WQE. */
 
 };
 typedef struct fd_mlx5_tx_qp fd_mlx5_tx_qp_t;
@@ -142,7 +142,7 @@ typedef struct fd_mlx5_rss_qp fd_mlx5_rss_qp_t;
 struct fd_mlx5_uverbs_tile {
   fd_mlx5_cq_t *    rx_cq;
   fd_mlx5_cq_t *    tx_cq;
-  fd_mlx5_rx_wq_t * rx_wq;
+  fd_mlx5_rwq_t *   rwq;
   fd_mlx5_tx_qp_t * tx_qp;
   uint *            lkey;
   int *             rx_comp_channel_fd; /* NULL in performance mode */
