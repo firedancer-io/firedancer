@@ -23,7 +23,7 @@
 #include "fd_pb_wire.h"
 #include "../../util/log/fd_log.h"
 
-/* FD_PB_ENCODE_DEPTH_MAX specifies the max submessage depth. */
+/* FD_PB_ENCODER_DEPTH_MAX specifies the max submessage depth. */
 
 #define FD_PB_ENCODER_DEPTH_MAX (63UL)
 
@@ -116,10 +116,10 @@ fd_pb_encoder_space( fd_pb_encoder_t const * encoder ) {
 }
 
 /* fd_pb_lp_open adds a new unknown-sized LEN field to the encoder's
-   current message.  Returns encoder on success.  On failure (no space),
-   returns NULL.  Every successful call must be paired with a call to
-   fd_pb_lp_close.  Use fd_pb_encoder_space to check how much free
-   space the frame has, and fd_pb_encoder_push to append data.
+   current message.  Returns encoder on success, or NULL if there is
+   no space or the nesting depth limit is reached.  Every successful
+   call must be paired with a call to fd_pb_lp_close.  Use
+   fd_pb_encoder_space to check how much free space the frame has.
 
    This method is useful for serializing Protobuf submessages with
    another library, moving encoded submessages without a deserialize/
