@@ -79,6 +79,7 @@ after_credit( fd_pktgen_tile_ctx_t * ctx,
   ip4->verihl          = FD_IP4_VERIHL( 4, 5 );
   /* Routing over the socket fallback requires a correct daddr */
   ip4->daddr           = ctx->fake_dst_ip;
+  ip4->protocol         = FD_IP4_HDR_PROTOCOL_UDP;
   FD_STORE( ulong, ip4+1, tag ); /* Unique seq number */
   fd_stem_publish( stem, 0UL, sig, chunk, sz, 0UL, 0UL, 0UL );
 
