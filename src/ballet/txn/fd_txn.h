@@ -76,12 +76,9 @@
 #define FD_TXN_ACCT_ADDR_MAX (64UL)
 
 /* FD_TXN_ADDR_TABLE_LOOKUP_MAX: The (inclusive) maximum number of address
-   tables that this transaction references.  The spec is pretty sloppy about
-   the maximum number allowed.  Since there's a maximum of 128 total accounts
-   (including the fee payer) that the transaction can reference, if you have
-   more than 127 table lookups, then you must have some from which you are not
-   using any account.  Realistically, the current MTU of 1232 B restricts this
-   to 33. FIXME: We should petition to limit this to approx 8. */
+   tables that this transaction references.  This is a conservative bound:
+   the 1232-byte V0 MTU and the requirement that each lookup reference at
+   least one account restrict the parser to at most 31 lookups. */
 #define FD_TXN_ADDR_TABLE_LOOKUP_MAX (127UL)
 
 /* FD_TXN_INSTR_MAX: The (inclusive) maximum number of instructions a transaction
