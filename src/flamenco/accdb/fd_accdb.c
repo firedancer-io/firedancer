@@ -2166,11 +2166,9 @@ change_partition( fd_accdb_t *           accdb,
   /* Snapshot-load tiering: accounts loaded from a snapshot never get
      a second write, so compaction-driven promotion never fires and
      they would otherwise live in Hot forever.  When snapshot_loading
-     is set, tag the new partition as Cold up front.  We do not set
-     has_partition[Cold] / whead[Cold] — those are owned by the
-     compaction tile and represent the live Cold write head, which is
-     independent of snapshot-loaded partitions that happen to be
-     labeled Cold. */
+     is set, tag the new partition as Cold up front.
+     fd_accdb_snapshot_load_end transfers the last snapshot partition
+     to the Cold write head if that head is not already set. */
   if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->snapshot_loading ) && layer==0 ) ) {
     FD_VOLATILE( partition->layer ) = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
   }

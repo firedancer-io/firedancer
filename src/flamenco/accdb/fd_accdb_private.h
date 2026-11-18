@@ -503,7 +503,7 @@ struct fd_accdb_shmem_private {
   /* Per-layer write heads.  whead[0] is the hot (execution) write
      head, updated with atomic fetch-and-add by acquire/release
      threads.  whead[1..N-1] are compaction write heads, each
-     single-writer (compaction tile only). */
+     single-writer (compaction tile after snapshot loading). */
   accdb_offset_t whead[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   int            has_partition[ FD_ACCDB_COMPACTION_LAYER_CNT ];
 
