@@ -578,6 +578,7 @@ sync_ctx_init( fd_snapin_tile_t * ctx,
   ctx->full         = 1;
   ctx->tile_idx     = 0UL;
   ctx->lane_cnt     = lane_cnt;
+  ctx->genesis_in_idx = ULONG_MAX;
   ctx->ct_out.idx   = 0UL;
   test_file_off  = 0UL;
   test_stage_mem = NULL;
@@ -701,6 +702,7 @@ test_cluster_new( ulong tile_cnt,
     fd_snapin_tile_t * ctx = &cl->ctx[ t ];
     ctx->tile_idx = t;
     ctx->lane_cnt = lane_cnt;
+    ctx->genesis_in_idx = ULONG_MAX;
     ctx->full     = 1;
     ctx->state    = FD_SNAPSHOT_STATE_IDLE;
     clear_control_barrier( ctx );
@@ -3379,6 +3381,7 @@ wfs_manifest_setup( fd_snapin_tile_t * ctx,
   ctx->state          = FD_SNAPSHOT_STATE_PROCESSING;
   ctx->full           = !!full;
   ctx->lane_cnt       = 1UL;
+  ctx->genesis_in_idx = ULONG_MAX;
   ctx->lead.advertised_slot = slot;
   fd_memcpy( ctx->lead.advertised_hash, hash32, FD_HASH_FOOTPRINT );
   ctx->lead.manifest_out.mem   = (fd_wksp_t *)manifest_mem;
@@ -3410,6 +3413,37 @@ test_wfs_error_incremental( void ) {
   FD_TEST( test_pub_cnt==1UL );
   FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
   FD_LOG_NOTICE(( "pass: test_wfs_error_incremental" ));
+}
+
+static void
+test_genesis_mismatch( void ) {
+  static uchar manifest_mem[ sizeof(fd_snapshot_manifest_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static fd_snapin_tile_t ctx[1];
+  fd_snapshot_manifest_t * m = wfs_manifest_setup( ctx, manifest_mem, 50UL, 1 );
+  m->creation_time_seconds                = 1000UL;
+  ctx->lead.has_genesis                   = 1;
+  ctx->lead.genesis_creation_time_seconds = 2000UL;
+
+  test_pub_cnt = 0UL;
+  process_manifest( ctx, (fd_stem_context_t *)1UL );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+  FD_TEST( test_pub_cnt==1UL );
+  FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
+
+  /* Genesis arriving after the manifest is caught at DONE. */
+  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_FINISHING );
+  ctx->genesis_in_idx = 1UL;
+  ctx->lead.full_genesis_creation_time_seconds = 1000UL;
+  FD_TEST( before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE )==-1 );
+  ctx->lead.has_genesis                   = 1;
+  ctx->lead.genesis_creation_time_seconds = 2000UL;
+  FD_TEST( !before_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE ) );
+  test_pub_cnt = 0UL;
+  send_control( ctx, 0UL, FD_SNAPSHOT_MSG_CTRL_DONE );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR );
+  FD_TEST( test_pub_cnt==1UL );
+  FD_TEST( test_pub_sig[0]==FD_SNAPSHOT_MSG_CTRL_ERROR );
+  FD_LOG_NOTICE(( "pass: test_genesis_mismatch" ));
 }
 
 int
@@ -3479,6 +3513,7 @@ main( int     argc,
   fd_wksp_reset( wksp, 1UL ); test_populate_txncache_accepts_empty_rooted_status_cache( wksp );
 
   test_wfs_error_incremental();
+  test_genesis_mismatch();
   fd_wksp_delete_anonymous( wksp );
 
   test_eager_claim_coverage();
