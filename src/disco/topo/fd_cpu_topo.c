@@ -259,3 +259,16 @@ fd_topo_cpus_floating( fd_topo_cpus_t const * cpus,
   }
   if( FD_UNLIKELY( !fd_cpuset_cnt( cpuless_cpu_set ) ) ) fd_cpuset_copy( cpuless_cpu_set, launch );
 }
+
+void
+fd_topo_cpus_restrict( fd_topo_cpus_t *   cpus,
+                       fd_cpuset_t const * allowed ) {
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ )
+    cpus->cpu[ i ].online &= fd_cpuset_test( allowed, i );
+
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    fd_topo_cpu_t * cpu = &cpus->cpu[ i ];
+    if( !cpu->online || ( cpu->sibling!=ULONG_MAX && !cpus->cpu[ cpu->sibling ].online ) )
+      cpu->sibling = ULONG_MAX;
+  }
+}
