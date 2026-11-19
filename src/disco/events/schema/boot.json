@@ -71,7 +71,9 @@
             "variants": {
                 "x86_64":  { "description": "x86-64" },
                 "arm":     { "description": "ARM" },
-                "unknown": { "description": "Unlisted or undeterminable." }
+                "unknown": { "description": "Unlisted or undeterminable." },
+                "rv64":    { "description": "RISC-V 64-bit" },
+                "ppc64le": { "description": "PowerPC 64-bit little endian" }
             }
         },
         "cpu_vendor": {

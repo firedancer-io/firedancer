@@ -244,6 +244,8 @@ enum BootCpuArch {
   BOOT_CPU_ARCH_X86_64 = 1;  // x86-64
   BOOT_CPU_ARCH_ARM = 2;  // ARM
   BOOT_CPU_ARCH_UNKNOWN = 3;  // Unlisted or undeterminable.
+  BOOT_CPU_ARCH_RV64 = 4;  // RISC-V 64-bit
+  BOOT_CPU_ARCH_PPC64LE = 5;  // PowerPC 64-bit little endian
 }
 
 // The maker of the processor.
