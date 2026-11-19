@@ -1972,6 +1972,63 @@ test_fork_hide_ancestor( void ) {
   test_teardown( accdb, fd );
 }
 
+/* test_snapshot_load_written: the end of a fast boot load.  The loader
+   marks the load written.  The owner of the fork tree roots the hidden
+   fork, whose records show once that root is applied, ends the load
+   and roots the stream fork. */
+static void
+test_snapshot_load_written( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  test_store_ctx_t store = { .fd=fd };
+  fd_accdb_fork_id_t root   = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t snap   = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t stream = fd_accdb_attach_child( accdb, snap );
+  fd_accdb_restore_hide_ancestor( accdb, stream, snap );
+  fd_accdb_fork_id_t block  = fd_accdb_attach_child( accdb, stream );
+  fd_accdb_snapshot_load_begin( accdb );
+  FD_TEST( fd_accdb_snapshot_still_loading( accdb ) && !fd_accdb_snapshot_load_written( accdb ) );
+  FD_TEST( fd_accdb_fork_parent( accdb, stream ).val==snap.val && fd_accdb_fork_parent( accdb, block ).val==stream.val );
+
+  /* pk1 only on snap; pk2 on snap and on stream; pk3 empty on stream. */
+  uchar pk1[ 32 ] = {9}; uchar pk2[ 32 ] = {8}; uchar pk3[ 32 ] = {7};
+  uchar const * k1[ 1 ] = { pk1 }; uchar const * k2[ 1 ] = { pk2 }; uchar const * k3[ 1 ] = { pk3 };
+  ulong snap_slot[ 1 ] = { 5UL };   ulong stream_slot[ 1 ] = { 7UL };
+  ulong snap_lamp[ 1 ] = { 100UL }; ulong stream_lamp[ 1 ] = { 200UL }; ulong zero[ 1 ] = { 0UL };
+  ulong len[ 1 ] = { 0UL }; int exec[ 1 ] = { 0 };
+  test_write_batch_on( accdb, snap,   FD_ACCDB_RESTORE_MODE_FULL,   1UL, k1, snap_slot,   snap_lamp,   len, exec, &store );
+  test_write_batch_on( accdb, snap,   FD_ACCDB_RESTORE_MODE_FULL,   1UL, k2, snap_slot,   snap_lamp,   len, exec, &store );
+  test_write_batch_on( accdb, stream, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, k2, stream_slot, stream_lamp, len, exec, &store );
+  test_write_batch_on( accdb, stream, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, k3, stream_slot, zero,        len, exec, &store );
+
+  /* Written is still loading: readers keep probing. */
+  fd_accdb_snapshot_load_mark_written( accdb );
+  FD_TEST( fd_accdb_snapshot_still_loading( accdb ) && fd_accdb_snapshot_load_written( accdb ) );
+  FD_TEST( !fd_accdb_has_record( accdb, block, pk1 ) );
+
+  /* The hidden records stay hidden until the root is applied. */
+  fd_accdb_advance_root( accdb, fd_accdb_fork_parent( accdb, stream ) );
+  FD_TEST( fd_accdb_requests_pending( accdb ) );
+  FD_TEST( fd_accdb_root_fork_id( accdb ).val==root.val && !fd_accdb_has_record( accdb, block, pk1 ) );
+  while( fd_accdb_requests_pending( accdb ) ) drain_background( accdb );
+  FD_TEST( fd_accdb_root_fork_id( accdb ).val==snap.val );
+  FD_TEST( fd_accdb_lamports( accdb, block, pk1 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, block, pk2 )==200UL );
+  /* The stream fork is not rooted yet, so its empty record is still
+     there for a reader that probes. */
+  FD_TEST( fd_accdb_has_record( accdb, block, pk3 ) );
+
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( !fd_accdb_snapshot_still_loading( accdb ) && !fd_accdb_snapshot_load_written( accdb ) );
+  fd_accdb_advance_root( accdb, stream );
+  while( fd_accdb_requests_pending( accdb ) ) drain_background( accdb );
+  FD_TEST( fd_accdb_root_fork_id( accdb ).val==stream.val );
+  FD_TEST( fd_accdb_lamports( accdb, block, pk1 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, block, pk2 )==200UL );
+  FD_TEST( !fd_accdb_has_record( accdb, block, pk3 ) ); /* rooting drops empty records */
+  test_teardown( accdb, fd );
+}
+
 /* test_write_cached writes one stream record that is kept in the
    cache: the record bytes are passed instead of a file offset. */
 static test_batch_result_t
@@ -2462,7 +2519,7 @@ test_snapshot_writers_vs_live( void ) {
   ulong max_accounts = 2048UL;
   fd_accdb_t * accdb = test_setup_ex( &fd, max_accounts, 64UL, 1024UL, 64UL, psz,
                                       TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED,
-                                      PAR_THREADS+4UL );
+                                      PAR_THREADS+4UL, 0UL );
 
   fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
   fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
@@ -3612,6 +3669,8 @@ main( int     argc,
   test_snapshot_write_head();
   FD_LOG_NOTICE(( "test_fork_hide_ancestor ..." ));
   test_fork_hide_ancestor();
+  FD_LOG_NOTICE(( "test_snapshot_load_written ..." ));
+  test_snapshot_load_written();
   FD_LOG_NOTICE(( "test_restore_cached ..." ));
   test_restore_cached();
 

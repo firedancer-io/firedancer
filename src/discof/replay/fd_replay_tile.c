@@ -2780,7 +2780,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
         fd_stem_publish( stem, ctx->strmk_out->idx, REPLAY_SIG_STREAM_TXN, ctx->strmk_out->chunk, sizeof(*strmk_msg), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
         ctx->strmk_out->chunk = fd_dcache_compact_next( ctx->strmk_out->chunk, sizeof(*strmk_msg), ctx->strmk_out->chunk0, ctx->strmk_out->wmark );
       }
-      
+
       break;
     }
     case FD_SCHED_TT_CERT_VERIFY: {
@@ -3301,8 +3301,8 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
 
   /* accdb does not root while producing a snapshot.  Loading a fast
-     boot stream holds the root at its start slot until the snapin
-     tiles are done. */
+     boot stream holds the root at its start slot until the load has
+     ended. */
   if( FD_UNLIKELY( ctx->snapmk.active || ctx->snapshots_loading ) ) return 0;
 
   /* If the new root is not available because the bank is/has been
@@ -3461,8 +3461,8 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
 
 static int
 try_prune_bank( fd_replay_tile_t * ctx ) {
-  /* Loading a fast boot stream keeps every bank until the snapin tiles
-     are done. */
+  /* Loading a fast boot stream keeps every bank until the load has
+     ended. */
   if( FD_UNLIKELY( ctx->snapshots_loading ) ) return 0;
 
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
@@ -3535,6 +3535,22 @@ after_credit( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( ctx->halt_replay && !ctx->is_leader ) ) return;
   if( FD_UNLIKELY( !ctx->is_booted ) ) return;
+
+  /* The snapshots behind a fast boot stream are all written.  Root
+     their fork, which is the parent of the stream's.  Their accounts
+     show once the accounts database has applied that root.  Then end
+     the load and root the stream's fork. */
+  if( FD_UNLIKELY( ctx->snapshots_loading && fd_accdb_snapshot_load_written( ctx->accdb ) && !fd_accdb_requests_pending( ctx->accdb ) ) ) {
+    fd_accdb_fork_id_t stream_fork = fd_banks_root( ctx->banks )->accdb_fork_id;
+    fd_accdb_fork_id_t snap_fork   = fd_accdb_fork_parent( ctx->accdb, stream_fork );
+    if( FD_UNLIKELY( fd_accdb_root_fork_id( ctx->accdb ).val!=snap_fork.val ) ) {
+      fd_accdb_advance_root( ctx->accdb, snap_fork );
+    } else {
+      fd_accdb_snapshot_load_end( ctx->accdb );
+      fd_accdb_advance_root( ctx->accdb, stream_fork );
+    }
+  }
+
   if( FD_UNLIKELY( ctx->snapshots_loading && !fd_accdb_snapshot_still_loading( ctx->accdb ) ) ) {
     finish_snapshot_load( ctx );
     *charge_busy = 1;
@@ -4368,8 +4384,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_SNAP: {
       /* Booting from the snapshot needs the parsed genesis (see
          restore_default_slot_params).  genesi_out and snapin_manif are
-         independent links, so hold DONE until genesis has arrived. */
-      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE && !ctx->has_genesis_hash ) ) return 1;
+         independent links, so hold REPLAY_READY until genesis has
+         arrived. */
+      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_REPLAY_READY && !ctx->has_genesis_hash ) ) return 1;
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       maybe_verify_cluster_type( ctx );
       maybe_verify_shred_version( ctx );
@@ -4904,6 +4921,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->highwater_leader_slot = ULONG_MAX;
   ctx->strmk.supported = fd_topo_find_tile( topo, "strmk", 0UL )!=ULONG_MAX;
   ctx->strmk.active    = 0;
+  ctx->strmk.stopping  = 0;
 
   ctx->votor_final->slot       = ULONG_MAX;
   ctx->votor_parent_ready_slot = 0UL;

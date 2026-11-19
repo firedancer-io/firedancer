@@ -310,8 +310,8 @@ http_format_request( fd_sshttp_t * http,
     "Accept: */*\r\n"
     "Accept-Encoding: identity\r\n"
     "%s"
-    "Host: %s\r\n\r\n",
-    (int)path_len, path, range, host );
+    "Host: %s:%u\r\n\r\n",
+    (int)path_len, path, range, host, fd_ushort_bswap( addr.port ) );
 }
 
 int
@@ -672,7 +672,8 @@ follow_redirect( fd_sshttp_t *        http,
      accepted here will not overflow in fd_sshttp_init. */
   if( location_len!=http->location_len || memcmp( location, http->location, location_len ) ) http->range_start = 0UL;
 
-  int pre_check = http_format_request( http, http->addr, location, location_len, http->range_start );
+  fd_ip4_port_t addr = { .addr = http->addr.addr, .port = fd_ushort_bswap( port ) };
+  int pre_check = http_format_request( http, addr, location, location_len, http->range_start );
   if( FD_UNLIKELY( !pre_check ) ) {
     FD_LOG_WARNING(( "redirect request too long `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)location_len, location,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));

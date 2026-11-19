@@ -277,6 +277,16 @@ test_parked( void ) {
   FD_TEST( !close( listener ) );
 }
 
+/* woken_credit runs one pass of the tile with the waker reporting the
+   download socket readable, as the waker tile does when bytes
+   arrive. */
+static void
+woken_credit( fd_snapld_tile_t * ctx,
+              int *              busy ) {
+  fd_fseq_update( ctx->waker_fseq, 1UL );
+  after_credit( ctx, test_stem, NULL, busy );
+}
+
 /* serve_one_open accepts the tile's next connection, drives the tile
    until its request has arrived, checks the request holds expect,
    answers with resp and returns the open connection.  serve_one also
@@ -291,7 +301,7 @@ serve_one_open( fd_snapld_tile_t * ctx,
   char  req[ 4096 ];
   ulong req_len = 0UL;
   for( ulong i=0UL; i<100000UL; i++ ) {
-    after_credit( ctx, test_stem, NULL, &busy );
+    woken_credit( ctx, &busy );
     if( conn==-1 ) {
       conn = accept4( server, NULL, NULL, SOCK_NONBLOCK );
       if( conn==-1 ) {
@@ -324,7 +334,7 @@ drive_until( fd_snapld_tile_t * ctx,
              ulong *            var,
              ulong              val ) {
   int busy = 0;
-  for( ulong i=0UL; i<100000UL && *var!=val; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( ulong i=0UL; i<100000UL && *var!=val; i++ ) woken_credit( ctx, &busy );
   FD_TEST( *var==val );
 }
 
@@ -389,6 +399,7 @@ test_stream( void ) {
   int busy = 0;
   ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
   ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  ctx->waker_client_idx = 7UL;
   fd_clock_tile_init( ctx->clock );
   ctx->in_rd.base    = input;
   ctx->out_dc.mem    = (fd_wksp_t *)output;
@@ -424,7 +435,7 @@ test_stream( void ) {
   /* No stream at the server yet: ask again later. */
   serve_one( ctx, server, get, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
   drive_until( ctx, &init_cnt, 1UL );
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->fast_boot_stream.wait!=LONG_MAX && publish_cnt==1UL );
   ctx->fast_boot_stream.wait = 0L;
 
@@ -438,7 +449,7 @@ test_stream( void ) {
   /* The server drops a poll before caught up: asked again from the
      same offset. */
   serve_one( ctx, server, "Range: bytes=8-\r\n", "" );
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !ctx->fast_boot_stream.caught_up && publish_cnt==3UL && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
 
@@ -449,13 +460,13 @@ test_stream( void ) {
   FD_TEST( ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
   serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n" );
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
   FD_TEST( publish_cnt==4UL && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
 
   /* The server drops a poll after caught up: asked again too. */
   serve_one( ctx, server, "Range: bytes=8-\r\n", "" );
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==4UL && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
 
@@ -463,17 +474,17 @@ test_stream( void ) {
      left by the last poll does not cancel the next. */
   ctx->window_deadline = 1L;
   ctx->bytes_in_window = 0UL;
-  after_credit( ctx, test_stem, NULL, &busy );
+  woken_credit( ctx, &busy );
   FD_TEST( ctx->window_deadline==LONG_MAX && ctx->fast_boot_stream.wait==LONG_MAX && http->state!=FD_SSHTTP_STATE_INIT );
 
   /* More bytes.  A stream only needs a byte per window. */
   int conn = serve_one_open( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 8-11/12\r\nContent-Length: 4\r\n\r\n" );
-  for( int i=0; i<100 && http->state!=FD_SSHTTP_STATE_DL; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100 && http->state!=FD_SSHTTP_STATE_DL; i++ ) woken_credit( ctx, &busy );
   FD_TEST( http->state==FD_SSHTTP_STATE_DL );
   ctx->window_deadline     = 1L;
   ctx->bytes_in_window     = 1UL;
   ctx->min_bytes_in_window = ULONG_MAX;
-  after_credit( ctx, test_stem, NULL, &busy );
+  woken_credit( ctx, &busy );
   FD_TEST( ctx->window_deadline!=LONG_MAX && ctx->fast_boot_stream.wait==LONG_MAX );
   FD_TEST( 4L==send( conn, "more", 4UL, 0 ) );
   drive_until( ctx, &ctx->fast_boot_stream.off, 12UL );
@@ -483,7 +494,7 @@ test_stream( void ) {
   /* The stream ended and nothing follows it yet: asked again later,
      from the same offset. */
   serve_one( ctx, server, "Range: bytes=12-\r\n", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
-  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->fast_boot_stream.off==12UL && publish_cnt==5UL && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
 
@@ -503,7 +514,7 @@ test_stream( void ) {
      again. */
   serve_one( ctx, server, "Range: bytes=12-\r\n", redirect );
   serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n" );
-  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->fast_boot_stream.slot==123UL && ctx->fast_boot_stream.off==12UL );
   FD_TEST( ctx->fast_boot_stream.next_stream_slot==ULONG_MAX && publish_cnt==5UL && http->state==FD_SSHTTP_STATE_INIT );
   ctx->fast_boot_stream.wait = 0L;
@@ -518,7 +529,7 @@ test_stream( void ) {
 
   /* Not even asked for until replay gets there. */
   ctx->fast_boot_stream.wait = 0L;
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->wait_info->info.reset_slot = 124UL;
   ctx->fast_boot_stream.wait = 0L;
@@ -533,7 +544,7 @@ test_stream( void ) {
   /* A dropped poll on the new stream is asked again on it, from its
      offset. */
   serve_one( ctx, server, get, "" );
-  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->fast_boot_stream.slot==124UL && ctx->fast_boot_stream.off==4UL && publish_cnt==6UL );
   ctx->fast_boot_stream.wait = 0L;
 
@@ -569,7 +580,7 @@ test_stream( void ) {
   FD_TEST( publish_sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP && ctx->fast_boot_stream.caught_up );
   FD_TEST( ctx->fast_boot_stream.off==8UL && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
   FD_TEST( publish_cnt==published+1UL && http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && publish_sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
@@ -591,6 +602,7 @@ test_stream_fail( void ) {
   int busy = 0;
   ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
   ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  ctx->waker_client_idx = 7UL;
   fd_clock_tile_init( ctx->clock );
   ctx->in_rd.base    = input;
   ctx->out_dc.mem    = (fd_wksp_t *)output;
@@ -628,7 +640,7 @@ test_stream_fail( void ) {
   /* No answer yet: the FAIL resets the load and goes down the
      pipeline. */
   serve_one( ctx, server, "GET /fast-boot-stream-123-x.tar.zst HTTP/1.1", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !ctx->sent_meta && publish_cnt==1UL );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE && !ctx->pipeline_ready && publish_cnt==2UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
@@ -650,7 +662,7 @@ test_stream_fail( void ) {
   serve_one( ctx, server, "GET /fast-boot-stream-123-x.tar.zst HTTP/1.1", "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnapshot" );
   drive_until( ctx, &ctx->fast_boot_stream.off, 8UL );
   FD_TEST( ctx->sent_meta && publish_cnt==2UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
-  for( int i=0; i<100 && http->state==FD_SSHTTP_STATE_INIT; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100 && http->state==FD_SSHTTP_STATE_INIT; i++ ) woken_credit( ctx, &busy );
   FD_TEST( http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 && ctx->fast_boot_stream.wait==LONG_MAX );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->pipeline_ready && publish_cnt==2UL );
@@ -658,6 +670,104 @@ test_stream_fail( void ) {
 
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && http->state==FD_SSHTTP_STATE_INIT && http->sockfd==-1 );
+
+  fd_sshttp_cancel( http );
+  FD_TEST( !close( server ) );
+}
+
+/* A fast boot stream poll whose body arrives late.  The read that
+   finds the socket empty parks, queued bytes then wait for the waker,
+   and a poll that is never woken again is asked again from the offset
+   passed on so far once a progress window saw no byte. */
+static void
+test_stream_parked( void ) {
+  static fd_sshttp_t http[1];
+  static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  fd_snapld_tile_t ctx[1] = {0};
+  int busy = 0;
+  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
+  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  ctx->waker_client_idx = 7UL;
+  fd_clock_tile_init( ctx->clock );
+  ctx->in_rd.base    = input;
+  ctx->out_dc.mem    = (fd_wksp_t *)output;
+  ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
+  ctx->out_dc.wmark  = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
+  ctx->local_full_fd = -1;
+
+  int server = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  FD_TEST( server>=0 );
+  struct sockaddr_in sa = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
+  };
+  FD_TEST( !bind( server, fd_type_pun( &sa ), sizeof(sa) ) );
+  socklen_t sa_sz = sizeof(sa);
+  FD_TEST( !getsockname( server, fd_type_pun( &sa ), &sa_sz ) );
+  FD_TEST( !listen( server, 1 ) );
+
+  uchar hash[ 32 ];
+  fd_memset( hash, 0x5a, sizeof(hash) );
+  char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( hash, NULL, hash_b58 );
+  char name[ 128 ];
+  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "fast-boot-stream-123-%s.tar.zst", hash_b58 ) );
+  char get[ 160 ];
+  FD_TEST( fd_cstr_printf_check( get, sizeof(get), NULL, "GET /%s HTTP/1.1", name ) );
+
+  publish_cnt = init_cnt = 0UL;
+  init_stream_download( ctx, input, &sa, 123UL, name );
+
+  /* Headers and the first body bytes arrive together; the read after
+     them finds the socket empty and parks. */
+  ulong const chunk_sz = 100UL;
+  char  resp[ 256 ];
+  ulong resp_len;
+  FD_TEST( fd_cstr_printf_check( resp, sizeof(resp)-chunk_sz, &resp_len, "HTTP/1.1 200 OK\r\nContent-Length: %lu\r\n\r\n", 3UL*chunk_sz ) );
+  fd_memset( resp+resp_len, 'a', chunk_sz );
+  resp_len += chunk_sz;
+  resp[ resp_len ] = '\0';
+  int conn = serve_one_open( ctx, server, get, resp );
+  rearm_cnt = 0UL;
+  wait_queued( http->sockfd, resp_len );
+  for( ulong i=0UL; !fd_sshttp_rx_parked( http ); i++ ) {
+    FD_TEST( i<16UL );
+    after_credit( ctx, test_stem, NULL, &busy );
+  }
+  FD_TEST( ctx->sent_meta && publish_cnt==3UL && publish_sig==FD_SNAPSHOT_MSG_DATA && !rearm_cnt );
+  FD_TEST( ctx->fast_boot_stream.off==chunk_sz );
+
+  /* Parked and not woken: queued bytes are left alone */
+  FD_TEST( (long)chunk_sz==send( conn, resp, chunk_sz, 0 ) );
+  wait_queued( http->sockfd, chunk_sz );
+  for( int i=0; i<3; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( publish_cnt==3UL && ctx->fast_boot_stream.off==chunk_sz && !rearm_cnt && fd_sshttp_rx_parked( http ) );
+
+  /* Woken: one read, the offset follows, one rearm, then parked again */
+  fd_fseq_update( ctx->waker_fseq, 1UL );
+  after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( publish_cnt==4UL && publish_sig==FD_SNAPSHOT_MSG_DATA && rearm_cnt==1UL );
+  FD_TEST( ctx->fast_boot_stream.off==2UL*chunk_sz && !fd_fseq_query( ctx->waker_fseq ) );
+  after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( publish_cnt==4UL && rearm_cnt==1UL && fd_sshttp_rx_parked( http ) );
+
+  /* Never woken again.  The window that saw bytes just restarts.  The
+     next one sees none: the poll is dropped and the load goes on. */
+  ctx->window_deadline = fd_clock_tile_now( ctx->clock )-1L;
+  after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && http->sockfd!=-1 && fd_sshttp_rx_parked( http ) );
+  ctx->window_deadline = fd_clock_tile_now( ctx->clock )-1L;
+  after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && http->sockfd==-1 && !fd_sshttp_rx_parked( http ) );
+  FD_TEST( ctx->fast_boot_stream.wait!=LONG_MAX && publish_cnt==4UL && ctx->fast_boot_stream.off==2UL*chunk_sz );
+  FD_TEST( !close( conn ) );
+
+  /* The stream is asked again from the bytes passed on so far */
+  ctx->fast_boot_stream.wait = 0L;
+  serve_one( ctx, server, "Range: bytes=200-\r\n", "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n" );
+  drive_until( ctx, &publish_cnt, 5UL );
+  FD_TEST( ctx->fast_boot_stream.caught_up && publish_sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
 
   fd_sshttp_cancel( http );
   FD_TEST( !close( server ) );
@@ -675,6 +785,7 @@ test_request_retry( void ) {
   int busy = 0;
   ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
   ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  ctx->waker_client_idx = 7UL;
   fd_clock_tile_init( ctx->clock );
   ctx->in_rd.base    = input;
   ctx->out_dc.mem    = (fd_wksp_t *)output;
@@ -698,7 +809,7 @@ test_request_retry( void ) {
 
   /* The server drops the request: sent again after a pause. */
   serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "" );
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !publish_cnt && ctx->fast_boot_stream.wait!=LONG_MAX );
   FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U );
   ctx->fast_boot_stream.wait = 0L;
@@ -706,7 +817,7 @@ test_request_retry( void ) {
   /* The headers arrive but no body: the speed window fails the load
      as before, a stall is not a failed request. */
   int conn = serve_one_open( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n" );
-  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !publish_cnt && ctx->window_deadline!=LONG_MAX );
   ctx->min_bytes_in_window = 1UL;
   ctx->window_deadline     = 1L;
@@ -732,7 +843,7 @@ test_request_retry( void ) {
   publish_cnt = 0UL;
   for( uint i=0U; i<=FD_SNAPLD_REQUEST_RETRY_MAX; i++ ) {
     serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "" );
-    for( int j=0; j<100; j++ ) after_credit( ctx, test_stem, NULL, &busy );
+    for( int j=0; j<100; j++ ) woken_credit( ctx, &busy );
     if( i<FD_SNAPLD_REQUEST_RETRY_MAX ) {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !publish_cnt && ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U-i );
       ctx->fast_boot_stream.wait = 0L;
@@ -756,6 +867,7 @@ main( int     argc,
   test_parked();
   test_stream();
   test_stream_fail();
+  test_stream_parked();
   test_request_retry();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -140,6 +140,18 @@ fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
 void
 fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
 
+/* fd_accdb_snapshot_load_mark_written is for a loader that leaves the
+   rooting of its forks and fd_accdb_snapshot_load_end to the thread
+   that owns the fork tree.  The loader calls it once all its writers
+   have stopped.  fd_accdb_snapshot_load_written returns 1 from then
+   until fd_accdb_snapshot_load_end. */
+
+void
+fd_accdb_snapshot_load_mark_written( fd_accdb_t * accdb );
+
+int
+fd_accdb_snapshot_load_written( fd_accdb_t const * accdb );
+
 /* fd_accdb_snapshot_recover_delta appends into the accdb delta set the
    accounts modified at fork_id.
 
@@ -253,6 +265,13 @@ fd_accdb_attach_child( fd_accdb_t *       accdb,
 void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id );
+
+/* fd_accdb_fork_parent returns the fork that fork_id was attached to.
+   fork_id must be newer than the root. */
+
+fd_accdb_fork_id_t
+fd_accdb_fork_parent( fd_accdb_t const * accdb,
+                      fd_accdb_fork_id_t fork_id );
 
 /* fd_accdb_requests_pending returns 1 if the accdb tile has not yet
    applied every advance_root / purge request and released the
@@ -579,9 +598,10 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
 
 /* fd_accdb_restore_hide_ancestor is for the snapshot loader only.  It
    makes reads on fork_id, and on the forks created under it
-   afterwards, skip the records of ancestor_id until ancestor_id is
-   rooted: behind a fast boot stream, account lookups must not reach
-   past the stream fork into the snapshots still loading under it. */
+   afterwards, skip the records of ancestor_id until the root of
+   ancestor_id has been applied (fd_accdb_requests_pending): behind a
+   fast boot stream, account lookups must not reach past the stream
+   fork into the snapshots still loading under it. */
 
 void
 fd_accdb_restore_hide_ancestor( fd_accdb_t *       accdb,
@@ -592,8 +612,8 @@ fd_accdb_restore_hide_ancestor( fd_accdb_t *       accdb,
    using software prefetching to overlap hash chain memory latency with
    useful work.  It is thread safe across distinct joins and locks each
    pubkey's hash chain across lookup and commit.  Live writes and reads
-   may run alongside, but nothing may unlink chain nodes (advance_root,
-   purge) while restore writers are in flight.
+   may run alongside, but no advance_root or purge may be requested or
+   pending while restore writers are in flight.
    Each pubkey[i] points to a 32-byte public key.
    *out_replaced_lamports is set to the sum of the lamports of all
    accounts replaced by this batch (i.e. the previous lamports value

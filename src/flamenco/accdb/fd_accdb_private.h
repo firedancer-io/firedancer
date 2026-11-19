@@ -414,6 +414,10 @@ FD_STATIC_ASSERT( FD_ACCDB_MAX_JOINERS%64UL==0UL, joiner_bitmap );  /* cache_fre
    the line as unavailable. */
 #define FD_ACCDB_EVICT_SENTINEL UINT_MAX
 
+#define FD_ACCDB_SNAPSHOT_LOAD_IDLE    (0) /* no snapshot is being loaded */
+#define FD_ACCDB_SNAPSHOT_LOAD_WRITING (1) /* loader: writing the snapshots */
+#define FD_ACCDB_SNAPSHOT_LOAD_WRITTEN (2) /* loader: all written, the loaded forks are not rooted yet */
+
 struct fd_accdb_shmem_private {
   int partition_lock  __attribute__((aligned(64)));
   int grow_lock       __attribute__((aligned(64)));
@@ -422,7 +426,8 @@ struct fd_accdb_shmem_private {
      Suppresses compaction enqueue so the compaction tile does not race
      with bulk snapshot writes; fd_accdb_snapshot_load_end performs a
      one-shot sweep to enqueue any partitions that crossed the
-     fragmentation threshold during the load. */
+     fragmentation threshold during the load.  One of
+     FD_ACCDB_SNAPSHOT_LOAD_*. */
   int snapshot_loading;
 
   /* Set at construction (fd_accdb_shmem_new) when this validator

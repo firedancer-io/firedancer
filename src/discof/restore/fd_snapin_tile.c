@@ -1962,7 +1962,8 @@ fold_account_counts( fd_snapin_tile_t * ctx ) {
 }
 
 /* finish_load ends the load on the lead tile: refresh the stake
-   delegations, root the loaded forks and end snapshot loading. */
+   delegations, root the loaded forks and end snapshot loading.  Behind
+   a fast boot replay does the last two. */
 
 static void
 finish_load( fd_snapin_tile_t * ctx ) {
@@ -1972,7 +1973,7 @@ finish_load( fd_snapin_tile_t * ctx ) {
 
   ushort stake_fork = FD_VOLATILE_CONST( ctx->shmem->stake_fork );
   if( FD_LIKELY( stake_fork!=USHORT_MAX ) ) {
-    fd_stake_delegations_advance_root( 0UL, NULL, NULL, 0, 1, ctx->stake_delegations, stake_fork, NULL );
+    fd_stake_delegations_advance_root( 0UL, NULL, NULL, 1, ctx->stake_delegations, stake_fork, NULL );
     fd_stake_delegations_evict_fork( ctx->stake_delegations, stake_fork );
   }
 
@@ -1998,13 +1999,16 @@ finish_load( fd_snapin_tile_t * ctx ) {
                                 ctx->lead.epoch,
                                 stake_history, /* may be NULL */
                                 &warmup_cooldown_rate_epoch,
-                                FD_FEATURE_ACTIVE( ctx->lead.bank_slot, features, upgrade_bpf_stake_program_to_v5_1 ),
                                 FD_FEATURE_ACTIVE( ctx->lead.bank_slot, features, remove_inactive_stakes ) );
 
+  if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) {
+    fd_accdb_snapshot_load_mark_written( ctx->accdb );
+    return;
+  }
+
   /* Root the loaded forks, oldest first. */
-  if( FD_UNLIKELY( ctx->lead.fast_boot.snapshot_fork_id.val!=USHORT_MAX ) ) root_fork( ctx, &ctx->lead.fast_boot.snapshot_fork_id );
-  if( FD_LIKELY(   ctx->lead.accdb_full_fork_id.val!=USHORT_MAX         ) ) root_fork( ctx, &ctx->lead.accdb_full_fork_id );
-  if( FD_LIKELY(   ctx->lead.accdb_incr_fork_id.val!=USHORT_MAX         ) ) root_fork( ctx, &ctx->lead.accdb_incr_fork_id );
+  if( FD_LIKELY( ctx->lead.accdb_full_fork_id.val!=USHORT_MAX ) ) root_fork( ctx, &ctx->lead.accdb_full_fork_id );
+  if( FD_LIKELY( ctx->lead.accdb_incr_fork_id.val!=USHORT_MAX ) ) root_fork( ctx, &ctx->lead.accdb_incr_fork_id );
 
   fd_accdb_snapshot_load_end( ctx->accdb );
 }
@@ -2097,9 +2101,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
           parent = ctx->lead.fast_boot.snapshot_fork_id;
         }
 
-        /* The full snapshot is written on its own fork and rooted at
-           DONE, so nothing outside that fork sees it until the whole
-           load is complete. */
+        /* The full snapshot is written on its own fork and rooted when
+           the load ends, so nothing outside that fork sees it until the
+           whole load is complete. */
         ctx->lead.accdb_full_fork_id = fd_accdb_attach_child( ctx->accdb, parent );
         if( FD_UNLIKELY( ctx->fast_boot.enabled ) ) fd_accdb_restore_hide_ancestor( ctx->accdb, ctx->lead.accdb_full_fork_id, ctx->lead.fast_boot.snapshot_fork_id );
 
@@ -2346,9 +2350,10 @@ all_controls_seen( fd_snapin_tile_t const * ctx ) {
 }
 
 /* For the streaming snapin tile only.  Check if snapshot loading has
-   finished.  If it has, root the snapshot fork and the stream fork, end
-   snapshot loading, and shut the stream down as we now have all the
-   accounts we need to run the validator normally. */
+   finished.  If it has, mark the load written, for replay to root the
+   snapshot fork and the stream fork and end snapshot loading, and shut
+   the stream down as we now have all the accounts we need to run the
+   validator normally. */
 static void
 after_credit( fd_snapin_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -2560,6 +2565,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->tile_idx = tile->kind_id;
   if( FD_UNLIKELY( ctx->tile_idx>=FD_TOPO_MAX_TILE_IN_LINKS ) ) FD_LOG_ERR(( "tile `" NAME "` has unsupported kind id %lu", tile->kind_id ));
   ctx->fast_boot.enabled = !!tile->snapin.fast_boot;
+  ctx->fast_boot.stream  = 0;
 
   ctx->full     = 1;
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;

@@ -281,6 +281,19 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
 static int   mock_accdb_still_loading;
 #define fd_accdb_snapshot_still_loading(a)   ( (a) ? (fd_accdb_snapshot_still_loading)(a) : mock_accdb_still_loading )
+static int   mock_accdb_load_written;
+static int   mock_accdb_requests_pending;
+static ulong mock_accdb_root;                 /* the applied root */
+static ulong mock_accdb_root_cnt;
+static ulong mock_accdb_root_fork[ 2 ];       /* forks rooted, in order */
+static ulong mock_accdb_root_load_end_cnt[ 2 ]; /* load_end calls seen at each root */
+static ulong mock_accdb_load_end_cnt;
+#define fd_accdb_snapshot_load_written(a)    ( (a) ? (fd_accdb_snapshot_load_written)(a) : mock_accdb_load_written )
+#define fd_accdb_requests_pending(a)         ( (a) ? (fd_accdb_requests_pending)(a) : mock_accdb_requests_pending )
+#define fd_accdb_fork_parent(a,f)            ( (a) ? (fd_accdb_fork_parent)(a,f) : (fd_accdb_fork_id_t){ .val=(ushort)( (f).val-1 ) } )
+#define fd_accdb_root_fork_id(a)             ( (a) ? (fd_accdb_root_fork_id)(a) : (fd_accdb_fork_id_t){ .val=(ushort)mock_accdb_root } )
+#define fd_accdb_advance_root(a,f)           do { if( (a) ) (fd_accdb_advance_root)(a,f); else { mock_accdb_root_fork[ mock_accdb_root_cnt&1UL ] = (f).val; mock_accdb_root_load_end_cnt[ mock_accdb_root_cnt&1UL ] = mock_accdb_load_end_cnt; mock_accdb_root_cnt++; } } while(0)
+#define fd_accdb_snapshot_load_end(a)        do { if( (a) ) (fd_accdb_snapshot_load_end)(a); else { mock_accdb_load_end_cnt++; mock_accdb_load_written = mock_accdb_still_loading = 0; } } while(0)
 #define fd_txncache_cancel_fork(tc,f)        ((void)(tc),(void)(f))
 #define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
@@ -4566,6 +4579,71 @@ test_finish_snapshot_load( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_finish_snapshot_load" ));
 }
 
+/* Behind a fast boot the loader only marks the snapshots as written.
+   Replay roots the snapshot fork, waits until the accounts database
+   has applied that, ends the load, roots the stream fork and
+   finishes. */
+
+static void
+test_root_loaded_forks( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t   ctx[1];
+  static fd_runtime_stack_t stack[1];
+
+  memset( ctx, 0, sizeof(*ctx) );
+  fd_bank_t * root = setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
+  root->accdb_fork_id.val = 7;
+
+  /* WFS pending keeps after_credit out of the replay loop, which the
+     minimal ctx cannot run. */
+  ctx->wfs_enabled                    = 1;
+  ctx->wfs_hash_is_zero               = 0;
+  ctx->expected_bank_hash             = root->f.bank_hash;
+  ctx->wait_for_supermajority_at_slot = 100UL;
+  ctx->expected_shred_version         = 1234;
+  snapshot_done( ctx );
+  FD_TEST( ctx->snapshots_loading && !ctx->wfs_complete );
+
+  int opt_poll_in = 1;
+  int charge_busy = 0;
+  mock_accdb_still_loading    = 1;
+  mock_accdb_load_written     = 0;
+  mock_accdb_requests_pending = 0;
+  mock_accdb_root             = 5UL;
+  mock_accdb_root_cnt         = 0UL;
+  mock_accdb_load_end_cnt     = 0UL;
+
+  /* the snapshots are still being written */
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( ctx->snapshots_loading && !mock_accdb_root_cnt );
+
+  /* written: the snapshot fork, the parent of the boot bank's, is
+     rooted once */
+  mock_accdb_load_written = 1;
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( mock_accdb_root_cnt==1UL && mock_accdb_root_fork[ 0 ]==6UL );
+  FD_TEST( ctx->snapshots_loading && !mock_accdb_load_end_cnt );
+
+  /* the accounts database has not applied the root yet */
+  mock_accdb_requests_pending = 1;
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( ctx->snapshots_loading && mock_accdb_root_cnt==1UL && !mock_accdb_load_end_cnt && !charge_busy );
+
+  /* applied: the load ends, then the boot bank's fork is rooted, and
+     replay finishes in the same pass */
+  mock_accdb_requests_pending = 0;
+  mock_accdb_root             = 6UL;
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( mock_accdb_root_cnt==2UL && mock_accdb_root_fork[ 1 ]==7UL && mock_accdb_load_end_cnt==1UL );
+  FD_TEST( !mock_accdb_root_load_end_cnt[ 0 ] && mock_accdb_root_load_end_cnt[ 1 ]==1UL );
+  FD_TEST( !ctx->snapshots_loading && charge_busy && !opt_poll_in );
+
+  /* nothing repeats */
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( mock_accdb_root_cnt==2UL && mock_accdb_load_end_cnt==1UL );
+
+  FD_LOG_NOTICE(( "pass: test_root_loaded_forks" ));
+}
+
 static void
 test_wfs_auto_override( fd_wksp_t * wksp ) {
   static fd_replay_tile_t  ctx[1];
@@ -4974,6 +5052,7 @@ main( int     argc,
   test_wfs_auto_override( wksp );                   fd_wksp_reset( wksp, 42U );
   test_snapshot_boot_bank_migration_slot( wksp );   fd_wksp_reset( wksp, 42U );
   test_finish_snapshot_load( wksp );                fd_wksp_reset( wksp, 42U );
+  test_root_loaded_forks( wksp );                   fd_wksp_reset( wksp, 42U );
   test_wfs_error_aborts( wksp );                    fd_wksp_reset( wksp, 42U );
   test_wfs_bank_hash_mismatch( wksp );              fd_wksp_reset( wksp, 42U );
   test_wfs_done_idempotency( wksp );                fd_wksp_reset( wksp, 42U );
