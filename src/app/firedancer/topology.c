@@ -348,6 +348,11 @@ fd_topo_initialize( config_t * config ) {
                   "[snapshots.max_incremental_snapshots_to_keep] must be nonzero when incremental snapshot production is enabled" );
   }
 
+  /* Protobuf dumps create a file per dump from the execrp and replay
+     tiles, which the sandbox does not permit. */
+  FD_CHECK_ERR( !config->development.sandbox || !strlen( config->capture.dump_proto_dir ),
+                "[capture.dump_proto_dir] requires [development] sandbox = false" );
+
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
 
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
