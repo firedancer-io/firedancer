@@ -301,9 +301,8 @@ check_pushed( ulong full_slot,
 }
 
 /* Agave advertises its newest full snapshot and, when one exists on
-   that full, its newest incremental.  snapmk reports snapshots in any
-   order at startup, so the newest pair must come out the same way
-   whichever arrives first. */
+   that full, its newest incremental.  snapmk reports fulls before
+   incrementals. */
 
 static void
 test_snapshot_hashes( void ) {
@@ -314,53 +313,57 @@ test_snapshot_hashes( void ) {
   ctx.in[ 3 ] = (fd_gossip_in_ctx_t){ .kind = IN_KIND_SNAPMK, .mem = (fd_wksp_t *)snapmk_mem, .mtu = sizeof(fd_snapmk_msg_t) };
   sign_cnt = 0UL;
 
-  /* An incremental whose full snapshot is not known yet is held. */
+  /* An incremental with no full snapshot is ignored. */
   snapmk_msg( FD_SNAPMK_MSG_FOUND, 110UL, 100UL, "incremental-snapshot-100-110-11111111111111111111111111111112.tar.zst" );
   FD_TEST( sign_cnt==0UL );
 
-  /* The full snapshot arrives and both are advertised. */
+  /* A full snapshot is advertised alone. */
   snapmk_msg( FD_SNAPMK_MSG_FOUND, 100UL, ULONG_MAX, "snapshot-100-11111111111111111111111111111113.tar.zst" );
   FD_TEST( sign_cnt==1UL );
+  check_pushed( 100UL, 2, 0UL, 0 );
+
+  /* An incremental on it is advertised with it. */
+  snapmk_msg( FD_SNAPMK_MSG_FOUND, 110UL, 100UL, "incremental-snapshot-100-110-11111111111111111111111111111112.tar.zst" );
+  FD_TEST( sign_cnt==2UL );
   check_pushed( 100UL, 2, 110UL, 1 );
 
   /* An older full or incremental snapshot changes nothing. */
   snapmk_msg( FD_SNAPMK_MSG_FOUND, 90UL, ULONG_MAX, "snapshot-90-11111111111111111111111111111114.tar.zst" );
   snapmk_msg( FD_SNAPMK_MSG_FOUND, 105UL, 100UL, "incremental-snapshot-100-105-11111111111111111111111111111115.tar.zst" );
-  FD_TEST( sign_cnt==1UL );
+  FD_TEST( sign_cnt==2UL );
 
   /* A newer incremental replaces the old one. */
   snapmk_msg( FD_SNAPMK_MSG_CREATED, 120UL, 100UL, "incremental-snapshot-100-120-11111111111111111111111111111116.tar.zst" );
-  FD_TEST( sign_cnt==2UL );
+  FD_TEST( sign_cnt==3UL );
   check_pushed( 100UL, 2, 120UL, 5 );
 
-  /* An incremental on a full that was never reported neither gets
-     advertised nor pushes aside the one on our full. */
-  snapmk_msg( FD_SNAPMK_MSG_FOUND, 310UL, 300UL, "incremental-snapshot-300-310-11111111111111111111111111111118.tar.zst" );
-  FD_TEST( sign_cnt==2UL );
-  snapmk_msg( FD_SNAPMK_MSG_CREATED, 130UL, 100UL, "incremental-snapshot-100-130-11111111111111111111111111111119.tar.zst" );
+  /* An incremental on another full snapshot is ignored.  So is the
+     delete of an incremental we do not advertise. */
+  snapmk_msg( FD_SNAPMK_MSG_FOUND,   310UL, 300UL, "incremental-snapshot-300-310-11111111111111111111111111111118.tar.zst" );
+  snapmk_msg( FD_SNAPMK_MSG_DELETED, 110UL, 100UL, "incremental-snapshot-100-110-11111111111111111111111111111112.tar.zst" );
   FD_TEST( sign_cnt==3UL );
-  check_pushed( 100UL, 2, 130UL, 8 );
 
   /* The advertised incremental is deleted.  The full snapshot is
-     advertised alone, and an incremental on another full stays out. */
-  snapmk_msg( FD_SNAPMK_MSG_DELETED, 130UL, 100UL, "incremental-snapshot-100-130-11111111111111111111111111111119.tar.zst" );
+     advertised alone until the next incremental on it. */
+  snapmk_msg( FD_SNAPMK_MSG_DELETED, 120UL, 100UL, "incremental-snapshot-100-120-11111111111111111111111111111116.tar.zst" );
   FD_TEST( sign_cnt==4UL );
   check_pushed( 100UL, 2, 0UL, 0 );
-  snapmk_msg( FD_SNAPMK_MSG_CREATED, 320UL, 300UL, "incremental-snapshot-300-320-1111111111111111111111111111111A.tar.zst" );
-  FD_TEST( sign_cnt==4UL );
+  snapmk_msg( FD_SNAPMK_MSG_CREATED, 130UL, 100UL, "incremental-snapshot-100-130-11111111111111111111111111111119.tar.zst" );
+  FD_TEST( sign_cnt==5UL );
+  check_pushed( 100UL, 2, 130UL, 8 );
 
   /* A new full snapshot is advertised alone. */
   snapmk_msg( FD_SNAPMK_MSG_CREATED, 200UL, ULONG_MAX, "snapshot-200-11111111111111111111111111111117.tar.zst" );
-  FD_TEST( sign_cnt==5UL );
+  FD_TEST( sign_cnt==6UL );
   check_pushed( 200UL, 6, 0UL, 0 );
 
   /* Other deletes, bad names and uncompressed snapshots change
      nothing. */
   snapmk_msg( FD_SNAPMK_MSG_DELETED, 200UL, ULONG_MAX, "snapshot-200-11111111111111111111111111111117.tar.zst" );
-  snapmk_msg( FD_SNAPMK_MSG_DELETED, 120UL, 100UL,     "incremental-snapshot-100-120-11111111111111111111111111111116.tar.zst" );
+  snapmk_msg( FD_SNAPMK_MSG_DELETED, 105UL, 100UL,     "incremental-snapshot-100-105-11111111111111111111111111111115.tar.zst" );
   snapmk_msg( FD_SNAPMK_MSG_CREATED, 300UL, ULONG_MAX, "garbage" );
   snapmk_msg( FD_SNAPMK_MSG_FOUND,   300UL, ULONG_MAX, "snapshot-300-11111111111111111111111111111117.tar" );
-  FD_TEST( sign_cnt==5UL );
+  FD_TEST( sign_cnt==6UL );
 
   free( mem );
 }

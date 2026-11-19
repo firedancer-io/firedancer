@@ -276,14 +276,6 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
 static void
 publish_snap( fd_gossip_tile_ctx_t * ctx,
               long                   now ) {
-  fd_gossip_snapshot_hashes_t * snap = ctx->snap;
-  snap->incremental_len = 0UL;
-  if( ctx->snap_incr_slot && ctx->snap_incr_base_slot==snap->full_slot ) {
-    snap->incremental_len       = 1UL;
-    snap->incremental[ 0 ].slot = ctx->snap_incr_slot;
-    fd_memcpy( snap->incremental[ 0 ].hash, ctx->snap_incr_hash, 32UL );
-  }
-
   now = fd_long_max( now, ctx->snap_publish_nanos+1000000L /* 1 ms */ );
   if( FD_UNLIKELY( fd_gossip_push_snapshot_hashes( ctx->gossip, ctx->snap, now ) ) ) return;
   ctx->snap_publish_nanos = now;
@@ -307,7 +299,6 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
                             (ulong)FD_NANOSEC_TO_MICRO( ctx->keyswitch->param ) );
     ctx->is_halting_signing        = 0;
     ctx->is_pending_set_identity   = 0;
-    /* The snapshot hashes were signed by the old identity. */
     ctx->snap_publish              = !!ctx->snap->full_slot;
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     *charge_busy = 1;
@@ -436,18 +427,18 @@ handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
   fd_gossip_snapshot_hashes_t * snap = ctx->snap;
 
   if( sig==FD_SNAPMK_MSG_DELETED ) {
-    /* The incremental we hold is being deleted.  If it was advertised,
-       advertise the full snapshot alone. */
-    if( msg->deleted.slot     !=ctx->snap_incr_slot      ) return;
-    if( msg->deleted.base_slot!=ctx->snap_incr_base_slot ) return;
-    ctx->snap_incr_slot = 0UL;
-    if( msg->deleted.base_slot==snap->full_slot ) ctx->snap_publish = 1;
+    /* The incremental we advertise is being deleted.  Advertise the
+       full snapshot alone. */
+    if( !snap->incremental_len                              ) return;
+    if( msg->deleted.base_slot!=snap->full_slot             ) return;
+    if( msg->deleted.slot     !=snap->incremental[ 0 ].slot ) return;
+    snap->incremental_len = 0UL;
+    ctx->snap_publish     = 1;
   } else if( sig==FD_SNAPMK_MSG_FOUND || sig==FD_SNAPMK_MSG_CREATED ) {
-    /* found and created messages carry the file name at the same place.
-       The name holds the slots and the hash, for example
+    /* The file name holds the slots and the hash, for example
          snapshot-100-<hash>.tar.zst
          incremental-snapshot-100-110-<hash>.tar.zst */
-    char const * name = msg->created.name;
+    char const * name = sig==FD_SNAPMK_MSG_FOUND ? msg->found.name : msg->created.name;
     ulong full_slot; /* slot of the full snapshot, or the base of an incremental */
     ulong incr_slot; /* slot of the incremental, ULONG_MAX for a full snapshot */
     uchar hash[ 32 ];
@@ -460,31 +451,24 @@ handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
     /* Peers only ask for zstd snapshots. */
     if( FD_UNLIKELY( !is_zstd ) ) return;
 
-    /* A newer full snapshot replaces ours. */
     int is_full = incr_slot==ULONG_MAX;
     if( is_full ) {
+      /* A newer full snapshot replaces ours.  Nothing is built on it
+         yet. */
       if( full_slot<=snap->full_slot ) return;
-      snap->full_slot = full_slot;
       fd_memcpy( snap->full_hash, hash, 32UL );
-      ctx->snap_publish = 1;
-      return;
+      snap->full_slot       = full_slot;
+      snap->incremental_len = 0UL;
+      ctx->snap_publish     = 1;
+    } else {
+      /* A newer incremental on our full replaces the one we have. */
+      if( full_slot!=snap->full_slot ) return;
+      if( snap->incremental_len && incr_slot<=snap->incremental[ 0 ].slot ) return;
+      fd_memcpy( snap->incremental[ 0 ].hash, hash, 32UL );
+      snap->incremental[ 0 ].slot = incr_slot;
+      snap->incremental_len       = 1UL;
+      ctx->snap_publish           = 1;
     }
-
-    int held_on_full = ctx->snap_incr_slot && ctx->snap_incr_base_slot==snap->full_slot;
-    int new_on_full  = full_slot==snap->full_slot;
-
-    /* An incremental on our full wins over one on another full. */
-    if( held_on_full && !new_on_full ) return;
-
-    /* On the same footing the newer one wins. */
-    if( held_on_full==new_on_full && incr_slot<=ctx->snap_incr_slot ) return;
-
-    ctx->snap_incr_slot      = incr_slot;
-    ctx->snap_incr_base_slot = full_slot;
-    fd_memcpy( ctx->snap_incr_hash, hash, 32UL );
-
-    /* An incremental on another full is kept but not advertised. */
-    if( new_on_full ) ctx->snap_publish = 1;
   }
 }
 
