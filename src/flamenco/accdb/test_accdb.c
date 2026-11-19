@@ -1394,13 +1394,14 @@ test_purge_seq_wrap( void ) {
   test_teardown( accdb, fd );
 }
 
-/* A root backlog whose unlinks exceed the deferred acc buffer is
-   applied over several passes.  The buffer holds max_live_slots *
-   max_account_writes_per_slot = 32 entries.  Each level deletes 4
-   snapshot accounts, unlinking 8 (old version and tombstone), so a
-   pass fits 4 of the 7 queued levels. */
+/* A root backlog is applied in one pass however many accounts it
+   unlinks: the deferred-free stack is intrusive, so it has no capacity
+   to split the pass on.  Each of the 7 levels deletes 4 snapshot
+   accounts, unlinking 8 (old version and tombstone): 56 unlinks, more
+   than max_live_slots * max_account_writes_per_slot = 32 (the capacity
+   of the side buffer this stack replaced). */
 void
-test_root_backlog_splits_pass( void ) {
+test_root_backlog_one_pass( void ) {
   int fd;
   fd_accdb_t * accdb = test_setup( &fd, 64UL, 8UL, 4UL, 64UL, 1UL<<30UL );
   fd_accdb_shmem_metrics_t const * shmetrics = fd_accdb_shmetrics( accdb );
@@ -1428,12 +1429,12 @@ test_root_backlog_splits_pass( void ) {
     parent = level[ l ];
   }
 
-  drain_background( accdb );
-  FD_TEST( test_shmem_mem->root_fork_id.val==level[ 3 ].val );
-  FD_TEST( fd_accdb_requests_pending( accdb ) );
+  /* One pass applies the whole backlog and, with no reader in an
+     epoch, releases its batch too. */
   drain_background( accdb );
   FD_TEST( test_shmem_mem->root_fork_id.val==level[ 6 ].val );
   FD_TEST( !fd_accdb_requests_pending( accdb ) );
+  FD_TEST( test_shmem_mem->deferred_acc_head==UINT_MAX );
 
   FD_TEST( !shmetrics->accounts_total );
   for( ulong k=0UL; k<28UL; k++ ) {
@@ -2385,7 +2386,7 @@ test_incremental_retry_reuses_acc_pool( void ) {
      exhausted lazy allocation. */
   FD_TEST( acc_pool_private_vidx_idx( top_before  )<3UL );
   FD_TEST( acc_pool_private_vidx_idx( lazy_before )==acc_pool_idx_null() );
-  FD_TEST( !test_shmem_mem->deferred_acc_buf_cnt );
+  FD_TEST( test_shmem_mem->deferred_acc_head==UINT_MAX );
 
   fd_accdb_fork_id_t success = fd_accdb_attach_child( accdb, root );
   uchar success_pk[ 32UL ] = { 0xE0 };
@@ -2408,7 +2409,7 @@ test_incremental_retry_reuses_acc_pool( void ) {
   fd_accdb_advance_root( accdb, next );
   while( fd_accdb_requests_pending( accdb ) ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
-  FD_TEST( !test_shmem_mem->deferred_acc_buf_cnt );
+  FD_TEST( test_shmem_mem->deferred_acc_head==UINT_MAX );
 
   FD_VOLATILE( bg_ctx.stop ) = 1;
   FD_TEST( !pthread_join( bg_thread, NULL ) );
@@ -2505,9 +2506,10 @@ test_txn_footprint_growth( void ) {
   FD_TEST( fp_64 );
   FD_TEST( fp_96 );
 
-  /* Each additional transaction needs an 8-byte fork-list entry and a
-     4-byte deferred-free index.  Both counts increase by 32 here. */
-  FD_TEST( fp_96-fp_64==32UL*(8UL+4UL) );
+  /* Each additional transaction needs an 8-byte fork-list entry (the
+     deferred-free stack is intrusive and costs nothing per txn).  The
+     count increases by 32 here. */
+  FD_TEST( fp_96-fp_64==32UL*8UL );
 }
 
 /* Deferred final-line allocation: a writable acquire materializes only
@@ -3078,8 +3080,8 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_purge_seq_wrap ..." ));
   test_purge_seq_wrap();
 
-  FD_LOG_NOTICE(( "test_root_backlog_splits_pass ..." ));
-  test_root_backlog_splits_pass();
+  FD_LOG_NOTICE(( "test_root_backlog_one_pass ..." ));
+  test_root_backlog_one_pass();
 
   FD_LOG_NOTICE(( "test_free_lists ..." ));
   test_free_lists();
