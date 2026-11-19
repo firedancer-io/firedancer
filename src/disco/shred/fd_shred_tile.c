@@ -766,16 +766,15 @@ alpenglow_marker:
        is overrun meanwhile, which the stem detects before after_frag. */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz, ctx->shred_limit );
     if( FD_UNLIKELY( !shred ) ) {
-      ulong owner = sz-hdr_sz>=sizeof(ulong) ? fd_ulong_load_8( dcache_entry+hdr_sz )%ctx->round_robin_cnt : 0UL; /* round-robin key, the signature */
-      ctx->parse_failed = owner==ctx->round_robin_id;
+      /* shred:0 is responsible for incrementing the stats on these failed parses. */
+      ctx->parse_failed = ctx->round_robin_id==0UL;
       ctx->skip_frag    = 1;
       return;
     };
 
-    /* all shreds in the same FEC set will have the same signature
-       so we can round-robin shreds between the shred tiles based on
-       just the signature without splitting individual FEC sets. */
-    if( FD_LIKELY( fd_ulong_load_8( shred->signature )%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
+    /* round-robin shreds between the shred tiles without splitting FEC
+       sets. */
+    if( FD_LIKELY( fd_ulong_hash( shred->slot ^ ((ulong)shred->fec_set_idx<<40) )%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
       ctx->skip_frag = 1;
       return;
     }
