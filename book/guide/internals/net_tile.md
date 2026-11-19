@@ -455,11 +455,13 @@ small packets.  The purpose of this tool is to benchmark the TX path of
 the net tile.
 
 `firedancer-dev pktgen` runs a single net tile and a special pktgen tile
-generating Tx load.
+generating TX load.
 
 The packet size can be changed with `--pkt-sz <bytes>`, which sets the
 size of the L3 header + payload.  It defaults to 46 (a minimum size
-Ethernet frame) and must be in the range [46,1500].
+Ethernet frame) and must be in the range [46,1486], because the net
+tile caps the full Ethernet frame (including the 14 byte Ethernet
+header) at 1500 bytes.
 
 While this application will cause significant load on the Ethernet
 network, it cannot harm any other IP networks, because the packets

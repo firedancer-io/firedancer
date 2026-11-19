@@ -5,6 +5,7 @@
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
+#include "../../../../util/net/fd_eth.h"
 #include "../../../../util/net/fd_ip4.h"
 
 #include <stdio.h> /* printf */
@@ -87,11 +88,16 @@ pktgen_topo( config_t * config ) {
 
 /* PKTGEN_PKT_SZ_{MIN,MAX} bound --pkt-sz, the size of the L3 header +
    payload.  MIN yields a minimum size Ethernet frame (60 bytes with the
-   14 byte Ethernet header), MAX is the standard 1500 byte Ethernet
-   MTU. */
+   14 byte Ethernet header).  MAX is limited by the net tile, which caps
+   the full Ethernet frame (including the Ethernet header) at
+   FD_ETH_PAYLOAD_MAX (1500) bytes (see fd_net_in_frag_validate). */
 
 #define PKTGEN_PKT_SZ_MIN (46UL)
-#define PKTGEN_PKT_SZ_MAX (1500UL)
+#define PKTGEN_PKT_SZ_MAX (FD_ETH_PAYLOAD_MAX-sizeof(fd_eth_hdr_t))
+
+/* The --help text below hardcodes these bounds */
+FD_STATIC_ASSERT( PKTGEN_PKT_SZ_MIN==46UL,   pktgen_pkt_sz_min );
+FD_STATIC_ASSERT( PKTGEN_PKT_SZ_MAX==1486UL, pktgen_pkt_sz_max );
 
 void
 pktgen_cmd_args( int *    pargc,
@@ -108,7 +114,7 @@ pktgen_cmd_args( int *    pargc,
 static void
 pktgen_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--pkt-sz", "<bytes>", "Size of the L3 header + payload of each generated packet\n"
-                                                   "(default 46, max 1500)" );
+                                                   "(default 46, range [46,1486])" );
 }
 
 /* Hacky: Since the pktgen runs in the same process, use globals to

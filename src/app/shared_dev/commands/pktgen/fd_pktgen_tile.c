@@ -53,9 +53,10 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->pkt_sz      = tile->pktgen.pkt_sz;
 
   /* L3 header + payload must hold the ip4 hdr and the seq number, and
-     the full frame must fit the link MTU */
+     the full frame must not exceed the net tile's max Ethernet frame
+     size (see fd_net_in_frag_validate) */
   FD_TEST( ctx->pkt_sz>=sizeof(fd_ip4_hdr_t)+sizeof(ulong) );
-  FD_TEST( sizeof(fd_eth_hdr_t)+ctx->pkt_sz<=FD_NET_MTU );
+  FD_TEST( sizeof(fd_eth_hdr_t)+ctx->pkt_sz<=FD_ETH_PAYLOAD_MAX );
 
   /* Assume dcache was zero initialized */
 }
