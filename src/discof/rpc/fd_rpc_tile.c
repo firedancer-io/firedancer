@@ -2721,7 +2721,7 @@ rpc_json_request( fd_rpc_tile_t * ctx,
 static fd_http_server_response_t
 rpc_http_request1( fd_rpc_tile_t *                  ctx,
                    fd_http_server_request_t const * request ) {
-  if( FD_UNLIKELY( ( request->method==FD_HTTP_SERVER_METHOD_GET || request->method==FD_HTTP_SERVER_METHOD_HEAD ) &&
+  if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET &&
                    request->headers.upgrade_websocket &&
                    (!strcmp( request->path, "/" ) || !strcmp( request->path, "/websocket" )) ) ) {
     if( FD_UNLIKELY( !ctx->http->max_ws_conns ) ) return (fd_http_server_response_t){ .status = 404 };
@@ -3046,11 +3046,9 @@ privileged_init( fd_topo_t const *      topo,
   ctx->http = fd_http_server_join( fd_http_server_new( _http, http_params, callbacks, ctx ) );
   ctx->snapshot_server_enabled = tile->rpc.snapshot_server_enabled;
   if( FD_LIKELY( ctx->snapshot_server_enabled ) ) {
-    uint ip_addr = tile->rpc.net_ip_addr;
-    if( FD_LIKELY( tile->rpc.snapshot_server_host[ 0 ] ) ) {
-      if( FD_UNLIKELY( !fd_dns_resolve_address( tile->rpc.snapshot_server_host, &ip_addr ) ) )
-        FD_LOG_ERR(( "failed to resolve [gossip.host] `%s`", tile->rpc.snapshot_server_host ));
-    }
+    uint ip_addr;
+    if( FD_UNLIKELY( !fd_dns_resolve_address( tile->rpc.snapshot_server_host, &ip_addr ) ) )
+      FD_LOG_ERR(( "failed to resolve [gossip.host] `%s`", tile->rpc.snapshot_server_host ));
     FD_TEST( fd_cstr_printf_check(
         ctx->snapshot_server_url, sizeof(ctx->snapshot_server_url), NULL,
         "http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( ip_addr ),

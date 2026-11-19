@@ -425,9 +425,9 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
   }
 }
 
-/* snapmk reports every snapshot on disk, in any order at startup.
-   Advertise the newest full snapshot and the newest incremental built
-   on it. */
+/* snapmk reports every snapshot on disk at startup, fulls before
+   incrementals.  Advertise the newest full snapshot and the newest
+   incremental built on it. */
 
 static void
 handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
@@ -448,6 +448,9 @@ handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
     FD_LOG_WARNING(( "ignoring snapshot with unexpected name %s", name ));
     return;
   }
+
+  /* Peers only ask for zstd snapshots. */
+  if( FD_UNLIKELY( !is_zstd ) ) return;
 
   fd_gossip_snapshot_hashes_t * snap = ctx->snap;
   int is_full = incr_slot==ULONG_MAX;

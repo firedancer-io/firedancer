@@ -346,9 +346,10 @@ test_snapshot_hashes( void ) {
   FD_TEST( sign_cnt==4UL );
   check_pushed( 200UL, 6, 0UL, 0 );
 
-  /* Deletes and bad names change nothing. */
+  /* Deletes, bad names and uncompressed snapshots change nothing. */
   snapmk_msg( FD_SNAPMK_MSG_DELETED, 200UL, ULONG_MAX, "snapshot-200-11111111111111111111111111111117.tar.zst" );
   snapmk_msg( FD_SNAPMK_MSG_CREATED, 300UL, ULONG_MAX, "garbage" );
+  snapmk_msg( FD_SNAPMK_MSG_FOUND,   300UL, ULONG_MAX, "snapshot-300-11111111111111111111111111111117.tar" );
   FD_TEST( sign_cnt==4UL );
 
   free( mem );

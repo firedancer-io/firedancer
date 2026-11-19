@@ -362,6 +362,11 @@ test_websocket_disabled( fd_rpc_tile_t * ctx ) {
   FD_TEST( http_res.status==200UL );
   FD_TEST( http_res.upgrade_websocket );
 
+  /* The websocket handshake is GET only. */
+  http_req.method = FD_HTTP_SERVER_METHOD_HEAD;
+  FD_TEST( !rpc_http_request1( ctx, &http_req ).upgrade_websocket );
+  http_req.method = FD_HTTP_SERVER_METHOD_GET;
+
   ulong const max_ws_conns = ctx->http->max_ws_conns;
   ctx->http->max_ws_conns = 0UL;
   http_res = rpc_http_request1( ctx, &http_req );

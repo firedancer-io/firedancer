@@ -1628,10 +1628,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.rserve           = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
     tile->gossip.ports.votor            = config->firedancer.development.votor.quic_server_listen_port;
 
-    /* Peers download snapshots from the rpc port, or from the snapshot
-       server's port when the rpc tile is off or on loopback. */
-    ushort snapshot_port = 0;
-    if( fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX ) {
+    /* Peers download snapshots through the rpc port, which redirects
+       to the snapshot server.  Both must listen beyond loopback. */
+    tile->gossip.ports.rpc = 0;
+    int snapsv_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
+    if( config->tiles.rpc.enabled && snapsv_enabled ) {
       char const * rpc_address    = config->tiles.rpc.rpc_listen_address;
       char const * snapsv_address = config->firedancer.snapshots.server.http_listen_address;
       if( !snapsv_address[0] ) snapsv_address = rpc_address;
@@ -1641,15 +1642,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       parse_listen_addr( rpc_address,    "tiles.rpc.rpc_listen_address",         &rpc_addr    );
       parse_listen_addr( snapsv_address, "snapshots.server.http_listen_address", &snapsv_addr );
 
-      int rpc_public    = config->tiles.rpc.enabled && !fd_ip6_addr_is_loopback( rpc_addr.addr );
-      int snapsv_public = !fd_ip6_addr_is_loopback( snapsv_addr.addr );
-      if( rpc_public ) {
-        snapshot_port = (ushort)config->tiles.rpc.rpc_listen_port;
-      } else if( snapsv_public ) {
-        snapshot_port = (ushort)config->firedancer.snapshots.server.http_listen_port;
+      if( !fd_ip6_addr_is_loopback( rpc_addr.addr ) && !fd_ip6_addr_is_loopback( snapsv_addr.addr ) ) {
+        tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
       }
     }
-    tile->gossip.ports.rpc = snapshot_port;
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
     for( ulong i=0UL; i<tile->gossip.entrypoints_cnt; i++ ) {
@@ -2031,7 +2027,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_CHECK_ERR( listen_port && listen_port<=USHORT_MAX,
                     "[snapshots.server.http_listen_port] must be in [1,65535]" );
       tile->rpc.snapshot_server_port = (ushort)listen_port;
-      tile->rpc.net_ip_addr          = config->net.ip_addr;
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {

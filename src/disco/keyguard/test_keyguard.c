@@ -275,18 +275,18 @@ test_snapshot_hashes_authorize( void ) {
   fd_memset( body, 0x11, sizeof(body) );
   FD_STORE( uint, body, FD_GOSSIP_VALUE_SNAPSHOT_HASHES );
   fd_memcpy( body+4UL, authority.identity_pubkey, 32UL );
-  ulong * incremental_cnt = (ulong *)( body+4UL+32UL+8UL+32UL );
+  uchar * incremental_cnt = body+4UL+32UL+8UL+32UL;
 
-  *incremental_cnt = 1UL;
+  FD_STORE( ulong, incremental_cnt, 1UL );
   FD_TEST(  fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  *incremental_cnt = 0UL;
+  FD_STORE( ulong, incremental_cnt, 0UL );
   FD_TEST(  fd_keyguard_payload_authorize( &authority, body, sizeof(body)-40UL, FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
   /* count does not match the size, or wraps the size check */
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
-  *incremental_cnt = 1UL+(1UL<<61);
+  FD_STORE( ulong, incremental_cnt, 1UL+(1UL<<61) );
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_ED25519 ) );
   /* wrong role, wrong sign type, not our identity */
-  *incremental_cnt = 1UL;
+  FD_STORE( ulong, incremental_cnt, 1UL );
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_VOTOR,  FD_KEYGUARD_SIGN_TYPE_ED25519        ) );
   FD_TEST( !fd_keyguard_payload_authorize( &authority, body, sizeof(body),      FD_KEYGUARD_ROLE_GOSSIP, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 ) );
   body[ 4UL ] ^= (uchar)1;
