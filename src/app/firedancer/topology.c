@@ -823,6 +823,7 @@ fd_topo_initialize( config_t * config ) {
   }
   if( snapmk_enabled ) {
     /*               */fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "snapmk_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /*               */fd_topob_tile_in (   topo, "gossip",  0UL,          "metric_in", "snapmk_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
   FOR(snapsv_tile_cnt) fd_topob_tile_in (   topo, "snapsv",  i,            "metric_in", "snapmk_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(snapsv_tile_cnt) fd_topob_tile_out(   topo, "snapsv",  i,                         "snapsv_out",    i                                                  );
@@ -1626,6 +1627,30 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.repair           = config->tiles.repair.repair_client_listen_port;
     tile->gossip.ports.rserve           = fd_ushort_if( config->tiles.rserve.enabled, config->tiles.rserve.repair_serve_listen_port, 0 );
     tile->gossip.ports.votor            = config->firedancer.development.votor.quic_server_listen_port;
+
+    /* Peers download snapshots through the rpc port, which redirects
+       to the snapshot server.  We advertise an IPv4 address, so both
+       must take IPv4 connections from other hosts. */
+    tile->gossip.ports.rpc = 0;
+    int snapsv_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
+    if( config->tiles.rpc.enabled && snapsv_enabled ) {
+      char const * rpc_address    = config->tiles.rpc.rpc_listen_address;
+      char const * snapsv_address = config->firedancer.snapshots.server.http_listen_address;
+      if( !snapsv_address[0] ) snapsv_address = rpc_address;
+
+      fd_ip6_addr_t rpc_addr;
+      fd_ip6_addr_t snapsv_addr;
+      parse_listen_addr( rpc_address,    "tiles.rpc.rpc_listen_address",         &rpc_addr    );
+      parse_listen_addr( snapsv_address, "snapshots.server.http_listen_address", &snapsv_addr );
+
+      /* An IPv4 address or the IPv6 wildcard takes IPv4 connections. */
+      int rpc_takes_ip4    = fd_ip6_addr_is_ip4_mapped( rpc_addr.addr    ) || fd_ip6_addr_is_unspecified( rpc_addr.addr    );
+      int snapsv_takes_ip4 = fd_ip6_addr_is_ip4_mapped( snapsv_addr.addr ) || fd_ip6_addr_is_unspecified( snapsv_addr.addr );
+      int any_loopback     = fd_ip6_addr_is_loopback( rpc_addr.addr ) || fd_ip6_addr_is_loopback( snapsv_addr.addr );
+      if( rpc_takes_ip4 && snapsv_takes_ip4 && !any_loopback ) {
+        tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
+      }
+    }
 
     tile->gossip.entrypoints_cnt        = config->gossip.entrypoints_cnt;
     for( ulong i=0UL; i<tile->gossip.entrypoints_cnt; i++ ) {

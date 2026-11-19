@@ -622,6 +622,8 @@ telemetry = true
     [snapshots.server]
         # True if the snapshot server should be enabled.
         # The snapshot server requires at least Linux 6.7.
+        # Other validators are told over gossip that they can download
+        # snapshots from this node.
         enabled = false
 
         # The IP address to listen on.  By default, this is the same as

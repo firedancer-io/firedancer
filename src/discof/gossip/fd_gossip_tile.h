@@ -101,6 +101,11 @@ struct fd_gossip_tile_ctx {
   ulong peer_sat_hwm;        /* high-water mark of peer count       */
   long  peer_sat_hwm_nanos;  /* wallclock when HWM last increased   */
   int   peer_sat_published;  /* one-shot latch (0 -> 1)             */
+
+  /* The snapshots we advertise on gossip. */
+  fd_gossip_snapshot_hashes_t snap[ 1 ];
+  int                         snap_publish;       /* is the version in gossip dirty and needs to be updated? */
+  long                        snap_publish_nanos; /* time of the last push                                   */
 };
 
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
