@@ -42,8 +42,6 @@ struct fd_configf {
     ulong program_cache_size_mib;
     ulong bank_cache_cnt;
     ulong transaction_cache_size_mib;
-    ulong bpf_shared_frames;
-    ulong bpf_local_frames;
   } runtime;
 
   struct {

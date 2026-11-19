@@ -93,19 +93,7 @@ typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
    The load/store macros are used by vm syscalls and mirror the use
    of translate_slice{_mut}. However, this check does not allow for
    multi region accesses. So if there is an attempt at a multi region
-   translation, an error will be returned.
-
-   FD_VM_MEM_HADDR_ST_UNCHECKED checks region writability during
-   address translation, but omits the size-limit, translation-failure and
-   alignment error handling in FD_VM_MEM_HADDR_ST.
-
-   FD_VM_MEM_HADDR_ST_WRITE_UNCHECKED has all of the checks of a
-   store, but intentionally omits the is_writable checks for the
-   input region that are done during memory translation.
-
-   FD_VM_MEM_HADDR_ST_NO_SZ_CHECK does all of the checks of a load,
-   except for a check on the validity of the size of a load. It only
-   checks that the specific vaddr that is being translated is valid. */
+   translation, an error will be returned. */
 
 #define FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                          \
     fd_vm_t * _vm       = (vm);                                                                              \
@@ -128,18 +116,6 @@ typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
       return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
     }                                                                                                        \
     (void const *)_haddr;                                                                                    \
-  }))
-
-#define FD_VM_MEM_HADDR_LD_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                                      \
-    fd_vm_t const * _vm       = (vm);                                                                              \
-    ulong           _vaddr    = (vaddr);                                                                           \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL ); \
-    (void const *)_haddr;                                                                                          \
-  }))
-
-
-#define FD_VM_MEM_HADDR_LD_NO_SZ_CHECK( vm, vaddr, align ) (__extension__({ \
-  FD_VM_MEM_HADDR_LD( vm, vaddr, align, 1UL );                              \
   }))
 
 static inline void *
@@ -176,46 +152,6 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
       return _err;                                                                                          \
     ret;                                                                                                    \
 }))
-
-#define FD_VM_MEM_HADDR_ST_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                             \
-    fd_vm_t * _vm    = (vm);                                                                              \
-    ulong     _vaddr = (vaddr);                                                                           \
-    ulong     _haddr = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL ); \
-    (void const *)_haddr;                                                                                 \
-  }))
-
-#define FD_VM_MEM_HADDR_ST_WRITE_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                          \
-    fd_vm_t * _vm       = (vm);                                                                              \
-    ulong     _vaddr    = (vaddr);                                                                           \
-    ulong     _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 0, 0UL ); \
-    int       _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) ));    \
-    if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                    \
-      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                    \
-      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
-    }                                                                                                        \
-    if( FD_UNLIKELY( !_haddr ) ) {                                                                           \
-      _vm->segv_vaddr       = _vaddr;                                                                        \
-      _vm->segv_access_len  = (sz);                                                                          \
-      _vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;                                                          \
-      FD_VM_ERR_FOR_LOG_EBPF( _vm, fd_vm_generate_access_violation( _vaddr, _vm->sbpf_version ) );           \
-      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
-    }                                                                                                        \
-    if ( FD_UNLIKELY( _sigbus ) ) {                                                                          \
-      FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                 \
-      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                     \
-    }                                                                                                        \
-    (void *)_haddr;                                                                                          \
-  }))
-
-
-#define FD_VM_MEM_HADDR_ST_NO_SZ_CHECK( vm, vaddr, align ) (__extension__({                                 \
-    int _err = 0;                                                                                           \
-    void * ret = FD_VM_MEM_HADDR_ST_( vm, vaddr, align, 1UL, &_err );                                       \
-    if ( FD_UNLIKELY( 0 != _err ))                                                                          \
-      return _err;                                                                                          \
-    ret;                                                                                                    \
-}))
-
 
 /* FD_VM_MEM_SLICE_HADDR_[LD, ST] macros return an arbitrary value if sz == 0. This is because
    Agave's translate_slice function returns an empty array if the sz == 0.

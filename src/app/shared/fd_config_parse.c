@@ -50,9 +50,6 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  runtime.bank_cache_cnt                              );
 
-  CFG_POP      ( ulong,  runtime.bpf_shared_frames                           );
-  CFG_POP      ( ulong,  runtime.bpf_local_frames                            );
-
   CFG_POP      ( ulong,  consensus.wait_for_supermajority_at_slot            );
   CFG_POP      ( cstr,   consensus.wait_for_supermajority_with_bank_hash     );
 

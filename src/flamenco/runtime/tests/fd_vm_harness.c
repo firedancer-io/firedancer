@@ -82,7 +82,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   const fd_exec_test_instr_context_t * input_instr_ctx = &input->instr_ctx;
   fd_exec_instr_ctx_t ctx[1];
   fd_solfuzz_pb_instr_ctx_create( runner, ctx, input_instr_ctx );
-  ulong frame_level = ULONG_MAX;
 
   ctx->txn_out->err.exec_err = 0;
   ctx->txn_out->err.exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
@@ -143,13 +142,9 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
      the `is_deprecated` flag) */
 
   ulong                   input_sz                                 = 0UL;
-  ulong                   pre_lens[256]                            = {0};
-  fd_vm_input_region_t    input_mem_regions[1000]                  = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_input_region_t    input_mem_regions[ FD_BPF_LOADER_INPUT_REGIONS_MAX ] = {0};
   fd_vm_acc_region_meta_t acc_region_metas[256]                    = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                    = 0U;
-  int                     direct_mapping                           = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
-  int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( ctx->bank, syscall_parameter_address_restrictions );
-  int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
   int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
   uchar      program_id_idx = ctx->instr->program_id;
@@ -163,18 +158,13 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
       FD_LOG_WARNING(( "instr stack push err" ));
       goto error;
   }
-  frame_level = ctx->runtime->instr.stack_sz-1UL;
-  ctx->runtime->bpf_loader_serialization.frame[ frame_level ] = fd_bpf_frames_acquire( ctx->runtime->bpf_frames, 0 );
 
   ulong instr_data_offset       = 0UL;
   ulong account_pointers_offset = 0UL;
   int err = fd_bpf_loader_input_serialize_parameters( ctx,
-                                                      pre_lens,
                                                       input_mem_regions,
                                                       &input_mem_regions_cnt,
                                                       acc_region_metas,
-                                                      virtual_address_space_adjustments,
-                                                      direct_mapping,
                                                       direct_account_pointers_in_program_input,
                                                       is_deprecated,
                                                       &instr_data_offset,
@@ -205,9 +195,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
               input_mem_regions_cnt,
               acc_region_metas,
               is_deprecated,
-              direct_mapping,
-              syscall_parameter_address_restrictions,
-              virtual_address_space_adjustments,
               0 /* dump_syscall_to_pb */,
               (ulong[ FD_VM_REG_CNT ]){ 0 } /* r2 is set by the fuzzer below */ );
 
@@ -302,11 +289,10 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   /* Capture input regions */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
 
-  /* Don't compare input data regions if execution failed and
-     virtual_address_space_adjustments is enabled, because
+  /* Don't compare input data regions if execution failed, because
      Agave leaks data into the input regions under these circumstances. */
   ulong input_regions_size = 0UL;
-  if( syscall_err && virtual_address_space_adjustments ) {
+  if( syscall_err ) {
     effects->input_data_regions       = NULL;
     effects->input_data_regions_count = 0UL;
   } else {
@@ -326,14 +312,12 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   /* Return the effects */
   ulong actual_end = tmp_end + input_regions_size;
-  fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ frame_level ] );
   fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
 
   *output = effects;
   return actual_end - (ulong)output_buf;
 
 error:
-  if( frame_level!=ULONG_MAX ) fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ frame_level ] );
   fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
   return 0;
 }
@@ -365,8 +349,6 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   *effects = (fd_exec_test_vm_serialization_effects_t){0};
 
   /* Determine feature flags and is_deprecated */
-  int direct_mapping                           = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
-  int virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
   int direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
   uchar      program_id_idx = ctx->instr->program_id;
@@ -376,14 +358,10 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
 
   /* Push the instruction onto the stack */
   FD_TEST( !fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr ) );
-  ulong   frame_level    = ctx->runtime->instr.stack_sz-1UL;
-  uchar * serialized_buf = fd_bpf_frames_acquire( ctx->runtime->bpf_frames, 0 );
-  ctx->runtime->bpf_loader_serialization.frame[ frame_level ] = serialized_buf;
 
   /* Call serialize_parameters */
   ulong                   input_sz                = 0UL;
-  ulong                   pre_lens[256]           = {0};
-  fd_vm_input_region_t    input_mem_regions[1000] = {0};
+  fd_vm_input_region_t    input_mem_regions[ FD_BPF_LOADER_INPUT_REGIONS_MAX ] = {0};
   fd_vm_acc_region_meta_t acc_region_metas[256]   = {0};
   uint                    input_mem_regions_cnt   = 0U;
   ulong                   instr_data_offset       = 0UL;
@@ -391,12 +369,9 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
 
   int err = fd_bpf_loader_input_serialize_parameters(
     ctx,
-    pre_lens,
     input_mem_regions,
     &input_mem_regions_cnt,
     acc_region_metas,
-    virtual_address_space_adjustments,
-    direct_mapping,
     direct_account_pointers_in_program_input,
     is_deprecated,
     &instr_data_offset,
@@ -407,13 +382,13 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   if( FD_UNLIKELY( err ) ) {
     effects->has_error = true;
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ frame_level ] );
     fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
     *output = effects;
     return actual_end - (ulong)output_buf;
   }
 
   /* Hash the serialized memory buffer. */
+  uchar * serialized_buf = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
   effects->serialized_memory_hash = fd_hash( 0UL, serialized_buf, input_sz );
 
   /* Populate vm_input_memory_regions */
@@ -450,7 +425,6 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   }
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ frame_level ] );
   fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
 
   *output = effects;

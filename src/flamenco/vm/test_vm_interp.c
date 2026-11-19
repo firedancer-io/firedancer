@@ -60,9 +60,6 @@ test_program_exec( char *                   test_case_name,
       /* mem_regions_cnt                        */ 0UL,
       /* mem_regions_accs                       */ NULL,
       /* is_deprecated                          */ 0,
-      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
-      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
-      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       /* dump_syscall_to_pb                     */ 0,
       /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );
@@ -125,9 +122,6 @@ test_vm_validate( ulong                 sbpf_version,
       vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
       (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
       0UL, NULL, sbpf_version, syscalls, NULL, sha, NULL, 0UL, NULL, 0,
-      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
-      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
-      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       0, (ulong[ FD_VM_REG_CNT ]){ 0 } );
   FD_TEST( ok );
   vm->pc        = vm->entry_pc;
@@ -150,18 +144,13 @@ test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
 
   ulong versions[]    = { FD_SBPF_V0, FD_SBPF_V1, FD_SBPF_V2, FD_SBPF_V3 };
   ulong expected_sz[] = { FD_VM_STACK_FRAME_SZ, 0UL, 0UL, FD_VM_STACK_FRAME_SZ };
-  ulong expected_ct[] = { 2UL, 0UL, 0UL, 1UL };
 
   for( ulong i=0; i<4; i++ ) {
     FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
         (uchar *)text, 8UL, text, 1UL, 0UL, 8UL, 0UL, NULL,
         versions[i], syscalls, NULL, sha, NULL, 0UL, NULL, 0,
-        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
-        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
-        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
         0, (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
     FD_TEST( vm->stack_frame_sz==expected_sz[i] );
-    FD_TEST( vm->stack_push_frame_count==expected_ct[i] );
   }
 
   FD_LOG_NOTICE(( "%-20s PASS", "stack-frame-cfg" ));
@@ -190,9 +179,6 @@ lazy_exec( fd_vm_t *             vm,
   FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
       (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt, 0UL, NULL,
       sbpf_version, syscalls, NULL, sha, NULL, 0UL, NULL, 0,
-      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
-      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
-      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       0, (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
 
   int err = fd_vm_validate( vm );
@@ -273,12 +259,10 @@ test_lazy_stack_zeroing( fd_sbpf_syscalls_t *  syscalls,
 # define TEST_LSZ_OFF (163840UL)
 
   static struct { char const * name; ulong ver; ulong delta; } const cases[] = {
-    /* V0 has stack frame gaps, so the virtual stack is twice the size of
-       the backing buffer and a buffer offset sits at twice the virtual
-       distance.  0x50000 has bit 0x1000 clear, so it is not in a gap. */
-    { "v0", FD_SBPF_V0, 2UL*TEST_LSZ_OFF - FD_VM_STACK_FRAME_SZ },
-    /* V3 has no gaps: virtual distance == buffer offset. */
-    { "v3", FD_SBPF_V3,      TEST_LSZ_OFF - FD_VM_STACK_FRAME_SZ },
+    /* V0 pokes one frame higher, which was a gap when V0 had stack
+       frame gaps. */
+    { "v0", FD_SBPF_V0, TEST_LSZ_OFF                        },
+    { "v3", FD_SBPF_V3, TEST_LSZ_OFF - FD_VM_STACK_FRAME_SZ },
   };
 
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -490,9 +474,6 @@ test_0cu_exit( fd_runtime_t * runtime ) {
       /* mem_regions_cnt                        */ 0UL,
       /* mem_regions_accs                       */ NULL,
       /* is_deprecated                          */ 0,
-      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
-      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
-      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       /* dump_syscall_to_pb                     */ 0,
       /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );
@@ -525,9 +506,6 @@ test_0cu_exit( fd_runtime_t * runtime ) {
       /* mem_regions_cnt                        */ 0UL,
       /* mem_regions_accs                       */ NULL,
       /* is_deprecated                          */ 0,
-      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
-      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
-      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       /* dump_syscall_to_pb                     */ 0,
       /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );

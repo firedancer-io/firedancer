@@ -113,27 +113,12 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
 
    As a concrete example, our version of deploy_program does not have the
    'account_size' argument because we do not update the record here. */
-
-struct fd_bpf_deploy_scratch {
-  uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
-  uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
-  uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-};
-typedef struct fd_bpf_deploy_scratch fd_bpf_deploy_scratch_t;
-
-FD_STATIC_ASSERT( sizeof (fd_bpf_deploy_scratch_t)<=BPF_LOADER_SERIALIZATION_FOOTPRINT, bpf_deploy_scratch_sz    );
-FD_STATIC_ASSERT( alignof(fd_bpf_deploy_scratch_t)<=FD_BPF_FRAMES_ALIGN,                bpf_deploy_scratch_align );
-
-static int
-deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
-                uchar const *             programdata,
-                ulong                     programdata_size,
-                int                       disable_sbpf_v0_v1_v2_deployment,
-                fd_bpf_deploy_scratch_t * scratch ) {
-  int deploy_mode                            = 1;
-  int direct_mapping                         = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
-  int syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
-  int virtual_address_space_adjustments      = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
+int
+fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
+                   uchar const *         programdata,
+                   ulong                 programdata_size,
+                   int                   disable_sbpf_v0_v1_v2_deployment ) {
+  int deploy_mode = 1;
 
   uchar syscalls_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
@@ -176,13 +161,15 @@ deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( scratch->sbpf_footprint, elf_info, scratch->rodata );
+  fd_runtime_t *      runtime = instr_ctx->runtime;
+  fd_sbpf_program_t * prog    = fd_sbpf_program_new( runtime->bpf_loader_program.sbpf_footprint, elf_info, runtime->bpf_loader_program.rodata );
   if( FD_UNLIKELY( !prog ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_new() failed" ));
   }
 
   /* Load program */
-  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch->programdata, programdata_size );
+  FD_CHECK_CRIT( runtime->progcache->scratch_sz>=programdata_size, "program cache scratch is too small" );
+  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, runtime->progcache->scratch, programdata_size );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -212,9 +199,6 @@ deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
     /* mem_regions_cnt                        */ 0,
     /* mem_region_accs                        */ NULL,
     /* is_deprecated                          */ 0,
-    /* direct mapping                         */ direct_mapping,
-    /* syscall_parameter_address_restrictions */ syscall_parameter_address_restrictions,
-    /* virtual_address_space_adjustments      */ virtual_address_space_adjustments,
     /* dump_syscall_to_pb                     */ 0,
     /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 } );
   if ( FD_UNLIKELY( vm == NULL ) ) {
@@ -228,20 +212,6 @@ deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
-int
-fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
-                   uchar const *         programdata,
-                   ulong                 programdata_size,
-                   int                   disable_sbpf_v0_v1_v2_deployment ) {
-  /* The loader runs as a builtin, so its stack level holds no frame and
-     can borrow one under the same rules as fd_bpf_execute. */
-  fd_runtime_t * runtime = instr_ctx->runtime;
-  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, fd_progcache_spill_held( runtime->progcache ) );
-  int err = deploy_program( instr_ctx, programdata, programdata_size, disable_sbpf_v0_v1_v2_deployment, (fd_bpf_deploy_scratch_t *)frame );
-  fd_bpf_frames_release( runtime->bpf_frames, frame );
-  return err;
 }
 
 /* SIMD-0500 finalize gate: when the feature is active and the ELF
@@ -446,10 +416,10 @@ common_close_account( fd_pubkey_t *         authority_address,
 /* Every loader-owned BPF program goes through this function, which goes into the VM.
 
    https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1332-L1501 */
-static int
-bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
-             fd_progcache_rec_t const * cache_entry,
-             uchar                      is_deprecated ) {
+int
+fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
+                fd_progcache_rec_t const * cache_entry,
+                uchar                      is_deprecated ) {
   long const regime0 = fd_tickcount();
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
@@ -468,13 +438,9 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
   ulong                   input_sz                                 = 0UL;
-  ulong                   pre_lens[256];
-  fd_vm_input_region_t    input_mem_regions[1000]; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_input_region_t    input_mem_regions[ FD_BPF_LOADER_INPUT_REGIONS_MAX ];
   fd_vm_acc_region_meta_t acc_region_metas[256];   /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                    = 0U;
-  int                     direct_mapping                           = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
-  int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
-  int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
   int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
   int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, direct_account_pointers_in_program_input );
   int                     pass_input_metadata_in_vm_r3_r5          = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, pass_input_metadata_in_vm_r3_r5 );
@@ -483,10 +449,10 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong account_pointers_offset = 0UL;
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
-  uchar * input = instr_ctx->runtime->bpf_loader_serialization.frame[ instr_ctx->runtime->instr.stack_sz-1UL ];
-  err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
+  uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
+  err = fd_bpf_loader_input_serialize_parameters( instr_ctx,
                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                  acc_region_metas, virtual_address_space_adjustments, direct_mapping,
+                                                  acc_region_metas,
                                                   direct_account_pointers_in_program_input, is_deprecated,
                                                   &instruction_data_offset,
                                                   &account_pointers_offset, &input_sz );
@@ -556,9 +522,6 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     /* input_mem_regions_cnt                  */ input_mem_regions_cnt,
     /* acc_region_metas                       */ acc_region_metas,
     /* is_deprecated                          */ is_deprecated,
-    /* direct_mapping                         */ direct_mapping,
-    /* syscall_parameter_address_restrictions */ syscall_parameter_address_restrictions,
-    /* virtual_address_space_adjustments      */ virtual_address_space_adjustments,
     /* dump_syscall_to_pb                     */ dump_syscall_to_pb,
     /* reg                                    */ reg );
   if( FD_UNLIKELY( !vm ) ) {
@@ -624,11 +587,10 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
       instr_ctx->txn_out->details.compute_budget.compute_meter = 0UL;
     }
 
-    /* With virtual_address_space_adjustments, remap load and store
-       access violations to more specific account errors.
+    /* Remap load and store access violations to more specific account
+       errors.
        https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1556-L1618 */
-    if( FD_UNLIKELY( virtual_address_space_adjustments &&
-                     ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
+    if( FD_UNLIKELY( ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
                      vm->segv_vaddr!=ULONG_MAX ) ) {
 
       /* If the vaddr of the access violation falls within the bounds of a
@@ -723,7 +685,7 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   err = fd_bpf_loader_input_deserialize_parameters(
-    instr_ctx, pre_lens, input, input_sz, virtual_address_space_adjustments, direct_mapping, is_deprecated );
+    instr_ctx, acc_region_metas, input, input_sz, is_deprecated );
 
   long const regime3 = fd_tickcount();
   if( instr_ctx->instr->stack_height==1 ) {
@@ -732,20 +694,6 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     instr_ctx->runtime->metrics.cpi_commit_cum_ticks  += (ulong)( regime3-regime2 );
   }
 
-  return err;
-}
-
-int
-fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
-                fd_progcache_rec_t const * cache_entry,
-                uchar                      is_deprecated ) {
-  /* Tiles holding frames can wait on the program cache spill lock, so
-     its holder must never wait for a frame. */
-  fd_runtime_t * runtime = instr_ctx->runtime;
-  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, fd_progcache_spill_held( runtime->progcache ) );
-  runtime->bpf_loader_serialization.frame[ runtime->instr.stack_sz-1UL ] = frame;
-  int err = bpf_execute( instr_ctx, cache_entry, is_deprecated );
-  fd_bpf_frames_release( runtime->bpf_frames, frame );
   return err;
 }
 

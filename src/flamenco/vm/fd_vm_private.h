@@ -84,7 +84,6 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
 /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L28-L93 */
 /* SIMD-0166 */
 #define FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP(v)              ( v == FD_SBPF_V1 || v == FD_SBPF_V2 ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L32-L34 */
-#define FD_VM_SBPF_STACK_FRAME_GAPS(v)                     ( v == FD_SBPF_V0 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L36-L38 */
 /* SIMD-0174 */
 #define FD_VM_SBPF_ENABLE_PQR(v)                           ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L41-L43 */
 #define FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS(v)   ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L45-L47 */
@@ -109,8 +108,7 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
 /* https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L32 */
 #define FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION ((long)(FD_RUNTIME_ACC_SZ_MAX * 2UL))
 
-/* Kept equal to the canonical constant in fd_runtime_const.h, which the
-   bpf loader serialization buffer bound relies on. */
+/* Kept equal to the canonical constant in fd_runtime_const.h. */
 FD_STATIC_ASSERT( FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION==(long)FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN, account_data_growth_cap );
 
 FD_PROTOTYPES_BEGIN
@@ -311,12 +309,6 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
                                    ulong           sz,
                                    ulong           region_idx,
                                    uchar           write ) {
-  /* If virtual_address_space_adjustments is not enabled, we don't need to
-     do anything */
-  if( FD_UNLIKELY( !vm->virtual_address_space_adjustments ) ) {
-    return;
-  }
-
   /* If the access is not a write, we don't need to do anything
      https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L523-L525 */
   if( FD_UNLIKELY( !write ) ) {
@@ -388,8 +380,7 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
     return sentinel; /* Access is too large */
   }
 
-  /* Binary search to find the correct memory region.  If direct mapping is not
-     enabled, then there is only 1 memory region which spans the input region. */
+  /* Binary search to find the correct memory region. */
   ulong region_idx = fd_vm_get_input_mem_region_idx( vm, offset );
   if( FD_UNLIKELY( region_idx>=vm->input_mem_regions_cnt ) ) {
     return sentinel; /* Region not found */
@@ -485,25 +476,6 @@ fd_vm_mem_haddr( fd_vm_t *       vm,
                  ulong           sentinel ) {
   ulong region = FD_VADDR_TO_REGION( vaddr );
   ulong offset = vaddr & FD_VM_OFFSET_MASK;
-
-  /* Some configurations of the vm have unmapped gaps between each
-     stack frame. If this is the case, we need to check that the access
-     is not in a gap region. */
-  int stack_frame_gaps_enabled = vm->stack_push_frame_count > 1;
-  if( FD_UNLIKELY( region==FD_VM_STACK_REGION && stack_frame_gaps_enabled ) ) {
-    /* If an access starts in a gap region, that is an access violation */
-    if( FD_UNLIKELY( !!(vaddr & 0x1000) ) ) {
-      return sentinel;
-    }
-
-    /* To account for the fact that we have gaps in the virtual address space but not in the
-       physical address space, we need to subtract from the offset the size of all the virtual
-       gap frames underneath it.
-
-       https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L147-L149 */
-    ulong gap_mask = 0xFFFFFFFFFFFFF000;
-    offset = ( ( offset & gap_mask ) >> 1 ) | ( offset & ~gap_mask );
-  }
 
   /* If the region is an account, handle the resizing logic. This logic corresponds to
      solana_transaction_context::TransactionContext::access_violation_handler

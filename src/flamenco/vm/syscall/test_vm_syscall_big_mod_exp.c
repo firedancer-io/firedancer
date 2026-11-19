@@ -350,9 +350,6 @@ main( int     argc,
       rodata, rodata_sz, NULL, 0UL, 0UL, 0UL, 0UL, NULL,
       TEST_VM_DEFAULT_SBPF_VERSION, NULL, NULL, sha,
       NULL, 0U, NULL, 0,
-      FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
-      FD_FEATURE_ACTIVE_BANK( bank, syscall_parameter_address_restrictions ),
-      FD_FEATURE_ACTIVE_BANK( bank, virtual_address_space_adjustments ),
       0, (ulong[ FD_VM_REG_CNT ]){ 0 } );
   FD_TEST( vm_ok );
   fd_vm_mem_init_full( vm );
