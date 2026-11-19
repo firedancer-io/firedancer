@@ -104,10 +104,10 @@ struct fd_net_tile {
   ulong  pkt_buf_wmark;
   uint   bind_address;
 
-  ulong  rx_dest_cnt;
-  ushort rx_listen_ports[ FD_NET_RX_DEST_CNT ];
-  ulong  rx_proto_ids   [ FD_NET_RX_DEST_CNT ];
-  ulong  rx_out_link_idx[ FD_NET_RX_DEST_CNT ];
+  ulong  rx_proto_cnt;
+  ushort rx_listen_ports[ FD_NET_RX_PROTO_CNT ];
+  ulong  rx_proto_ids   [ FD_NET_RX_PROTO_CNT ];
+  ulong  rx_out_link_idx[ FD_NET_RX_PROTO_CNT ];
   ulong  rx_out_cnt;
   uint   gre_tunnel_ip[ FD_NET_GRE_MAX ];
 
@@ -526,65 +526,67 @@ fd_net_tx_sock_send( fd_net_tile_t * ctx,
   return 1;
 }
 
-/* fd_net_rx_dest_add fills in ctx's mappings between a UDP port, protocol
-   and output link for one rx dest. */
+/* fd_net_rx_proto_add fills in the mapping for one RX protocol. This
+   mapping is between the protocol id, listen port and out idx. */
 static inline void
-fd_net_rx_dest_add( fd_net_tile_t *        ctx,
-                    fd_topo_t const *      topo,
-                    fd_topo_tile_t const * tile,
-                    ulong                  proto_id,
-                    char const *           out_link,
-                    ushort                 listen_port,
-                    int                    out_link_required ) {
-  if( FD_UNLIKELY( !listen_port ) ) return;
-  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, out_link, tile->kind_id );
+fd_net_rx_proto_add( fd_net_tile_t *           ctx,
+                     fd_topo_t const *         topo,
+                     fd_topo_tile_t const *    tile,
+                     fd_net_rx_proto_t const * proto ) {
+  if( FD_UNLIKELY( !proto->listen_port ) ) return;
+  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, proto->out_link, tile->kind_id );
 
   if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
-    if( FD_UNLIKELY( out_link_required ) ) {
-      FD_LOG_ERR(( "net output link `%s` is missing for UDP port %hu", out_link, listen_port ));
+    if( FD_UNLIKELY( proto->out_link_required ) ) {
+      FD_LOG_ERR(( "net output link `%s` is missing for UDP port %hu", proto->out_link, proto->listen_port ));
     }
     return;
   }
 
-  if( FD_UNLIKELY( ctx->rx_dest_cnt>=FD_NET_RX_DEST_CNT ) ) {
-    FD_LOG_ERR(( "net tile RX destination count exceeds max of %lu", FD_NET_RX_DEST_CNT ));
+  if( FD_UNLIKELY( ctx->rx_proto_cnt>=FD_NET_RX_PROTO_CNT ) ) {
+    FD_LOG_ERR(( "net tile RX protocol count exceeds max of %lu", FD_NET_RX_PROTO_CNT ));
   }
 
-  ctx->rx_proto_ids   [ ctx->rx_dest_cnt ] = proto_id;
-  ctx->rx_listen_ports[ ctx->rx_dest_cnt ] = listen_port;
-  ctx->rx_out_link_idx[ ctx->rx_dest_cnt ] = out_idx;
-  ctx->rx_dest_cnt++;
+  ctx->rx_proto_ids   [ ctx->rx_proto_cnt ] = proto->proto_id;
+  ctx->rx_listen_ports[ ctx->rx_proto_cnt ] = proto->listen_port;
+  ctx->rx_out_link_idx[ ctx->rx_proto_cnt ] = out_idx;
+  ctx->rx_proto_cnt++;
 }
 
+/* fd_net_rx_protos_init sets up the arrays used inside fd_net_rx_pkt to
+   convert from a UDP listen port to a protocol id and out link idx.
+   Converting the UDP port the pkt was received on to an identifier for
+   the corresponding protocol simplifies downstream tile processing given
+   the listen ports are configurable. */
 static inline void
-fd_net_rx_dests_init( fd_net_tile_t *        ctx,
-                      fd_topo_t const *      topo,
-                      fd_topo_tile_t const * tile ) {
+fd_net_rx_protos_init( fd_net_tile_t *        ctx,
+                       fd_topo_t const *      topo,
+                       fd_topo_tile_t const * tile ) {
   ctx->rx_out_cnt = tile->out_cnt;
 
-  fd_net_rx_dest_t dests[ FD_NET_RX_DEST_CNT ];
-  fd_net_rx_dest_list( dests, &tile->net );
-  for( ulong i=0UL; i<FD_NET_RX_DEST_CNT; i++ ) {
-    fd_net_rx_dest_add( ctx, topo, tile, dests[ i ].proto_id, dests[ i ].out_link, dests[ i ].listen_port, dests[ i ].out_link_required );
+  fd_net_rx_proto_t protos[ FD_NET_RX_PROTO_CNT ];
+  fd_net_rx_protos_list( protos, &tile->net );
+  for( ulong i=0UL; i<FD_NET_RX_PROTO_CNT; i++ ) {
+    fd_net_rx_proto_add( ctx, topo, tile, protos+i );
   }
 }
 
 static inline int
-fd_net_rx_dest_lookup( fd_net_tile_t const * ctx,
-                       ushort                dst_port,
-                       ulong *               out_idx,
-                       ulong *               proto_id ) {
-  ulong rule_idx = ULONG_MAX;
-  for( ulong i=0UL; i<ctx->rx_dest_cnt; i++ ) {
+fd_net_rx_proto_lookup( fd_net_tile_t const * ctx,
+                        ushort                dst_port,
+                        ulong *               out_idx,
+                        ulong *               proto_id ) {
+  ulong proto_idx = ULONG_MAX;
+  for( ulong i=0UL; i<ctx->rx_proto_cnt; i++ ) {
     if( ctx->rx_listen_ports[ i ]==dst_port ) {
-      rule_idx = i;
+      proto_idx = i;
       break;
     }
   }
-  if( FD_UNLIKELY( rule_idx==ULONG_MAX ) ) return 0;
+  if( FD_UNLIKELY( proto_idx==ULONG_MAX ) ) return 0;
 
-  *out_idx  = ctx->rx_out_link_idx[ rule_idx ];
-  *proto_id = ctx->rx_proto_ids   [ rule_idx ];
+  *out_idx  = ctx->rx_out_link_idx[ proto_idx ];
+  *proto_id = ctx->rx_proto_ids   [ proto_idx ];
   return *out_idx<ctx->rx_out_cnt;
 }
 
@@ -724,14 +726,14 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
   ushort const dst_port = fd_ushort_bswap( udp_hdr->net_dport );
   ulong out_idx;
   ulong proto_id;
-  if( FD_UNLIKELY( !fd_net_rx_dest_lookup( ctx, dst_port, &out_idx, &proto_id ) ) ) {
+  if( FD_UNLIKELY( !fd_net_rx_proto_lookup( ctx, dst_port, &out_idx, &proto_id ) ) ) {
     /* Missing output links for configured ports still count as drops. */
     if( iavf_non_fd_pkts_rx_total ) {
-      ulong dest_idx = 0UL;
-      for( ; dest_idx<ctx->rx_dest_cnt; dest_idx++ ) {
-        if( ctx->rx_listen_ports[ dest_idx ]==dst_port ) break;
+      ulong proto_idx = 0UL;
+      for( ; proto_idx<ctx->rx_proto_cnt; proto_idx++ ) {
+        if( ctx->rx_listen_ports[ proto_idx ]==dst_port ) break;
       }
-      if( dest_idx==ctx->rx_dest_cnt ) goto iavf_non_fd_pkt;
+      if( proto_idx==ctx->rx_proto_cnt ) goto iavf_non_fd_pkt;
     }
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]++;
     return 0;

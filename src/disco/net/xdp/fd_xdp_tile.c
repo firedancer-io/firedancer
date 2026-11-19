@@ -1167,7 +1167,7 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->net.in_dcache_ctx[ i ].wmark     = fd_dcache_compact_wmark( ctx->net.in_dcache_ctx[ i ].wksp_base, link->dcache, link->mtu );
   }
 
-  fd_net_rx_dests_init( &ctx->net, topo, tile );
+  fd_net_rx_protos_init( &ctx->net, topo, tile );
 
   ctx->net.router.netlnk_out_idx = fd_topo_find_tile_out_link( topo, tile, "net_netlnk", tile->kind_id );
   if( FD_UNLIKELY( ctx->net.router.netlnk_out_idx==ULONG_MAX ) ) FD_LOG_ERR(( "netlink request link not found" ));

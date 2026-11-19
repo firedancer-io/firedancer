@@ -180,15 +180,15 @@ configure_cmd_fn( args_t *   args,
 
 uint
 configure_udp_ports( fd_config_t const * config,
-                     ushort              ports[ FD_NET_RX_DEST_CNT ] ) {
+                     ushort              ports[ FD_NET_RX_PROTO_CNT ] ) {
   ulong net_tile_idx = fd_topo_find_tile( &config->topo, fd_net_tile_name( config->net.provider ), 0UL );
   if( net_tile_idx==ULONG_MAX ) return 0U;
 
-  fd_net_rx_dest_t rx_dests[ FD_NET_RX_DEST_CNT ];
-  fd_net_rx_dest_list( rx_dests, &config->topo.tiles[ net_tile_idx ].net );
+  fd_net_rx_proto_t protos[ FD_NET_RX_PROTO_CNT ];
+  fd_net_rx_protos_list( protos, &config->topo.tiles[ net_tile_idx ].net );
   uint port_cnt = 0U;
-  for( ulong i=0UL; i<FD_NET_RX_DEST_CNT; i++ ) {
-    ushort listen_port = rx_dests[ i ].listen_port;
+  for( ulong i=0UL; i<FD_NET_RX_PROTO_CNT; i++ ) {
+    ushort listen_port = protos[ i ].listen_port;
     if( !listen_port ) continue;
     int duplicate = 0;
     for( uint j=0U; j<port_cnt; j++ ) {

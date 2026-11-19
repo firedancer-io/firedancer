@@ -81,9 +81,9 @@ fd_net_get_driver( char *       driver,
 }
 
 void
-fd_net_rx_dest_list( fd_net_rx_dest_t           out[ FD_NET_RX_DEST_CNT ],
-                     fd_topo_net_tile_t const * net ) {
-  fd_net_rx_dest_t const rx_dests[ FD_NET_RX_DEST_CNT ] = {
+fd_net_rx_protos_list( fd_net_rx_proto_t          out[ FD_NET_RX_PROTO_CNT ],
+                       fd_topo_net_tile_t const * net ) {
+  fd_net_rx_proto_t const protos[ FD_NET_RX_PROTO_CNT ] = {
     { DST_PROTO_TPU_UDP,  "net_quic",   net->legacy_transaction_listen_port, 1 },
     { DST_PROTO_TPU_QUIC, "net_quic",   net->quic_transaction_listen_port,   1 },
     { DST_PROTO_SHRED,    "net_shred",  net->shred_listen_port,              1 },
@@ -93,7 +93,7 @@ fd_net_rx_dest_list( fd_net_rx_dest_t           out[ FD_NET_RX_DEST_CNT ],
     { DST_PROTO_VOTOR,    "net_votor",  net->votor_quic_client_listen_port,  1 },
     { DST_PROTO_VOTOR,    "net_votor",  net->votor_quic_server_listen_port,  1 }
   };
-  fd_memcpy( out, rx_dests, sizeof(rx_dests) );
+  fd_memcpy( out, protos, sizeof(protos) );
 }
 
 char const *
@@ -571,10 +571,10 @@ fd_topo_install_xdp( fd_topo_t const * topo,
   fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
 
   /* Get UDP ports to listen on */
-  fd_net_rx_dest_t rx_dests[ FD_NET_RX_DEST_CNT ];
-  fd_net_rx_dest_list( rx_dests, &net0_tile->net );
-  ushort udp_port_candidates[ FD_NET_RX_DEST_CNT ];
-  for( ulong i=0UL; i<FD_NET_RX_DEST_CNT; i++ ) udp_port_candidates[ i ] = rx_dests[ i ].listen_port;
+  fd_net_rx_proto_t protos[ FD_NET_RX_PROTO_CNT ];
+  fd_net_rx_protos_list( protos, &net0_tile->net );
+  ushort udp_port_candidates[ FD_NET_RX_PROTO_CNT ];
+  for( ulong i=0UL; i<FD_NET_RX_PROTO_CNT; i++ ) udp_port_candidates[ i ] = protos[ i ].listen_port;
 
   for( uint i=0U; i<if_cnt; i++ ) {
     /* Override XDP mode for loopback */
@@ -584,7 +584,7 @@ fd_topo_install_xdp( fd_topo_t const * topo,
     fd_xdp_fds_t xdp_fds = fd_xdp_install(
         fds[ i ].if_idx,
         bind_addr,
-        FD_NET_RX_DEST_CNT,
+        FD_NET_RX_PROTO_CNT,
         udp_port_candidates,
         xdp_mode );
     if( FD_UNLIKELY( -1==dup2( xdp_fds.xsk_map_fd, fds[ i ].xsk_map_fd ) ) ) {

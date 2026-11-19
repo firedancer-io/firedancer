@@ -938,7 +938,7 @@ after_frag( fd_mlx5_tile_t *    ctx,
     int owned = 0;
     if( !ctx->net.bind_address || ctx->net.bind_address==ip4->daddr ) {
       ushort const dst_port = fd_ushort_bswap( udp->net_dport );
-      for( ulong i=0UL; i<ctx->net.rx_dest_cnt; i++ ) owned |= ctx->net.rx_listen_ports[ i ]==dst_port;
+      for( ulong i=0UL; i<ctx->net.rx_proto_cnt; i++ ) owned |= ctx->net.rx_listen_ports[ i ]==dst_port;
     }
     if( !owned ) {
       fd_mlx5_tile_lo_tx_enqueue( ctx, ip4, ip_sz );
@@ -1174,7 +1174,7 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
       .packet_memory_sz   = packet_memory_sz,
       .packet_iova        = packet_iova,
     };
-    fd_net_rx_dests_init( &ctx->net, topo, tile );
+    fd_net_rx_protos_init( &ctx->net, topo, tile );
 
     if( !i ) {
       first_tile = tile;
@@ -1223,7 +1223,7 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
     }
   }
 
-  for( ulong flow_idx=0UL; flow_idx<first->net.rx_dest_cnt; flow_idx++ ) {
+  for( ulong flow_idx=0UL; flow_idx<first->net.rx_proto_cnt; flow_idx++ ) {
     if( FD_UNLIKELY( fd_uverbs_create_udp_flow( &first->uverbs, &first->outer_rss_qp,
                                                 first_tile->mlx5.net.bind_address,
                                                 first->net.rx_listen_ports[ flow_idx ] ) ) ) {
@@ -1235,7 +1235,7 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
       FD_LOG_ERR(( "fd_uverbs_create_gre_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
-  FD_LOG_INFO(( "Installed %lu direct mlx5 flow rules", 2UL*first->net.rx_dest_cnt ));
+  FD_LOG_INFO(( "Installed %lu direct mlx5 flow rules", 2UL*first->net.rx_proto_cnt ));
 
   if( fds ) {
     fds->cmd_fd                 = first->uverbs.cmd_fd;

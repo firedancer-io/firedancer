@@ -80,25 +80,25 @@ FD_PROTOTYPES_END
 
 /* Topology APIs */
 
-#define FD_NET_RX_DEST_CNT (8UL)
+#define FD_NET_RX_PROTO_CNT (8UL)
 
-/* fd_net_rx_dest_t maps a UDP listen port to the net tile output link used
-   to publish received packets. */
-struct fd_net_rx_dest {
+/* fd_net_rx_proto_t maps a UDP listen port to a protocol id and the net
+   tile output link used to publish received packets. */
+struct fd_net_rx_proto {
   ulong        proto_id;
   char const * out_link;
   ushort       listen_port;
   int          out_link_required;
 };
-typedef struct fd_net_rx_dest fd_net_rx_dest_t;
+typedef struct fd_net_rx_proto fd_net_rx_proto_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_net_rx_dest_list fills out parameter with an array of UDP port -> protocol
+/* fd_net_rx_protos_list fills out parameter with an array of UDP port -> protocol
    and link mappings. */
 void
-fd_net_rx_dest_list( fd_net_rx_dest_t               out[ FD_NET_RX_DEST_CNT ],
-                     struct fd_topo_net_tile const * net );
+fd_net_rx_protos_list( fd_net_rx_proto_t              out[ FD_NET_RX_PROTO_CNT ],
+                       struct fd_topo_net_tile const * net );
 
 /* fd_net_tile_name returns the tile name used by a configured network provider. */
 
