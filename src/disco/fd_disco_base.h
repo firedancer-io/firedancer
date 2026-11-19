@@ -7,14 +7,15 @@
 #include "../flamenco/fd_flamenco_base.h"
 #include "../util/wksp/fd_wksp_private.h"
 
-#define DST_PROTO_OUTGOING (0UL)
-#define DST_PROTO_TPU_UDP  (1UL)
-#define DST_PROTO_TPU_QUIC (2UL)
-#define DST_PROTO_SHRED    (3UL)
-#define DST_PROTO_REPAIR   (4UL)
-#define DST_PROTO_GOSSIP   (5UL)
-#define DST_PROTO_RSERVE   (7UL)
-#define DST_PROTO_VOTOR    (8UL)
+#define DST_PROTO_OUTGOING     (0UL)
+#define DST_PROTO_TPU_UDP      (1UL)
+#define DST_PROTO_TPU_QUIC     (2UL)
+#define DST_PROTO_SHRED        (3UL)
+#define DST_PROTO_REPAIR       (4UL)
+#define DST_PROTO_GOSSIP       (5UL)
+#define DST_PROTO_RSERVE       (7UL)
+#define DST_PROTO_VOTOR_CLIENT (8UL)
+#define DST_PROTO_VOTOR_SERVER (9UL)
 
 #define POH_PKT_TYPE_MICROBLOCK      (0UL)
 

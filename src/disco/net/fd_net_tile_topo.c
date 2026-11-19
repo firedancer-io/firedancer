@@ -84,14 +84,14 @@ void
 fd_net_rx_protos_list( fd_net_rx_proto_t          out[ FD_NET_RX_PROTO_CNT ],
                        fd_topo_net_tile_t const * net ) {
   fd_net_rx_proto_t const protos[ FD_NET_RX_PROTO_CNT ] = {
-    { DST_PROTO_TPU_UDP,  "net_quic",   net->legacy_transaction_listen_port, 1 },
-    { DST_PROTO_TPU_QUIC, "net_quic",   net->quic_transaction_listen_port,   1 },
-    { DST_PROTO_SHRED,    "net_shred",  net->shred_listen_port,              1 },
-    { DST_PROTO_GOSSIP,   "net_gossvf", net->gossip_listen_port,             1 },
-    { DST_PROTO_REPAIR,   "net_shred",  net->repair_client_listen_port,      1 },
-    { DST_PROTO_RSERVE,   "net_rserve", net->repair_serve_listen_port,       0 },
-    { DST_PROTO_VOTOR,    "net_votor",  net->votor_quic_client_listen_port,  1 },
-    { DST_PROTO_VOTOR,    "net_votor",  net->votor_quic_server_listen_port,  1 }
+    { DST_PROTO_TPU_UDP,      "net_quic",   net->legacy_transaction_listen_port, 1 },
+    { DST_PROTO_TPU_QUIC,     "net_quic",   net->quic_transaction_listen_port,   1 },
+    { DST_PROTO_SHRED,        "net_shred",  net->shred_listen_port,              1 },
+    { DST_PROTO_GOSSIP,       "net_gossvf", net->gossip_listen_port,             1 },
+    { DST_PROTO_REPAIR,       "net_shred",  net->repair_client_listen_port,      1 },
+    { DST_PROTO_RSERVE,       "net_rserve", net->repair_serve_listen_port,       0 },
+    { DST_PROTO_VOTOR_CLIENT, "net_votor",  net->votor_quic_client_listen_port,  1 },
+    { DST_PROTO_VOTOR_SERVER, "net_votor",  net->votor_quic_server_listen_port,  1 }
   };
   fd_memcpy( out, protos, sizeof(protos) );
 }
