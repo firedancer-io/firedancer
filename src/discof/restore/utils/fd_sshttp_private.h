@@ -19,7 +19,7 @@
 #define FD_SSHTTP_STATE_REDIRECT      (5) /* following a redirect */
 #define FD_SSHTTP_STATE_DONE          (6) /* done */
 
-#define FD_SSHTTP_DEADLINE_NANOS (1L*1000L*1000L*1000L) /* 1 second  */
+#define FD_SSHTTP_DEADLINE_NANOS (10L*1000L*1000L*1000L) /* 10 seconds */
 
 struct fd_sshttp_private {
   int   state;

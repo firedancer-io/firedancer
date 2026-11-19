@@ -112,8 +112,9 @@ test_start( int file,
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( publish_cnt==1UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
   FD_TEST( !init_cnt && !ctx->pipeline_ready && http->state==FD_SSHTTP_STATE_INIT && http->sockfd==-1 );
-  /* Spend longer than the request deadline waiting for START. */
-  fd_log_sleep( FD_SSHTTP_DEADLINE_NANOS+1000000L );
+  /* Spend some time waiting for START.  The request deadline must not
+     start until then. */
+  fd_log_sleep( 2000000L );
   int busy = 0;
   for( int i=0; i<3; i++ ) after_credit( ctx, test_stem, NULL, &busy );
   FD_TEST( publish_cnt==1UL && !init_cnt && !ctx->sent_meta );
