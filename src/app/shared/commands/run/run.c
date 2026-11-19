@@ -1621,7 +1621,12 @@ run_firedancer( config_t * config,
 
   int shutdown_app = 0;
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) shutdown_app |= config->topo.tiles[ i ].shutdown_app;
-  fd_sys_util_exit_group( WEXITSTATUS( wstatus ) || shutdown_app ? WEXITSTATUS( wstatus ) : 1 );
+
+  /* Exiting with code 0 is only clean if a tile could shut down the
+     application, otherwise report it as an error. */
+  int exit_code = WEXITSTATUS( wstatus );
+  if( FD_UNLIKELY( !exit_code && !shutdown_app ) ) exit_code = 1;
+  fd_sys_util_exit_group( exit_code );
 }
 
 void

@@ -532,7 +532,10 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       int reached_end_slot  = msg->slot>=ctx->end_slot;
       int drained_exhausted = ctx->source_exhausted && !ctx->shreds_cnt && msg->slot>=ctx->prev_slot;
-      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) finish( ctx, msg->slot, msg->completion_time_nanos );
+      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) {
+        finish( ctx, msg->slot, msg->completion_time_nanos );
+        return 0;
+      }
 
       int root_advanced = root_slot!=ctx->prev_root;
       ctx->prev_root    = root_slot;
