@@ -449,6 +449,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "xdp" );
       jw_str  ( &w, "xdp_mode",             config->net.xdp.xdp_mode );
       jw_bool ( &w, "xdp_zero_copy",        config->net.xdp.xdp_zero_copy );
+      jw_bool ( &w, "experimental_prebind_fill", config->net.xdp.experimental_prebind_fill );
       jw_str  ( &w, "poll_mode",            config->net.xdp.poll_mode );
       jw_ulong( &w, "xdp_rx_queue_size",    config->net.xdp.xdp_rx_queue_size );
       jw_ulong( &w, "xdp_tx_queue_size",    config->net.xdp.xdp_tx_queue_size );

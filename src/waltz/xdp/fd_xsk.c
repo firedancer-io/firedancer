@@ -16,6 +16,7 @@
 
 #include "../../util/log/fd_log.h"
 #include "fd_xsk.h"
+#include "fd_xsk_prebind.h"
 
 /* Support for older kernels */
 
@@ -280,6 +281,15 @@ fd_xsk_init( fd_xsk_t *              xsk,
     return NULL;
   }
 
+  if( FD_UNLIKELY( params->initial_fill_cnt &&
+      (params->bind_flags!=XDP_ZEROCOPY || params->frame_sz!=2048UL ||
+       params->initial_fill_cnt>params->fr_depth ||
+       params->initial_fill_off%2048UL || params->initial_fill_off>params->umem_sz ||
+       params->initial_fill_cnt>(params->umem_sz-params->initial_fill_off)/2048UL) ) ) {
+    FD_LOG_WARNING(( "invalid initial FILL span or zero-copy mode" ));
+    return NULL;
+  }
+
   xsk->if_idx      = params->if_idx;
   xsk->if_queue_id = params->if_queue_id;
 
@@ -312,6 +322,14 @@ fd_xsk_init( fd_xsk_t *              xsk,
   if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_fr, xsk->xsk_fd, XDP_UMEM_PGOFF_FILL_RING,       sizeof(ulong),           params->fr_depth, &xsk->offsets.fr ) ) ) goto fail;
   if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_cr, xsk->xsk_fd, XDP_UMEM_PGOFF_COMPLETION_RING, sizeof(ulong),           params->cr_depth, &xsk->offsets.cr ) ) ) goto fail;
 
+  /* Only a fresh, still-unbound socket can publish this reserved span. */
+  if( params->initial_fill_cnt ) {
+    fd_xdp_ring_t * fill = &xsk->ring_fr;
+    if( FD_UNLIKELY( fd_xsk_prebind_publish( fill->frame_ring, fill->prod, fill->cons,
+        &fill->cached_prod, &fill->cached_cons, fill->depth,
+        params->initial_fill_off, params->initial_fill_cnt, params->umem_sz ) ) ) goto fail;
+  }
+
   /* Bind XSK to queue on network interface */
 
   uint flags = XDP_USE_NEED_WAKEUP | params->bind_flags;
@@ -332,6 +350,18 @@ fd_xsk_init( fd_xsk_t *              xsk,
                      xsk->if_queue_id, flags,
                      errno, fd_io_strerror( errno ) ));
     goto fail;
+  }
+
+  if( params->initial_fill_cnt ) {
+    struct xdp_options options = {0};
+    socklen_t options_sz = sizeof(options);
+    if( FD_UNLIKELY( getsockopt( xsk->xsk_fd, SOL_XDP, XDP_OPTIONS, &options, &options_sz ) ||
+        options_sz!=sizeof(options) || !(options.flags & XDP_OPTIONS_ZEROCOPY) ) ) {
+      FD_LOG_WARNING(( "initial FILL path did not confirm runtime XDP zero-copy" ));
+      goto fail;
+    }
+    FD_LOG_NOTICE(( "pre-bind FILL: off=%lu count=%lu; runtime XDP zero-copy confirmed",
+                   params->initial_fill_off, params->initial_fill_cnt ));
   }
 
   /* We've seen that some popular Intel NICs seem to have a bug that

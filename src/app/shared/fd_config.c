@@ -603,6 +603,23 @@ fd_config_validate( fd_config_t const * config ) {
   if( FD_UNLIKELY( config->development.event.max_upload_rate_mbps>(ulong)LONG_MAX/125000UL ) )
     FD_LOG_ERR(( "invalid [development.event.max_upload_rate_mbps]: must be at most %lu", (ulong)LONG_MAX/125000UL ));
 
+  if( FD_UNLIKELY( config->net.xdp.experimental_prebind_fill ) ) {
+    if( FD_UNLIKELY( strcmp( config->net.provider, "xdp" ) ) )
+      FD_LOG_ERR(( "net.xdp.experimental_prebind_fill requires explicit net.provider=\"xdp\"" ));
+    if( FD_UNLIKELY( strcmp( config->net.xdp.xdp_mode, "drv" ) ) )
+      FD_LOG_ERR(( "net.xdp.experimental_prebind_fill requires explicit net.xdp.xdp_mode=\"drv\"" ));
+    if( FD_UNLIKELY( config->net.xdp.xdp_zero_copy!=FD_BOOLAU_TRUE ) )
+      FD_LOG_ERR(( "net.xdp.experimental_prebind_fill requires explicit net.xdp.xdp_zero_copy=true" ));
+    if( FD_UNLIKELY( config->net.xdp.native_bond!=FD_BOOLAU_FALSE ) )
+      FD_LOG_ERR(( "net.xdp.experimental_prebind_fill requires explicit net.xdp.native_bond=false and a standalone interface" ));
+    if( FD_UNLIKELY( strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) ) )
+      FD_LOG_ERR(( "net.xdp.experimental_prebind_fill requires explicit net.xdp.rss_queue_mode=\"dedicated\"" ));
+    if( FD_UNLIKELY( config->layout.net_tile_count!=1U ) )
+      FD_LOG_ERR(( "net.xdp.experimental_prebind_fill requires layout.net_tile_count=1" ));
+    if( FD_UNLIKELY( config->net.xdp.xdp_rx_queue_size!=1024U ) )
+      FD_LOG_ERR(( "net.xdp.experimental_prebind_fill requires net.xdp.xdp_rx_queue_size=1024" ));
+  }
+
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     if( 0!=strcmp( config->net.xdp.xdp_mode, "skb"     ) &&
         0!=strcmp( config->net.xdp.xdp_mode, "drv"     ) &&

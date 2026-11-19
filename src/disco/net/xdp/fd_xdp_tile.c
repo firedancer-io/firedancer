@@ -24,6 +24,7 @@
 #include "../../../waltz/mib/fd_netdev_tbl.h"
 #include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
 #include "../../../waltz/xdp/fd_xsk.h"
+#include "../../../waltz/xdp/fd_xsk_prebind.h"
 #include "../../../util/log/fd_dtrace.h"
 #include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
@@ -201,6 +202,7 @@ typedef struct {
   /* UMEM frame region within dcache */
   void *   umem;    /* Start of UMEM */
   ulong    umem_sz; /* Size  of UMEM */
+  fd_xsk_prebind_layout_t prebind;
 
   /* Details pertaining to an inflight send op */
   struct {
@@ -913,6 +915,25 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
   return frame_off;
 }
 
+/* The physical span was published before bind when requested.  The
+   kernel may already have consumed entries, so do not reset or republish
+   that ring here.  Legacy and loopback bootstrap retain their ordering. */
+static ulong
+net_xsk_bootstrap_after_bind( fd_net_ctx_t * ctx,
+                              uint           xsk_idx,
+                              ulong          frame_off,
+                              int            prebind_fill ) {
+  if( !prebind_fill ) return net_xsk_bootstrap( ctx, xsk_idx, frame_off );
+  if( xsk_idx==0U ) {
+    FD_TEST( frame_off==ctx->prebind.phys_off );
+    return ctx->prebind.loop_off;
+  }
+  FD_TEST( xsk_idx==1U && frame_off==ctx->prebind.loop_off );
+  frame_off = net_xsk_bootstrap( ctx, xsk_idx, frame_off );
+  FD_TEST( frame_off==ctx->prebind.end_off );
+  return frame_off;
+}
+
 /* FIXME source MAC address from netlnk tile instead */
 
 static void
@@ -979,6 +1000,8 @@ privileged_init( fd_topo_t const *      topo,
   ulong  const umem_frame_sz       = 2048UL;
   ulong  const umem_sz             = fd_ulong_align_dn( umem_dcache_data_sz, umem_frame_sz );
 
+  if( FD_UNLIKELY( umem_sz<umem_frame_sz ) ) FD_LOG_ERR(( "UMEM is too small" ));
+
   /* Derive chunk bounds */
 
   void * const umem_base   = fd_wksp_containing( dcache_mem );
@@ -1033,6 +1056,27 @@ privileged_init( fd_topo_t const *      topo,
 
   fd_cstr_ncpy( params0.poll_mode, tile->xdp.poll_mode, sizeof(params0.poll_mode) );
 
+  if( tile->xdp.experimental_prebind_fill ) {
+    /* Initially qualified scope: one physical pool, explicit queue/mode,
+       standalone interface. No auto-enablement for other deployments. */
+    if( FD_UNLIKELY( tile->xdp.zero_copy!=1 || tile->kind_id ||
+        fd_topo_tile_name_cnt( topo, tile->name )!=1UL || tile->xdp.if_queue!=0U ||
+        strcmp( tile->xdp.if_virt, tile->xdp.if_phys ) || !strcmp( tile->xdp.if_phys, "lo" ) ||
+        tile->xdp.xdp_rx_queue_size!=1024UL ) )
+      FD_LOG_ERR(( "experimental pre-bind FILL requires one standalone zero-copy queue 0, RX depth 1024" ));
+    ulong cache_cnt = 0UL;
+    for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+      ulong depth = topo->links[ tile->out_link_id[i] ].depth;
+      if( FD_UNLIKELY( depth>umem_sz/2048UL-cache_cnt ) ) FD_LOG_ERR(( "RX cache exceeds UMEM" ));
+      cache_cnt += depth;
+    }
+    if( FD_UNLIKELY( fd_xsk_prebind_layout( &ctx->prebind, umem_sz, umem_frame_sz,
+        tile->xdp.free_ring_depth, cache_cnt, 1024UL, 1024UL ) ) )
+      FD_LOG_ERR(( "invalid experimental prebind UMEM partition" ));
+    params0.initial_fill_off = ctx->prebind.phys_off;
+    params0.initial_fill_cnt = ctx->prebind.phys_cnt;
+  }
+
   /* Re-derive XDP file descriptors */
 
   fd_xdp_fds_t xdp_fds[ FD_TOPO_XDP_FDS_MAX ];
@@ -1079,6 +1123,11 @@ privileged_init( fd_topo_t const *      topo,
     params1.if_idx      = lo_idx; /* probably always 1 */
     params1.if_queue_id = 0;
     params1.bind_flags  = 0;
+    if( tile->xdp.experimental_prebind_fill ) {
+      params1.bind_flags       = XDP_COPY;
+      params1.initial_fill_off = 0UL;
+      params1.initial_fill_cnt = 0UL;
+    }
     if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 1 ], &params1 ) ) )          FD_LOG_ERR(( "failed to bind lo_xsk" ));
     if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 1 ], lo_xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate lo_xsk" ));
   }
@@ -1228,17 +1277,20 @@ unprivileged_init( fd_topo_t const *      topo,
   for( ulong i=0UL; i<(tile->out_cnt); i++ ) {
     fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ i  ] ];
     fd_frag_meta_t * mcache = out_link->mcache;
+    if( tile->xdp.experimental_prebind_fill ) FD_TEST( fd_mcache_depth( mcache )==out_link->depth );
     for( ulong j=0UL; j<fd_mcache_depth( mcache ); j++ ) {
       mcache[ j ].chunk = (uint)( ctx->net.pkt_buf_chunk0 + (frame_off>>FD_CHUNK_LG_SZ) );
       frame_off += frame_sz;
     }
   }
 
+  if( tile->xdp.experimental_prebind_fill ) FD_TEST( frame_off==ctx->prebind.phys_off && ctx->xsk_cnt==2U );
+
   /* Initialize FILL ring */
 
   int _charge_busy = 0;
   for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
-    frame_off = net_xsk_bootstrap( ctx, j, frame_off );
+    frame_off = net_xsk_bootstrap_after_bind( ctx, j, frame_off, tile->xdp.experimental_prebind_fill );
     net_rx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
     net_tx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
   }
