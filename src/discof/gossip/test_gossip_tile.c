@@ -341,16 +341,26 @@ test_snapshot_hashes( void ) {
   FD_TEST( sign_cnt==3UL );
   check_pushed( 100UL, 2, 130UL, 8 );
 
+  /* The advertised incremental is deleted.  The full snapshot is
+     advertised alone, and an incremental on another full stays out. */
+  snapmk_msg( FD_SNAPMK_MSG_DELETED, 130UL, 100UL, "incremental-snapshot-100-130-11111111111111111111111111111119.tar.zst" );
+  FD_TEST( sign_cnt==4UL );
+  check_pushed( 100UL, 2, 0UL, 0 );
+  snapmk_msg( FD_SNAPMK_MSG_CREATED, 320UL, 300UL, "incremental-snapshot-300-320-1111111111111111111111111111111A.tar.zst" );
+  FD_TEST( sign_cnt==4UL );
+
   /* A new full snapshot is advertised alone. */
   snapmk_msg( FD_SNAPMK_MSG_CREATED, 200UL, ULONG_MAX, "snapshot-200-11111111111111111111111111111117.tar.zst" );
-  FD_TEST( sign_cnt==4UL );
+  FD_TEST( sign_cnt==5UL );
   check_pushed( 200UL, 6, 0UL, 0 );
 
-  /* Deletes, bad names and uncompressed snapshots change nothing. */
+  /* Other deletes, bad names and uncompressed snapshots change
+     nothing. */
   snapmk_msg( FD_SNAPMK_MSG_DELETED, 200UL, ULONG_MAX, "snapshot-200-11111111111111111111111111111117.tar.zst" );
+  snapmk_msg( FD_SNAPMK_MSG_DELETED, 120UL, 100UL,     "incremental-snapshot-100-120-11111111111111111111111111111116.tar.zst" );
   snapmk_msg( FD_SNAPMK_MSG_CREATED, 300UL, ULONG_MAX, "garbage" );
   snapmk_msg( FD_SNAPMK_MSG_FOUND,   300UL, ULONG_MAX, "snapshot-300-11111111111111111111111111111117.tar" );
-  FD_TEST( sign_cnt==4UL );
+  FD_TEST( sign_cnt==5UL );
 
   free( mem );
 }

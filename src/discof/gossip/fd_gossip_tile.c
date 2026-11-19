@@ -433,45 +433,59 @@ static void
 handle_snapmk( fd_gossip_tile_ctx_t *  ctx,
                ulong                   sig,
                fd_snapmk_msg_t const * msg ) {
-  if( sig!=FD_SNAPMK_MSG_FOUND && sig!=FD_SNAPMK_MSG_CREATED ) return;
-
-  /* found and created messages carry the file name at the same place.
-     The name holds the slots and the hash, for example
-       snapshot-100-<hash>.tar.zst
-       incremental-snapshot-100-110-<hash>.tar.zst */
-  char const * name = msg->created.name;
-  ulong full_slot; /* slot of the full snapshot, or the base of an incremental */
-  ulong incr_slot; /* slot of the incremental, ULONG_MAX for a full snapshot */
-  uchar hash[ 32 ];
-  int   is_zstd;
-  if( FD_UNLIKELY( fd_ssarchive_parse_filename( name, &full_slot, &incr_slot, hash, &is_zstd ) ) ) {
-    FD_LOG_WARNING(( "ignoring snapshot with unexpected name %s", name ));
-    return;
-  }
-
-  /* Peers only ask for zstd snapshots. */
-  if( FD_UNLIKELY( !is_zstd ) ) return;
-
   fd_gossip_snapshot_hashes_t * snap = ctx->snap;
-  int is_full = incr_slot==ULONG_MAX;
-  if( is_full ) {
-    if( full_slot<=snap->full_slot ) return;
-    snap->full_slot = full_slot;
-    fd_memcpy( snap->full_hash, hash, 32UL );
-  } else {
-    /* An incremental on our full wins over one on another full.  On
-       the same footing the newer one wins. */
+
+  if( sig==FD_SNAPMK_MSG_DELETED ) {
+    /* The incremental we hold is being deleted.  If it was advertised,
+       advertise the full snapshot alone. */
+    if( msg->deleted.slot     !=ctx->snap_incr_slot      ) return;
+    if( msg->deleted.base_slot!=ctx->snap_incr_base_slot ) return;
+    ctx->snap_incr_slot = 0UL;
+    if( msg->deleted.base_slot==snap->full_slot ) ctx->snap_publish = 1;
+  } else if( sig==FD_SNAPMK_MSG_FOUND || sig==FD_SNAPMK_MSG_CREATED ) {
+    /* found and created messages carry the file name at the same place.
+       The name holds the slots and the hash, for example
+         snapshot-100-<hash>.tar.zst
+         incremental-snapshot-100-110-<hash>.tar.zst */
+    char const * name = msg->created.name;
+    ulong full_slot; /* slot of the full snapshot, or the base of an incremental */
+    ulong incr_slot; /* slot of the incremental, ULONG_MAX for a full snapshot */
+    uchar hash[ 32 ];
+    int   is_zstd;
+    if( FD_UNLIKELY( fd_ssarchive_parse_filename( name, &full_slot, &incr_slot, hash, &is_zstd ) ) ) {
+      FD_LOG_WARNING(( "ignoring snapshot with unexpected name %s", name ));
+      return;
+    }
+
+    /* Peers only ask for zstd snapshots. */
+    if( FD_UNLIKELY( !is_zstd ) ) return;
+
+    /* A newer full snapshot replaces ours. */
+    int is_full = incr_slot==ULONG_MAX;
+    if( is_full ) {
+      if( full_slot<=snap->full_slot ) return;
+      snap->full_slot = full_slot;
+      fd_memcpy( snap->full_hash, hash, 32UL );
+      ctx->snap_publish = 1;
+      return;
+    }
+
     int held_on_full = ctx->snap_incr_slot && ctx->snap_incr_base_slot==snap->full_slot;
     int new_on_full  = full_slot==snap->full_slot;
+
+    /* An incremental on our full wins over one on another full. */
     if( held_on_full && !new_on_full ) return;
+
+    /* On the same footing the newer one wins. */
     if( held_on_full==new_on_full && incr_slot<=ctx->snap_incr_slot ) return;
+
     ctx->snap_incr_slot      = incr_slot;
     ctx->snap_incr_base_slot = full_slot;
     fd_memcpy( ctx->snap_incr_hash, hash, 32UL );
-    /* The full snapshot it builds on has not been reported yet. */
-    if( !new_on_full ) return;
+
+    /* An incremental on another full is kept but not advertised. */
+    if( new_on_full ) ctx->snap_publish = 1;
   }
-  ctx->snap_publish = 1;
 }
 
 static inline int
