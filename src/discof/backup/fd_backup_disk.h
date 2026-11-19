@@ -114,7 +114,7 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
       if( !fd_backup_accidx_valid( idx, ele ) ) continue; /* lane retired */
 
       fd_accdb_accmeta_t const * m = &acc_pool[ ele ];
-      uint  next = FD_VOLATILE_CONST( m->map.next       );
+      uint  next = FD_VOLATILE_CONST( m->map.next      );
       uint  gen  = FD_VOLATILE_CONST( m->key.generation );
       ulong off  = FD_VOLATILE_CONST( m->offset_fork    );
       ulong lam  = FD_VOLATILE_CONST( m->lamports       );
@@ -122,6 +122,14 @@ fd_snapmk_accparse_lookup( fd_snapmk_accparse_t * parse,
       int hit = fd_backup_accidx_rooted( idx, gen, lam )
               & ( ( off & FD_ACCDB_OFF_MASK )==file_off[ i ] );
       fd_uint_store_if( hit, &acc_idx[ i ], ele );
+
+      /* Before following next: an unlinked node's next may be a
+         deferred stack link, so restart this lane from its head */
+      if( FD_UNLIKELY( !hit && fd_accdb_acc_unlinked( m ) ) ) {
+        cur[ i ] = FD_VOLATILE_CONST( idx->acc_map[ chain_idx[ i ] ] );
+        any      = 1;
+        continue;
+      }
 
       /* Resolving hit and next in the same pass keeps the next node
          prefetch to the lanes that will actually use it. */

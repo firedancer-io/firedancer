@@ -128,9 +128,12 @@ filter_batch( fd_backup_cache_t * backup,
       meta[ i ] = *gather[ i ];
     }
 
-    /* next */
+    /* next: load next (the gather above), check the live node's
+       unlinked bit, then use next.  An unlinked node's next may be a
+       deferred stack link, so that lane restarts from its chain head. */
     for( ulong i=0UL; i<FD_BACKUP_CACHE_PARA; i++ ) {
-      head[ i ] = meta[ i ].map.next;
+      uint next = meta[ i ].map.next;
+      head[ i ] = fd_accdb_acc_unlinked( gather[ i ] ) ? FD_VOLATILE_CONST( idx->acc_map[ backup->chain_idx[ i ] ] ) : next;
     }
 
     /* done? */
@@ -258,7 +261,14 @@ fd_backup_cache_read( fd_backup_cache_t * ctx,
     FD_DCHECK_CRIT( fd_backup_accidx_valid( accidx, acc_idx2 ), "acc_idx out of bounds" );
     fd_accdb_accmeta_t const * candidate = &accidx->acc_pool[ acc_idx2 ];
     found |= acc_idx==acc_idx2;
-    acc_idx2 = FD_VOLATILE_CONST( candidate->map.next );
+    uint next = FD_VOLATILE_CONST( candidate->map.next );
+    if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) {
+      /* next may be on the deferred stack: rewalk */
+      found    = 0;
+      acc_idx2 = FD_VOLATILE_CONST( accidx->acc_map[ chain_idx ] );
+      continue;
+    }
+    acc_idx2 = next;
   }
   if( !found ) return FD_BACKUP_CACHE_ERR_MISS;
 

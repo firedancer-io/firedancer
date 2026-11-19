@@ -218,16 +218,20 @@ typedef struct fd_accdb_cache_key fd_accdb_cache_key_t;
 struct __attribute__((aligned(64))) fd_accdb_accmeta {
   fd_accdb_cache_key_t key;
 
+  /* map.next links the accmeta into exactly one list at a time: its
+     acc_map hash chain while linked, the deferred free stack after
+     acc_unlink (FD_ACCDB_SIZE_UNLINKED_BIT set first), and the acc_pool
+     free list once released (acc_pool's POOL_NEXT).  Chain walkers load
+     map.next, then check the unlinked bit (fd_accdb_acc_unlinked), then
+     follow map.next. */
   struct {
     uint next;
   } map;
 
-  union {
-    struct {
-      uint next;
-    } pool;
-    uint cache_idx;
-  };
+  /* cache_idx is the cache line holding the account's data while
+     FD_ACCDB_SIZE_CACHE_VALID_BIT is set.  It is never a list link, so
+     a late store through a captured pointer cannot corrupt a list. */
+  uint cache_idx;
 
   uint   executable_size;
 
@@ -249,18 +253,19 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 #define FD_ACCDB_OFF_INVAL FD_ACCDB_OFF_MASK                    /* sentinel: offset bits all-ones */
 
 /* The in-memory executable_size field in fd_accdb_accmeta_t packs
-   five things into 32 bits:
+   six things into 32 bits:
 
      bit  31     executable flag                       (FD_ACCDB_SIZE_EXEC_BIT)
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
      bit  29     cache_claim flag, in-memory only      (FD_ACCDB_SIZE_CACHE_CLAIM_BIT)
      bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
-     bits 27..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
+     bit  27     unlinked flag,    in-memory only      (FD_ACCDB_SIZE_UNLINKED_BIT)
+     bits 26..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
 
-   The data length is therefore 28 bits, max 256 MiB, still well above
+   The data length is therefore 27 bits, max 128 MiB, still well above
    FD_RUNTIME_ACC_SZ_MAX of 10 MiB (enforced by the static assert below).
 
-   The three upper flag bits exist only in the in-memory index, never on
+   The four upper flag bits exist only in the in-memory index, never on
    disk:
      - cache_valid (bit 30): when set, cache_idx holds a valid
        (class, idx) pair; when clear, cache_idx must not be dereferenced
@@ -276,6 +281,13 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
        dead by construction because the generation no longer matches any
        live fork.  Carried explicitly by the two commit sites in
        fd_accdb_release and nowhere else.
+     - unlinked (bit 27): set once, by the accdb tile, after the accmeta
+       is spliced out of its hash chain and before map.next is reused to
+       link it into the deferred free stack.  A chain walker loads
+       map.next, then executable_size; if it sees this bit, the next it
+       loaded may already point into the stack, so it restarts from the
+       chain head.  Cleared only when the accmeta is reinitialized from
+       the pool.
 
    The on-disk fd_accdb_disk_meta_t.size is only the raw data length,
    written via FD_ACCDB_SIZE_DATA.  It includes neither the executable
@@ -286,15 +298,29 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
 #define FD_ACCDB_SIZE_CACHE_CLAIM_BIT (1U<<29)
 #define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
-#define FD_ACCDB_SIZE_MASK            ((1U<<28)-1U)
+#define FD_ACCDB_SIZE_UNLINKED_BIT    (1U<<27)
+#define FD_ACCDB_SIZE_MASK            ((1U<<27)-1U)
 #define FD_ACCDB_SIZE_PACK(sz,exec)   ((uint)(sz) | ((exec) ? FD_ACCDB_SIZE_EXEC_BIT : 0U))
 #define FD_ACCDB_SIZE_DATA(packed)    ((packed) & FD_ACCDB_SIZE_MASK)
 #define FD_ACCDB_SIZE_EXEC(packed)    (!!((packed) & FD_ACCDB_SIZE_EXEC_BIT))
 #define FD_ACCDB_SIZE_CACHE_VALID(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_VALID_BIT))
 #define FD_ACCDB_SIZE_CACHE_CLAIM(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_CLAIM_BIT))
 #define FD_ACCDB_SIZE_PD_WRITE(p)     (!!((p) & FD_ACCDB_SIZE_PD_WRITE_BIT))
+#define FD_ACCDB_SIZE_UNLINKED(p)     (!!((p) & FD_ACCDB_SIZE_UNLINKED_BIT))
 
-FD_STATIC_ASSERT( (10UL<<20) < (1UL<<28), pd_write_bit_collides_with_len );
+FD_STATIC_ASSERT( (10UL<<20) < (1UL<<27), unlinked_bit_collides_with_len );
+
+/* fd_accdb_acc_unlinked returns 1 if acc was unlinked from its hash
+   chain after the caller loaded its map.next (see the unlinked bit
+   above).  Callers load map.next first, then call this; on 1 they must
+   restart their chain walk from the head.  TSO: loads are not
+   reordered, so the compiler fence alone orders the two loads. */
+
+static inline int
+fd_accdb_acc_unlinked( fd_accdb_accmeta_t const * acc ) {
+  FD_COMPILER_MFENCE();
+  return FD_ACCDB_SIZE_UNLINKED( FD_VOLATILE_CONST( acc->executable_size ) );
+}
 
 static inline ulong
 fd_accdb_acc_offset( fd_accdb_accmeta_t const * acc ) {
@@ -345,7 +371,7 @@ fd_accdb_acc_xchg_offset( fd_accdb_accmeta_t * acc,
 
 #define POOL_NAME       acc_pool
 #define POOL_ELE_T      fd_accdb_accmeta_t
-#define POOL_NEXT       pool.next
+#define POOL_NEXT       map.next
 #define POOL_IDX_T      uint
 #define POOL_IDX_WIDTH  32
 #define POOL_IMPL_STYLE 0
@@ -611,22 +637,14 @@ struct fd_accdb_shmem_private {
   fd_accdb_req_t  req  __attribute__((aligned(64)));
   fd_accdb_done_t done __attribute__((aligned(64)));
 
-  /* T2-only side buffer for deferred acc unlinks.  Holds the indices of
-     accs that have been CAS-unlinked from their map chains in the
-     current advance_root or purge call but cannot yet have pool.next
-     written: a concurrent cold_load_acc may stomp it via the cache_idx
-     union alias.  After wait_for_epoch_drain the list is materialized
-     into pool.next links and released via acc_pool_release_chain.
+  /* T2-only stack of accs unlinked from their map chains by the
+     current root / purge pass, linked through map.next (each is marked
+     FD_ACCDB_SIZE_UNLINKED_BIT first, see fd_accdb_acc_unlinked).  Its
+     links are acc_pool links, so once the pass's epoch drains,
+     drain_deferred_frees releases it with one acc_pool_release_chain.  T2 is the sole writer, so the fields are
+     plain.  head is UINT_MAX when empty. */
 
-     T2 is the sole writer (it applies all root / purge requests), so
-     cnt is plain.  Capacity is
-     txn_max = max_live_slots * max_account_writes_per_slot, the same
-     bound used to size txn_pool.  Stored as a byte offset from shmem
-     base. */
-
-  ulong deferred_acc_buf_off;
-  ulong deferred_acc_buf_cnt;
-  ulong deferred_acc_buf_max;
+  uint  deferred_acc_head;
   ulong deferred_epoch; /* epoch tag of the retired batch (accs and fork slots) */
 
   /* T2-only chain (through pool.next) of fork pool slots retired with
