@@ -66,10 +66,10 @@ pktgen_topo( config_t * config ) {
   if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.pktgen.fake_dst_ip, &pktgen_tile->pktgen.fake_dst_ip ) ) ) {
     FD_LOG_ERR(( "Invalid [development.pktgen.fake_dst_ip]" ));
   }
-  fd_topob_link( topo, "pktgen_out", "pktgen", 32768UL, FD_NET_MTU, 1UL );
-  fd_topob_tile_out( topo, "pktgen", 0UL, "pktgen_out", 0UL );
+  fd_topob_link( topo, "pktgen_net", "pktgen", 32768UL, FD_NET_MTU, 1UL );
+  fd_topob_tile_out( topo, "pktgen", 0UL, "pktgen_net", 0UL );
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-    fd_topob_tile_in( topo, net_tile_name, i, "metric_in", "pktgen_out", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, net_tile_name, i, "metric_in", "pktgen_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
     /* Create dummy RX link */
     fd_topos_net_rx_link( topo, "net_quic", i, config->net.ingress_buffer_size );
@@ -208,7 +208,14 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
       for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) rx_drop_now += metrics[ MIDX( COUNTER, IAVF, PKT_RX_DROPPED )+r ];
       rx_drop_now  += metrics[ MIDX( COUNTER, IAVF, PKT_RX_NO_LINK_DROPPED ) ];
       tx_ok_now     = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
-      tx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED_BYTES     ) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED_BYTES ) ];
+    } else if( 0==strcmp( provider, "socket" ) ) {
+      /* The socket provider doesn't have equivalent metrics for idle and active buffers. */
+      rx_ok_now     = metrics[ MIDX( COUNTER, SOCK, PKT_RX       ) ];
+      rx_byte_now   = metrics[ MIDX( COUNTER, SOCK, PKT_RX_BYTES ) ];
+      rx_drop_now   = 0UL;
+      tx_ok_now     = metrics[ MIDX( COUNTER, SOCK, PKT_TX) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, SOCK, PKT_TX_BYTES ) ];
     }
 
 
