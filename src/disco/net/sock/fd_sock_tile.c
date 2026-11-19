@@ -222,19 +222,19 @@ privileged_init( fd_topo_t const *      topo,
      descriptors starting at sock_fd_min. */
 
   int sock_fd_min = RX_SOCK_FD_MIN;
-  fd_net_rx_dest_t rx_dests[ FD_NET_RX_DEST_CNT ];
-  fd_net_rx_dest_list( rx_dests, &tile->net );
-  for( ulong dest_idx=0UL; dest_idx<FD_NET_RX_DEST_CNT; dest_idx++ ) {
-    if( !rx_dests[ dest_idx ].listen_port ) continue;
+  fd_net_rx_proto_t protos[ FD_NET_RX_PROTO_CNT ];
+  fd_net_rx_protos_list( protos, &tile->net );
+  for( ulong proto_idx=0UL; proto_idx<FD_NET_RX_PROTO_CNT; proto_idx++ ) {
+    if( !protos[ proto_idx ].listen_port ) continue;
     uint sock_idx = ctx->sock_cnt;
     if( sock_idx>=FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));
-    ushort listen_port = rx_dests[ dest_idx ].listen_port;
+    ushort listen_port = protos[ proto_idx ].listen_port;
 
-    char const * target_link = rx_dests[ dest_idx ].out_link;
+    char const * target_link = protos[ proto_idx ].out_link;
     ctx->link_rx_map[ sock_idx ] = 0xFF;
     for( ulong j=0UL; j<(tile->out_cnt); j++ ) {
       if( 0==strcmp( topo->links[ tile->out_link_id[ j ] ].name, target_link ) ) {
-        ctx->proto_id       [ sock_idx ] = (uchar)rx_dests[ dest_idx ].proto_id;
+        ctx->proto_id       [ sock_idx ] = (uchar)protos[ proto_idx ].proto_id;
         ctx->link_rx_map    [ sock_idx ] = (uchar)j;
         ctx->rx_listen_ports[ sock_idx ] = (ushort)listen_port;
         break;

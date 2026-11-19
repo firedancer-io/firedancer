@@ -865,7 +865,7 @@ test_rx_non_fd_packets( void ) {
     test_vfs_init();
     test_tile.vf_cnt                 = 1UL;
     test_tile.batch_size             = 1U;
-    test_tile.net.rx_dest_cnt        = 1UL;
+    test_tile.net.rx_proto_cnt       = 1UL;
     test_tile.net.rx_listen_ports[0] = 9000U;
     test_tile.net.rx_proto_ids[0]    = DST_PROTO_SHRED;
     test_tile.net.rx_out_link_idx[0] = cases[i].out_idx;
@@ -920,7 +920,7 @@ recv_vlan_pkt( ushort inner_type ) {
   test_vfs_init();
   test_tile.vf_cnt                 = 1UL;
   test_tile.batch_size             = 1U;
-  test_tile.net.rx_dest_cnt        = 1UL;
+  test_tile.net.rx_proto_cnt       = 1UL;
   test_tile.net.rx_listen_ports[0] = 9000U;
   test_tile.net.rx_proto_ids[0]    = DST_PROTO_SHRED;
   test_tile.net.rx_out_link_idx[0] = 0UL;
