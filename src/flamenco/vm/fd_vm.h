@@ -37,14 +37,9 @@ typedef struct fd_vm_input_region fd_vm_input_region_t;
    region location. */
 
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
-   /* Metadata region index, or UINT_MAX without virtual address space
-      adjustments.  The data region follows at region_idx+1 if address
-      space is reserved for account data. */
+   /* Metadata region index.  The data region follows at region_idx+1
+      if address space is reserved for account data. */
    uint       region_idx;
-   /* FIXME: We can get rid of this field once DM is activated.  This is
-      only a hack to make the non-DM code path happy.  When DM is
-      activated, we could query the input_mem_region array for the
-      original data len. */
    ulong      original_data_len;
    /* The transaction account corresponding to this account. */
    fd_acc_t * acc;
@@ -210,17 +205,12 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   ulong magic;    /* ==FD_VM_MAGIC */
 
-  int   direct_mapping;                         /* If direct mapping feature flag is enabled */
-  int   syscall_parameter_address_restrictions; /* If syscall_parameter_address_restrictions feature flag is enabled */
-  int   virtual_address_space_adjustments;      /* If virtual_address_space_adjustments feature flag is enabled */
-
   ulong stack_frame_sz;                  /* Stack frame size in bytes; 0 for manually adjusted stacks */
-  ulong stack_push_frame_count;          /* The number of stack frames to adjust the stack by on every stack push */
 
   /* Agave uses the segv vaddr in several different cases, including:
      - Determining whether or not to return a regular or stack access violation
-     - (If direct mapping is enabled) determining the instruction error
-       code to return on store operations. */
+     - Determining the instruction error code to return on store
+       operations. */
   ulong segv_vaddr;
   ulong segv_access_len;
   uchar segv_access_type;
@@ -236,9 +226,8 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ] __attribute__((aligned(16)));
 
   /* Stack storage, indexed [0,FD_VM_STACK_MAX).  Fixed stack frames
-     occupy FD_VM_STACK_FRAME_SZ bytes each.  When enabled, guard gaps
-     exist only in the VM address space, not in this host buffer.
-     reg[10] holds a VM stack address, not an offset into this array. */
+     occupy FD_VM_STACK_FRAME_SZ bytes each.  reg[10] holds a VM stack
+     address, not an offset into this array. */
   uchar stack[ FD_VM_STACK_MAX ] __attribute__((aligned(FD_VM_HOST_REGION_ALIGN)));
 
   /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free. */
@@ -257,7 +246,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527872UL)
+#define FD_VM_FOOTPRINT (527840UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -323,9 +312,6 @@ fd_vm_init(
    uint                      mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar                     is_deprecated,
-   int                       direct_mapping,
-   int                       syscall_parameter_address_restrictions,
-   int                       virtual_address_space_adjustments,
    int                       dump_syscall_to_pb,
    ulong const               reg[ FD_VM_REG_CNT ] );
 

@@ -414,9 +414,6 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
                    0U,
                    NULL,
                    0,
-                   FD_FEATURE_ACTIVE( slot, features, account_data_direct_mapping ),
-                   FD_FEATURE_ACTIVE( slot, features, syscall_parameter_address_restrictions ),
-                   FD_FEATURE_ACTIVE( slot, features, virtual_address_space_adjustments ),
                    0,
                    (ulong[ FD_VM_REG_CNT ]){ 0 } );
   if( FD_UNLIKELY( !vm ) ) return 1;

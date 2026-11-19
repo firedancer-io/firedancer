@@ -78,14 +78,13 @@ build_v3_elf( uchar buf[ ELF_V3_MAX ] ) {
   return phdr_end + rodata_sz + bytecode_sz;
 }
 
-static fd_progcache_t deploy_progcache[1];
+static uchar          deploy_scratch[ FD_PROGCACHE_SCRATCH_FOOTPRINT ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
+static fd_progcache_t deploy_progcache[1] = {{ .scratch = deploy_scratch, .scratch_sz = sizeof(deploy_scratch) }};
 
 struct deploy_env {
   fd_banks_t *        banks;
   fd_bank_t *         bank;
   fd_runtime_t *      runtime;
-  void *              frames_shmem;
-  void *              frames_join;
   fd_txn_out_t *      txn_out;
   fd_instr_info_t     instr[1];
   fd_exec_instr_ctx_t ctx[1];
@@ -112,13 +111,6 @@ deploy_env_init( deploy_env_t * env,
   fd_memset( env->runtime, 0, sizeof(fd_runtime_t) );
   env->runtime->instr.stack_sz = 1;
   env->runtime->progcache      = deploy_progcache;
-
-  ulong local_cnt = FD_MAX_INSTRUCTION_STACK_DEPTH;
-  env->frames_shmem = fd_wksp_alloc_laddr( wksp, fd_bpf_frames_shmem_align(), fd_bpf_frames_shmem_footprint( 0UL, 1UL, local_cnt ), tag++ );
-  env->frames_join  = fd_wksp_alloc_laddr( wksp, fd_bpf_frames_align(),       fd_bpf_frames_footprint(),                       tag++ );
-  FD_TEST( env->frames_shmem && env->frames_join );
-  env->runtime->bpf_frames = fd_bpf_frames_join( env->frames_join, fd_bpf_frames_shmem_new( env->frames_shmem, 0UL, 1UL, local_cnt ) );
-  FD_TEST( env->runtime->bpf_frames );
 
   env->txn_out = fd_wksp_alloc_laddr( wksp, alignof(fd_txn_out_t), sizeof(fd_txn_out_t), tag++ );
   FD_TEST( env->txn_out );
@@ -147,8 +139,6 @@ deploy_env_init( deploy_env_t * env,
 static void
 deploy_env_destroy( deploy_env_t * env ) {
   fd_wksp_free_laddr( env->txn_out );
-  fd_wksp_free_laddr( env->frames_join );
-  fd_wksp_free_laddr( env->frames_shmem );
   fd_wksp_free_laddr( env->runtime );
   fd_wksp_free_laddr( env->banks );
 }

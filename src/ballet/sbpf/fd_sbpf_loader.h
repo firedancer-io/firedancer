@@ -378,8 +378,6 @@ fd_sbpf_program_delete( fd_sbpf_program_t * program );
 /* SIMD-0166 */
 /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L32-L34 */
 static inline int fd_sbpf_manual_stack_frame_bump_enabled            ( ulong v ) { return v==FD_SBPF_V1 || v==FD_SBPF_V2; }
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L36-L38 */
-static inline int fd_sbpf_stack_frame_gaps_enabled                   ( ulong v ) { return v==FD_SBPF_V0; }
 
 /* SIMD-0174 */
 /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L41-L43 */

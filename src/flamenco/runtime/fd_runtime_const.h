@@ -105,8 +105,7 @@ FD_PROTOTYPES_BEGIN
 
 /* FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN is the protocol level hardcoded
    limit on the total account data growth (sum of resize deltas) across a
-   single transaction.  Defined here (alongside FD_RUNTIME_ACC_SZ_MAX) so
-   low-level size bounds can reference it; fd_borrowed_account.h's
+   single transaction.  fd_borrowed_account.h's
    MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN and fd_vm_private.h's
    FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION are kept equal to this via
    static asserts in those headers. */
@@ -153,18 +152,6 @@ FD_PROTOTYPES_BEGIN
    https://github.com/anza-xyz/agave/blob/v3.1.1/transaction-context/src/lib.rs#L33 */
 #define FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN (10240UL)
 
-/* The bpf loader's serialization footprint (the size of the per-stack-
-   frame input region buffer) is bounded by FD_BPF_LOADER_INPUT_REGION_
-   FOOTPRINT / BPF_LOADER_SERIALIZATION_FOOTPRINT below; see the comment
-   there for the derivation.  Briefly: per-account fixed overhead
-   (metadata + per-account resize headroom + alignment) for up to 64
-   unique accounts, plus the total account-data body bounded once by the
-   per-transaction loaded-data cap (64 MiB) plus the per-transaction data
-   growth cap (20 MiB), plus instruction/program-id/pointer-array
-   trailers.  This is far tighter than the previous 64 * 10MiB worst
-   case, which assumed all 64 accounts could simultaneously be at the
-   per-account max size (the loaded-data + growth caps make that
-   impossible). */
 #define MAX_PERMITTED_DATA_INCREASE (10240UL) // 10KB
 #define FD_BPF_ALIGN_OF_U128        (8UL)
 #define FD_ACCOUNT_REC_ALIGN        (8UL)
@@ -172,11 +159,9 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_EBPF_HOST_ALIGN  (16UL)
 
 /* FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT is the per-unique-account
-   serialization overhead EXCLUDING the account's data body: the fixed
-   metadata fields, plus the realloc headroom (MAX_PERMITTED_DATA_INCREASE)
-   and the worst-case per-account alignment padding (FD_BPF_ALIGN_OF_U128).
-   The account data body itself is bounded separately, at the region level,
-   by the per-transaction loaded-accounts-data cap (see below). */
+   serialization overhead: the fixed metadata fields, plus the
+   per-account alignment padding (FD_BPF_ALIGN_OF_U128).  The account's
+   data body is mapped, not serialized. */
 #define FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT                                                                                                        \
                                               (1UL                         /* dup byte          */                                                        + \
                                                sizeof(uchar)               /* is_signer         */                                                        + \
@@ -188,7 +173,6 @@ FD_PROTOTYPES_BEGIN
                                                sizeof(ulong)               /* lamports          */                                                        + \
                                                sizeof(ulong)               /* data len          */                                                        + \
                                                FD_BPF_ALIGN_OF_U128        /* per-account data alignment padding */                                       + \
-                                               MAX_PERMITTED_DATA_INCREASE /* realloc headroom (additive to loaded size) */                               + \
                                                sizeof(ulong))              /* rent_epoch        */
 #define FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT (8UL) /* 1 dup byte + 7 bytes for padding */
 
@@ -228,44 +212,13 @@ FD_PROTOTYPES_BEGIN
 /* FD_BPF_LOADER_INPUT_REGION_FOOTPRINT bounds the bytes a single
    instruction can serialize into one input region.
 
-   The account data bodies are NOT bounded by account_lock_limit *
-   FD_RUNTIME_ACC_SZ_MAX (64 * 10 MiB = 640 MiB): a transaction is
-   rejected before execution (and therefore before serialization) if the
-   sum of its loaded account data exceeds
-   FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT (see
-   fd_executor_load_transaction_accounts ->
-   fd_increase_calculated_data_size, called from
-   fd_runtime_pre_execute_check before fd_execute_txn).  Note that this
-   does not include the instructions sysvar, as this is not counted
-   towards the loaded accounts data size limit.  An instruction
-   serializes a subset of the transaction's (<= account_lock_limit
-   unique) accounts, each unique account's data copied at most once (dups
-   cost 8 bytes).
-
-   However, a program may GROW account data during execution before a
-   later instruction (or CPI) re-serializes it.  Total account-data
-   growth across a transaction is itself capped, at
-   FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN (== fd_borrowed_account.h's
-   MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN, which fd_borrowed_account.c
-   enforces by rejecting any resize that pushes accounts_resize_delta
-   over the cap).  So the worst-case account-data body serialized by any
-   one instruction is bounded by
-
-     FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT          (initial loaded data)
-   + FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN         (max growth this txn)
-
-   i.e. 64 MiB + 20 MiB = 84 MiB.  We charge the data bodies once at the
-   region level with that combined bound, plus the fixed per-account
-   overhead (metadata + per-account realloc headroom + alignment).
-
-   When direct_mapping is enabled the data body is mapped rather than
-   copied, so it costs nothing in this buffer at all. */
-#define FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(account_lock_limit, direct_mapping)                                                                          \
+   Account data bodies are mapped, not copied, so they cost nothing in
+   this buffer.  An instruction serializes the fixed per-account
+   overhead of up to account_lock_limit unique accounts (dups cost 8
+   bytes), plus instruction/program-id/pointer-array trailers. */
+#define FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(account_lock_limit)                                                                                          \
                                               (FD_ULONG_ALIGN_UP( (sizeof(ulong)                      /* acct_cnt       */                          +     \
                                                                    account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FIXED_FOOTPRINT                  +     \
-                                                                   ((direct_mapping) ? 0UL : ((ulong)FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT +              \
-                                                                                              (ulong)FD_RUNTIME_ACC_DATA_GROWTH_MAX_PER_TXN))       +     \
-                                                                   FD_SYSVAR_INSTRUCTIONS_FOOTPRINT                                                 +     \
                                                                    (FD_TXN_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
                                                                    sizeof(ulong)                      /* instr data len */                          +     \
                                                                    FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN  /* instr data  */                             +     \
@@ -274,9 +227,7 @@ FD_PROTOTYPES_BEGIN
                                                                    FD_TXN_INSTR_ACCT_MAX*sizeof(ulong) /* direct_account_pointers_in_program_input */),   \
                                                                    FD_RUNTIME_EBPF_HOST_ALIGN ))
 
-
-
-#define BPF_LOADER_SERIALIZATION_FOOTPRINT (FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0))
+#define BPF_LOADER_SERIALIZATION_FOOTPRINT (FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(MAX_TX_ACCOUNT_LOCKS))
 
 #define FD_HARD_FORKS_MAX (64UL)
 

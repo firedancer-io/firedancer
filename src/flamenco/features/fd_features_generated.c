@@ -1935,7 +1935,7 @@ fd_feature_id_t const ids[] = {
                                  /* EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF */
     .name                      = "syscall_parameter_address_restrictions",
     .implemented               = 1,
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, virtual_address_space_adjustments)>>3,
@@ -1943,14 +1943,16 @@ fd_feature_id_t const ids[] = {
                                  /* 7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz */
     .name                      = "virtual_address_space_adjustments",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, account_data_direct_mapping)>>3,
     .id                        = {"\xa9\x99\x77\xe6\xb5\x9b\x63\x35\x90\xe7\x38\x63\x73\x13\x44\x73\xb6\x2c\x57\xe4\xcb\x61\x87\x3e\xae\xb4\xfd\xe3\xbc\x22\x14\x93"},
                                  /* CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE */
     .name                      = "account_data_direct_mapping",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, direct_account_pointers_in_program_input)>>3,
     .id                        = {"\x0c\x44\xec\x12\x55\x21\x26\x43\xc3\xaa\xb7\x2e\xab\x43\x54\xb1\xb3\xab\xad\xef\xe3\x95\x02\xd3\xb7\xd1\x2e\x7f\xb8\xa3\x41\xd0"},

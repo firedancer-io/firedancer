@@ -58,8 +58,6 @@ struct fixture_input {
   ulong                     num_instr_accounts;
   ulong                     instr_data_len;
   fd_pubkey_t               program_id;
-  uchar                     virtual_address_space_adj;
-  uchar                     direct_mapping;
   uchar                     direct_account_pointers_in_program_input;
   uchar                     is_deprecated;
 };
@@ -335,8 +333,6 @@ parse_input( fd_alloc_t *      alloc,
     else if( fd_jtok_str_eq( &k, "instruction_accounts" ) ) { if( FD_UNLIKELY( parse_instr_accounts( alloc, j, in ) ) ) return -1; }
     else if( fd_jtok_str_eq( &k, "instruction_data"     ) ) { if( FD_UNLIKELY( b64_decode( j, &in->instr_data, &in->instr_data_len ) ) ) return -1; }
     else if( fd_jtok_str_eq( &k, "program_id"           ) ) { if( FD_UNLIKELY( b64_pubkey( j, &in->program_id ) ) ) return -1; }
-    else if( fd_jtok_str_eq( &k, "virtual_address_space_adjustments"        ) ) { if( FD_UNLIKELY( parse_bool( j, &in->virtual_address_space_adj                ) ) ) return -1; }
-    else if( fd_jtok_str_eq( &k, "account_data_direct_mapping"              ) ) { if( FD_UNLIKELY( parse_bool( j, &in->direct_mapping                           ) ) ) return -1; }
     else if( fd_jtok_str_eq( &k, "direct_account_pointers_in_program_input" ) ) { if( FD_UNLIKELY( parse_bool( j, &in->direct_account_pointers_in_program_input ) ) ) return -1; }
     else if( fd_jtok_str_eq( &k, "is_deprecated_loader"                     ) ) { if( FD_UNLIKELY( parse_bool( j, &in->is_deprecated                            ) ) ) return -1; }
   }
@@ -525,11 +521,9 @@ setup_instr_ctx( fixture_input_t const * in,
   }
 
   /* This test calls fd_bpf_loader_input_serialize_parameters directly,
-     bypassing fd_instr_stack_push and fd_bpf_execute.  The serializer
-     writes into the frame of the current stack level, so set stack_sz to
-     1 and take that frame. */
+     bypassing fd_instr_stack_push.  The serializer reads stack_sz to
+     index the per-frame serialization scratch buffer, so set it to 1. */
   runtime->instr.stack_sz = 1;
-  runtime->bpf_loader_serialization.frame[ 0 ] = fd_bpf_frames_acquire( runtime->bpf_frames, 0 );
 
   fd_memset( instr_ctx, 0, sizeof(fd_exec_instr_ctx_t) );
   instr_ctx->instr   = g_info;
@@ -550,7 +544,7 @@ cleanup_instr_ctx( fixture_input_t const * in,
   fd_alloc_free( alloc, storage );
 }
 
-/* run_fixture serializes with the three arrays pre-filled with fill.
+/* run_fixture serializes with the two arrays pre-filled with fill.
    fd_bpf_execute does not zero them, so every entry the serializer
    leaves unwritten must be one nothing reads: run with 0 and 0xA5. */
 
@@ -566,8 +560,8 @@ run_fixture( fd_svm_mini_t * mini,
   int program_idx = find_program_index( in );
   FD_TEST( program_idx>=0 );
 
-  FD_LOG_NOTICE(( "  %s: %lu accounts, virtual_address_space_adj=%d, direct_mapping=%d, direct_account_pointers=%d, is_deprecated=%d",
-                  in->name, in->num_accounts, in->virtual_address_space_adj, in->direct_mapping,
+  FD_LOG_NOTICE(( "  %s: %lu accounts, direct_account_pointers=%d, is_deprecated=%d",
+                  in->name, in->num_accounts,
                   in->direct_account_pointers_in_program_input, in->is_deprecated ));
 
   uchar **            storage = NULL;
@@ -575,22 +569,19 @@ run_fixture( fd_svm_mini_t * mini,
   setup_instr_ctx( in, program_idx, mini, alloc, &storage, ctx );
 
   ulong                   serialized_sz = 0;
-  ulong                   pre_lens[FD_TXN_INSTR_ACCT_MAX];
-  fd_vm_input_region_t    regions[1000];
+  fd_vm_input_region_t    regions[ FD_BPF_LOADER_INPUT_REGIONS_MAX ];
   uint                    region_cnt = 0;
   fd_vm_acc_region_meta_t acc_metas[FD_TXN_INSTR_ACCT_MAX];
   ulong                   idata_offset = 0;
   ulong                   aptr_offset  = 0;
 
-  fd_memset( pre_lens,  fill, sizeof(pre_lens)  );
   fd_memset( regions,   fill, sizeof(regions)   );
   fd_memset( acc_metas, fill, sizeof(acc_metas) );
 
-  uchar * serialized = ctx->runtime->bpf_loader_serialization.frame[ ctx->runtime->instr.stack_sz-1UL ];
+  uchar * serialized = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
 
   int result = fd_bpf_loader_input_serialize_parameters(
-      ctx, pre_lens, regions, &region_cnt, acc_metas,
-      in->virtual_address_space_adj, in->direct_mapping,
+      ctx, regions, &region_cnt, acc_metas,
       in->direct_account_pointers_in_program_input,
       in->is_deprecated,
       &idata_offset, &aptr_offset, &serialized_sz );
@@ -638,9 +629,8 @@ run_fixture( fd_svm_mini_t * mini,
           ok = 0;
         }
       }
-      /* Deserializing the unmodified buffer reads pre_lens and the metas */
-      if( ok && fd_bpf_loader_input_deserialize_parameters( ctx, pre_lens, serialized, serialized_sz,
-                                                             in->virtual_address_space_adj, in->direct_mapping,
+      /* Deserializing the unmodified buffer reads the metas */
+      if( ok && fd_bpf_loader_input_deserialize_parameters( ctx, acc_metas, serialized, serialized_sz,
                                                              in->is_deprecated ) ) {
         FD_LOG_WARNING(( "deserialize failed on the unmodified buffer" ));
         ok = 0;
@@ -653,7 +643,6 @@ run_fixture( fd_svm_mini_t * mini,
     }
   }
 
-  fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ 0 ] );
   cleanup_instr_ctx( in, alloc, storage );
 
   return ok ? 0 : -1;
@@ -692,8 +681,6 @@ touch_vm_haddr( fd_vm_input_region_t * regions,
 static void
 test_touched_case( fd_svm_mini_t * mini,
                    fd_alloc_t *    alloc,
-                   int             vasa,
-                   int             dm,
                    int             action,
                    int const       expect[4] ) {
   static uchar data1[16] = { 1, 2, 3 };
@@ -713,26 +700,23 @@ test_touched_case( fd_svm_mini_t * mini,
   fixture_input_t in = {
     .name = "touched", .accounts = accs, .instr_accounts = iaccs,
     .num_accounts = 4UL, .num_instr_accounts = 3UL,
-    .program_id = { .ul = { 0x10 } },
-    .virtual_address_space_adj = (uchar)vasa, .direct_mapping = (uchar)dm
+    .program_id = { .ul = { 0x10 } }
   };
 
   uchar **            storage = NULL;
   fd_exec_instr_ctx_t ctx[1];
   setup_instr_ctx( &in, 0, mini, alloc, &storage, ctx );
 
-  ulong                   pre_lens[ FD_TXN_INSTR_ACCT_MAX ];
-  static fd_vm_input_region_t regions[ 1000 ];
+  fd_vm_input_region_t    regions[ FD_BPF_LOADER_INPUT_REGIONS_MAX ];
   uint                    region_cnt = 0U;
   fd_vm_acc_region_meta_t metas[ FD_TXN_INSTR_ACCT_MAX ];
   ulong                   idata_off = 0UL;
   ulong                   aptr_off  = 0UL;
   ulong                   ser_sz    = 0UL;
-  fd_memset( pre_lens, 0xA5, sizeof(pre_lens) ); /* not zeroed in fd_bpf_execute either */
-  fd_memset( regions,  0xA5, sizeof(regions)  );
+  fd_memset( regions,  0xA5, sizeof(regions)  ); /* not zeroed in fd_bpf_execute either */
   fd_memset( metas,    0xA5, sizeof(metas)    );
-  FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, pre_lens, regions, &region_cnt, metas, vasa, dm, 0, 0, &idata_off, &aptr_off, &ser_sz ) );
-  uchar * ser = ctx->runtime->bpf_loader_serialization.frame[ ctx->runtime->instr.stack_sz-1UL ];
+  FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, regions, &region_cnt, metas, 0, 0, &idata_off, &aptr_off, &ser_sz ) );
+  uchar * ser = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
 
   for( ulong i=0UL; i<4UL; i++ ) FD_TEST( !ctx->txn_out->accounts.touched[ i ] );
 
@@ -760,37 +744,88 @@ test_touched_case( fd_svm_mini_t * mini,
     break;
   }
 
-  FD_TEST( !fd_bpf_loader_input_deserialize_parameters( ctx, pre_lens, ser, ser_sz, vasa, dm, 0 ) );
+  FD_TEST( !fd_bpf_loader_input_deserialize_parameters( ctx, metas, ser, ser_sz, 0 ) );
 
   for( ulong i=0UL; i<4UL; i++ ) {
     int got = ctx->txn_out->accounts.touched[ i ];
     if( FD_UNLIKELY( got!=expect[ i ] ) ) {
-      FD_LOG_ERR(( "vasa=%d dm=%d action=%d: account %lu touched=%d, expected %d", vasa, dm, action, i, got, expect[ i ] ));
+      FD_LOG_ERR(( "action=%d: account %lu touched=%d, expected %d", action, i, got, expect[ i ] ));
     }
   }
-  fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ 0 ] );
   cleanup_instr_ctx( &in, alloc, storage );
 }
 
 static void
 test_touched( fd_svm_mini_t * mini,
               fd_alloc_t *    alloc ) {
-  /* Copying modes: deserialization writes back the data of every
-     writable, program owned account (set_data_from_slice). */
-  for( int vasa=0; vasa<2; vasa++ ) {
-    test_touched_case( mini, alloc, vasa, 0, TOUCH_NONE,     (int[4]){ 0, 1, 0, 0 } );
-    test_touched_case( mini, alloc, vasa, 0, TOUCH_SAME_LAM, (int[4]){ 0, 1, 0, 0 } );
-    test_touched_case( mini, alloc, vasa, 0, TOUCH_ADD_LAM,  (int[4]){ 0, 1, 1, 0 } );
-  }
-  /* Direct mapping: only a write into the account's data region, or a
-     change of a field written back on deserialization, touches. */
-  test_touched_case( mini, alloc, 1, 1, TOUCH_NONE,     (int[4]){ 0, 0, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_RD_DATA1, (int[4]){ 0, 0, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_WR_DATA1, (int[4]){ 0, 1, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_WR_DATA2, (int[4]){ 0, 0, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_SAME_LAM, (int[4]){ 0, 0, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_ADD_LAM,  (int[4]){ 0, 0, 1, 0 } );
+  /* Only a write into the account's data region, or a change of a field
+     written back on deserialization, touches. */
+  test_touched_case( mini, alloc, TOUCH_NONE,     (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_RD_DATA1, (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_WR_DATA1, (int[4]){ 0, 1, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_WR_DATA2, (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_SAME_LAM, (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_ADD_LAM,  (int[4]){ 0, 0, 1, 0 } );
   FD_LOG_NOTICE(( "touched parity... ok" ));
+}
+
+/* The largest input an instruction can serialize: every transaction
+   account once, the rest of the instruction accounts as duplicates, and
+   the largest instruction data.  It must fit the serialization buffer
+   and the regions array. */
+
+static void
+test_worst_case( fd_svm_mini_t * mini,
+                 fd_alloc_t *    alloc,
+                 int             is_deprecated ) {
+  static uchar                   data1[1] = { 7 };
+  static uchar                   instr_data[ FD_INSTR_DATA_MAX ];
+  static fixture_account_t       accs [ MAX_TX_ACCOUNT_LOCKS  ];
+  static fixture_instr_account_t iaccs[ FD_TXN_INSTR_ACCT_MAX ];
+
+  fd_memset( accs, 0, sizeof(accs) );
+  for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) {
+    accs[ i ].pubkey   = (fd_pubkey_t){ .ul = { 0x100UL+i } };
+    accs[ i ].owner    = (fd_pubkey_t){ .ul = { 0x100UL } };
+    accs[ i ].data     = data1;
+    accs[ i ].data_len = sizeof(data1);
+    accs[ i ].lamports = 1000UL;
+  }
+  accs[ 0 ].owner      = fd_solana_bpf_loader_upgradeable_program_id;
+  accs[ 0 ].executable = 1;
+  for( ulong i=0UL; i<FD_TXN_INSTR_ACCT_MAX; i++ ) {
+    iaccs[ i ] = (fixture_instr_account_t){ .index_in_transaction = (ushort)( i%MAX_TX_ACCOUNT_LOCKS ), .is_writable = 1 };
+  }
+  fixture_input_t in = {
+    .name = "worst_case", .accounts = accs, .instr_accounts = iaccs,
+    .instr_data = instr_data, .instr_data_len = sizeof(instr_data),
+    .num_accounts = MAX_TX_ACCOUNT_LOCKS, .num_instr_accounts = FD_TXN_INSTR_ACCT_MAX,
+    .program_id = { .ul = { 0x100UL } }
+  };
+
+  uchar **            storage = NULL;
+  fd_exec_instr_ctx_t ctx[1];
+  setup_instr_ctx( &in, 0, mini, alloc, &storage, ctx );
+
+  fd_vm_input_region_t    regions[ FD_BPF_LOADER_INPUT_REGIONS_MAX ];
+  uint                    region_cnt = 0U;
+  fd_vm_acc_region_meta_t metas[ FD_TXN_INSTR_ACCT_MAX ];
+  ulong                   idata_off = 0UL;
+  ulong                   aptr_off  = 0UL;
+  ulong                   ser_sz    = 0UL;
+  FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, regions, &region_cnt, metas, 1, (uchar)is_deprecated, &idata_off, &aptr_off, &ser_sz ) );
+  uchar * ser = ctx->runtime->bpf_loader_serialization.serialization_mem[ ctx->runtime->instr.stack_sz-1UL ];
+
+  FD_TEST( region_cnt==FD_BPF_LOADER_INPUT_REGIONS_MAX );
+  FD_TEST( ser_sz<=BPF_LOADER_SERIALIZATION_FOOTPRINT );
+  /* The aligned loader reaches the bound, less the pad before the
+     pointer table and the final round up. */
+  if( !is_deprecated ) FD_TEST( BPF_LOADER_SERIALIZATION_FOOTPRINT-ser_sz<=FD_BPF_ALIGN_OF_U128+FD_RUNTIME_EBPF_HOST_ALIGN );
+
+  FD_TEST( !fd_bpf_loader_input_deserialize_parameters( ctx, metas, ser, ser_sz, (uchar)is_deprecated ) );
+
+  cleanup_instr_ctx( &in, alloc, storage );
+  FD_LOG_NOTICE(( "worst case (is_deprecated=%d)... ok", is_deprecated ));
 }
 
 int
@@ -859,6 +894,8 @@ main( int argc, char ** argv ) {
   fd_alloc_free( alloc, data );
 
   test_touched( mini, alloc );
+  test_worst_case( mini, alloc, 0 );
+  test_worst_case( mini, alloc, 1 );
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
   fd_wksp_delete_anonymous( fix_wksp );
 
