@@ -14,13 +14,13 @@
    - Any non-migrated builtins have a conservative default CU limit of 3,000 CUs.
    - Any migrated and non-builtins have a default CU limit of 200,000 CUs.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/builtin_programs_filter.rs#L9-L19 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/builtin_programs_filter.rs#L11-L21 */
 #define FD_PROGRAM_KIND_NOT_BUILTIN       (0)
 #define FD_PROGRAM_KIND_BUILTIN           (1)
 #define FD_PROGRAM_KIND_MIGRATING_BUILTIN (2)
 
 /* Borsh-encoded ComputeBudgetInstruction discriminants.
-   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/sdk/src/compute_budget.rs */
+   https://github.com/anza-xyz/solana-sdk/blob/compute-budget-interface%40v3.1.0/compute-budget-interface/src/lib.rs#L24-L38 */
 
 #define FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_UNITS_DEPRECATED            (0U)
 #define FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_HEAP_FRAME                  (1U)
@@ -100,7 +100,7 @@ FD_PROTOTYPES_BEGIN
    size limit is 0. Also bounds the compute unit and loaded
    accounts data size limits to a specified min / max value.
 
-   https://github.com/anza-xyz/agave/blob/v2.3.1/compute-budget-instruction/src/compute_budget_instruction_details.rs#L101-L153 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget-instruction/src/compute_budget_instruction_details.rs#L101-L153 */
 int
 fd_sanitize_compute_unit_limits( fd_txn_out_t * txn_out );
 

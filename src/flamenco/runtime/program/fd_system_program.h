@@ -9,7 +9,7 @@
    buffer for variable-length fields (seeds).  Callers must keep the
    instruction buffer alive for the lifetime of the decoded struct.
 
-   https://github.com/anza-xyz/solana-sdk/blob/system-interface%40v3.0.0/system-interface/src/instruction.rs#L92-L299 */
+   https://github.com/anza-xyz/solana-sdk/blob/system-interface%40v3.3.0/system-interface/src/instruction.rs#L93-L300 */
 
 #include "../../fd_flamenco_base.h"
 #include "../../../ballet/utf8/fd_utf8.h"
@@ -32,8 +32,8 @@
 
 /* Nonce account state bincode wire format (must match Agave byte-for-byte).
 
-   https://github.com/anza-xyz/solana-sdk/blob/nonce%40v3.0.0/nonce/src/versions.rs
-   https://github.com/anza-xyz/solana-sdk/blob/nonce%40v3.0.0/nonce/src/state.rs
+   https://github.com/anza-xyz/solana-sdk/blob/nonce%40v3.4.0/nonce/src/versions.rs
+   https://github.com/anza-xyz/solana-sdk/blob/nonce%40v3.4.0/nonce/src/state.rs
 
    Outer enum `Versions` (4-byte u32 LE discriminant):
      0 = Legacy(Box<State>)
@@ -58,7 +58,7 @@
 #define FD_NONCE_STATE_UNINITIALIZED_SZ (8UL)
 #define FD_NONCE_STATE_INITIALIZED_SZ   (80UL)
 
-/* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L49-L53 */
+/* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v5.0.0/nonce-account/src/lib.rs#L61-L65 */
 #define FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN (-1)
 #define FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_SYSTEM  (0)
 #define FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE   (1)
@@ -162,7 +162,7 @@ fd_system_program_instruction_decode( fd_system_program_instruction_t * out,
                                       ulong                             data_sz ) {
   uchar const * _payload    = data;
   /* limited_deserialize(data, PACKET_DATA_SIZE)
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/system/src/system_processor.rs#L324 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L323-L325 */
   ulong const   _payload_sz = fd_ulong_min( data_sz, FD_TXN_MTU_V0 );
   ulong         _i          = 0UL;
 
@@ -595,7 +595,7 @@ fd_check_transaction_age( fd_bank_t *         bank,
    - FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE if the account is a
      nonce account
    - FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN otherwise
-   https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L55-L71 */
+   https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v5.0.0/nonce-account/src/lib.rs#L67-L92 */
 
 int
 fd_get_system_account_kind( fd_acc_t const * acc );

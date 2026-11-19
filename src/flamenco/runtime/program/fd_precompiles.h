@@ -13,7 +13,7 @@
 #include "../fd_executor.h"
 
 /* PrecompileError
-   https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/precompiles.rs#L16
+   https://github.com/anza-xyz/solana-sdk/blob/precompile-error%40v3.0.0/precompile-error/src/lib.rs#L6-L12
    Agave distinguishes between 5 errors and the returned one depends on
    the order they decided to write their code.
    These are all fatal errors, so the specific errors don't matter for

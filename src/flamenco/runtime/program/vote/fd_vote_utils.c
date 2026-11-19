@@ -7,7 +7,7 @@
 /* Lockout utilities                                                  */
 /**********************************************************************/
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L104
+// https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L81-L84
 ulong
 fd_vote_lockout_get_lockout( fd_vote_lockout_t * self ) {
   /* Confirmation count can never be greater than MAX_LOCKOUT_HISTORY, preventing overflow.
@@ -16,19 +16,19 @@ fd_vote_lockout_get_lockout( fd_vote_lockout_t * self ) {
   return 1UL<<confirmation_count;
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L110
+// https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L90
 ulong
 fd_vote_lockout_last_locked_out_slot( fd_vote_lockout_t * self ) {
   return fd_ulong_sat_add( self->slot, fd_vote_lockout_get_lockout( self ) );
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L114
+// https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L94
 ulong
 fd_vote_lockout_is_locked_out_at_slot( fd_vote_lockout_t * self, ulong slot ) {
   return fd_vote_lockout_last_locked_out_slot( self ) >= slot;
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L122
+// https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L106
 void
 fd_vote_lockout_increase_confirmation_count( fd_vote_lockout_t * self, uint by ) {
   self->confirmation_count = fd_uint_sat_add( self->confirmation_count, by );
@@ -70,7 +70,7 @@ int
 fd_vote_verify_authorized_signer( fd_pubkey_t const * authorized,
                                   fd_pubkey_t const * signers[static FD_INSTR_SIGNERS_MAX],
                                   ulong               signers_cnt ) {
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L989
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/mod.rs#L1008
   return fd_signers_contains( signers, signers_cnt, authorized ) ?
     FD_EXECUTOR_INSTR_SUCCESS :
     FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -93,16 +93,16 @@ fd_vote_compute_vote_latency( ulong voted_for_slot,
 ulong
 fd_vote_credits_for_vote_at_index( fd_landed_vote_t const * votes,
                                    ulong                    index ) {
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L679
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L448
   fd_landed_vote_t const * landed_vote = deq_fd_landed_vote_t_peek_index_const( votes, index );
   ulong                    latency     = landed_vote == NULL ? 0 : landed_vote->latency;
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L683
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L461
   ulong                    max_credits =  VOTE_CREDITS_MAXIMUM_PER_SLOT;
 
   /* If latency is 0, this means that the Lockout was created and stored
      from a software version that did not store vote latencies; in this
      case, 1 credit is awarded.
-     https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L691 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L455 */
   if( FD_UNLIKELY( latency==0UL ) ) {
     return 1;
   }
@@ -110,17 +110,17 @@ fd_vote_credits_for_vote_at_index( fd_landed_vote_t const * votes,
   ulong diff = 0;
   int   cf   = fd_ulong_checked_sub( latency, VOTE_CREDITS_GRACE_SLOTS, &diff );
   if( cf || diff==0UL ) {
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L697
+    // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L461
     return max_credits;
   }
 
   ulong credits = 0;
   cf = fd_ulong_checked_sub( max_credits, diff, &credits );
   if( cf != 0 || credits == 0 ) {
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L705
+    // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L469
     return 1;
   }
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L707
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L471
   return credits;
 }
 

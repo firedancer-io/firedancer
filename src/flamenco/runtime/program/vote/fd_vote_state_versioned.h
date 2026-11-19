@@ -17,7 +17,7 @@ FD_PROTOTYPES_BEGIN
 /* Decodes the vote account data and stores the decoded state in
    versioned.  Returns FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA if
    decoding fails.
-   https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1074 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/mod.rs#L1209 */
 int
 fd_vsv_get_state( fd_acc_t const *            acc,
                   fd_vote_state_versioned_t * versioned );
@@ -25,7 +25,7 @@ fd_vsv_get_state( fd_acc_t const *            acc,
 /* This is essentially a call to get_state, additionally erroring out
    if the versioned vote state is the Uninitialized (previously
    V0.23.5) variant.
-   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/vote_state_versions.rs#L140-L187 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L56-L64 */
 int
 fd_vsv_deserialize( fd_acc_t const *            acc,
                     fd_vote_state_versioned_t * versioned );
@@ -35,7 +35,7 @@ fd_vsv_deserialize( fd_acc_t const *            acc,
 fd_pubkey_t const *
 fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L717-L722 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L187-L193 */
 uchar
 fd_vsv_get_commission( fd_vote_state_versioned_t * self );
 
@@ -45,11 +45,11 @@ fd_vsv_get_epoch_credits( fd_vote_state_versioned_t * self );
 fd_vote_epoch_credits_t const *
 fd_vsv_get_last_epoch_credits( fd_vote_state_versioned_t * self );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L752-L757 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L265-L269 */
 fd_landed_vote_t const *
 fd_vsv_get_votes( fd_vote_state_versioned_t * self );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L787-L792 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L298-L300 */
 ulong const *
 fd_vsv_get_last_voted_slot( fd_vote_state_versioned_t * self );
 
@@ -59,11 +59,11 @@ fd_vsv_get_root_slot( fd_vote_state_versioned_t * self );
 fd_vote_block_timestamp_t const *
 fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self );
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L938 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L375-L379 */
 int
 fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self );
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L823-L828 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L243-L247 */
 ulong
 fd_vsv_get_pending_delegator_rewards( fd_vote_state_versioned_t * self );
 
@@ -71,7 +71,7 @@ fd_vsv_get_pending_delegator_rewards( fd_vote_state_versioned_t * self );
 /* Mutable getters                                                    */
 /**********************************************************************/
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L815-L820 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L333-L337 */
 fd_vote_epoch_credits_t *
 fd_vsv_get_epoch_credits_mutable( fd_vote_state_versioned_t * self );
 
@@ -86,7 +86,7 @@ int
 fd_vsv_set_state( fd_borrowed_account_t *     self,
                   fd_vote_state_versioned_t * state );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L673-L678 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L116-L120 */
 void
 fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
                                   fd_pubkey_t const *         authorized_withdrawer );
@@ -95,7 +95,7 @@ fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
    Only supported for v3 and v4 vote states.
    authorized_withdrawer_signer and signers are parameters to a closure
    called verify, which is passed into the associated Agave method.
-   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L728 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L129 */
 int
 fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
                                  fd_vote_state_versioned_t * self,
@@ -107,40 +107,40 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
                                  fd_pubkey_t const *         signers[ FD_INSTR_SIGNERS_MAX ],
                                  ulong                       signers_cnt );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L738-L743 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L225-L229 */
 void
 fd_vsv_set_node_pubkey( fd_vote_state_versioned_t * self,
                         fd_pubkey_t const *         node_pubkey );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L745-L750 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L237-L241 */
 void
 fd_vsv_set_block_revenue_collector( fd_vote_state_versioned_t * self,
                                     fd_pubkey_t const *         block_revenue_collector );
 
-/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.2/programs/vote/src/vote_state/handler.rs#L178-L182 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L231-L235 */
 void
 fd_vsv_set_inflation_rewards_collector( fd_vote_state_versioned_t * self,
                                         fd_pubkey_t const *         inflation_rewards_collector );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L724-L729 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L197-L204 */
 void
 fd_vsv_set_commission( fd_vote_state_versioned_t * self,
                         uchar                      commission,
                         ulong                      current_epoch );
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/handler.rs#L781-L786 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L207-L211 */
 void
 fd_vsv_set_inflation_rewards_commission_bps( fd_vote_state_versioned_t * self,
                                              ushort                      commission_bps,
                                              ulong                       current_epoch );
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/handler.rs#L788-L793 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L213-L217 */
 void
 fd_vsv_set_block_revenue_commission_bps( fd_vote_state_versioned_t * self,
                                          ushort                      commission_bps,
                                          ulong                       current_epoch );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L386-L388 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L308-L312 */
 void
 fd_vsv_set_root_slot( fd_vote_state_versioned_t * self, ulong * root_slot );
 
@@ -148,7 +148,7 @@ void
 fd_vsv_set_last_timestamp( fd_vote_state_versioned_t *       self,
                            fd_vote_block_timestamp_t const * last_timestamp );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L843-L851 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L351-L373 */
 int
 fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                fd_borrowed_account_t *     vote_account,
@@ -158,31 +158,31 @@ fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
 /* General functions                                                  */
 /**********************************************************************/
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L282-L309 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L478-L508 */
 void
 fd_vsv_increment_credits( fd_vote_state_versioned_t * self,
                           ulong                       epoch,
                           ulong                       credits );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L159-L170 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L510-L525 */
 int
 fd_vsv_process_timestamp( fd_exec_instr_ctx_t *       ctx,
                           fd_vote_state_versioned_t * self,
                           ulong                       slot,
                           long                        timestamp );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L172-L180 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L527-L535 */
 void
 fd_vsv_pop_expired_votes( fd_vote_state_versioned_t * self, ulong next_vote_slot );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L638-L651 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L554-L585 */
 void
 fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
                                ulong                       next_vote_slot,
                                ulong                       epoch,
                                ulong                       current_slot );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L966-L1007 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L695-L733 */
 int
 fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
                           fd_pubkey_t const *         vote_pubkey );
@@ -194,19 +194,19 @@ int
 fd_vsv_try_convert_to_v5( fd_vote_state_versioned_t * self,
                           ulong                       current_epoch );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L872C12-L886 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L419-L430 */
 int
 fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
                                         fd_borrowed_account_t * vote_account,
                                         int                     target_version );
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L176-L187 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_versions.rs#L128-L139 */
 int
 fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self );
 
 /* Returns 1 if the vote account is the correct size and initialized,
    0 otherwise.
-   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L189-L193 */
+   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_versions.rs#L141-L145 */
 int
 fd_vsv_is_correct_size_and_initialized( uchar const * data,
                                         ulong         data_len );

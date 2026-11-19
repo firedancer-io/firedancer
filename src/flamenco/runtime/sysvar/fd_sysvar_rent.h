@@ -13,7 +13,7 @@
 
 /* alpenclock and genesis certificate account rent is pinned to the
    default rent values here:
-   https://github.com/anza-xyz/solana-sdk/blob/rent%40v4.3.0/rent/src/lib.rs#L87-L95 */
+   https://github.com/anza-xyz/solana-sdk/blob/rent%40v4.5.0/rent/src/lib.rs#L88-L97 */
 #define FD_RENT_DEFAULT_PARAMS ((fd_rent_t){ .lamports_per_uint8_year=6960UL, .exemption_threshold=1.0, .burn_percent=(uchar)50 })
 
 FD_PROTOTYPES_BEGIN

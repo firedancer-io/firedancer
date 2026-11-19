@@ -60,10 +60,10 @@ fd_sysvar_last_restart_slot_update( fd_bank_t *        bank,
 
   ulong last_restart_slot_want = fd_sysvar_last_restart_slot_derive( bank );
 
-  /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2098-L2106 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L2668-L2675 */
   ulong last_restart_slot_have = fd_sysvar_last_restart_slot_read( accdb, bank->accdb_fork_id, ULONG_MAX );
 
-  /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2122-L2130 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L2691-L2699 */
   if( last_restart_slot_have!=last_restart_slot_want ) {
     fd_sysvar_last_restart_slot_write( bank, accdb, capture_ctx, last_restart_slot_want );
   }

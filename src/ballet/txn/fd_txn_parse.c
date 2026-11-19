@@ -87,7 +87,7 @@ fd_txn_parse_core( uchar const             * payload,
      Because for legacy and V0 transactions the signature count is <128,
      Agave uses the high bit to determine if the transaction is V1 or
      legacy/V0:
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-view/src/transaction_frame.rs#L194-L203
+     https://github.com/anza-xyz/agave-sdk/blob/agave-transaction-view%40v10.1.0/transaction-view/src/transaction_frame.rs#L73-L81
 
      High bit 1 = V1
      High bit 0 = Legacy/V0 */
@@ -104,7 +104,7 @@ fd_txn_parse_core( uchar const             * payload,
     /* ------------------------------ V1 transaction parser ------------------------------ */
 
     /* Check that the version byte is correct
-       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-view/src/transaction_frame.rs#L117-L122 */
+       https://github.com/anza-xyz/agave-sdk/blob/agave-transaction-view%40v10.1.0/transaction-view/src/message_frame.rs#L114-L119 */
     CHECK_LEFT( 1UL                             );   uchar version_byte   = payload[ i ];     i++;
     CHECK( (version_byte&0x7FU)==FD_TXN_V1 );
 
@@ -120,7 +120,7 @@ fd_txn_parse_core( uchar const             * payload,
     /* Check the transaction config mask is valid:
        - Only bits 0-4 are used
        - Bits 0 and 1 must either be both set or both clear
-       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-view/src/transaction_config_frame.rs#L90-L112 */
+       https://github.com/anza-xyz/agave-sdk/blob/agave-transaction-view%40v10.1.0/transaction-view/src/transaction_config_view.rs#L85-L107 */
     CHECK_LEFT( 4UL                             );   uint  config_mask    = fd_uint_load_4( payload+i ); i+=4UL;
     CHECK( (config_mask & ~0x1FU)==0U );
     CHECK( ((config_mask>>0)&1U)==((config_mask>>1)&1U) );
@@ -144,7 +144,7 @@ fd_txn_parse_core( uchar const             * payload,
 
     /* If the requested heap size (bit 4) is set, it must be a multiple
        of 1 KiB in the range [32 KiB, 256 KiB].
-       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/transaction_meta.rs#L156-L164 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime-transaction/src/transaction_limits.rs#L96-L104 */
     if( (config_mask>>4)&1U ) {
       uint requested_heap = fd_uint_load_4( payload + config_values_off + 4UL*(num_config_values-1UL) );
       CHECK( (requested_heap>=FD_TXN_V1_MIN_HEAP_SZ          ) &
@@ -163,7 +163,7 @@ fd_txn_parse_core( uchar const             * payload,
     for( ulong j=0UL; j<instr_cnt; j++ ) {
       CHECK_LEFT( 1UL                           );   uchar  program_id = payload[ i ];        i++;
       /* program_id must be a static account and can't be the fee payer
-         https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-view/src/sanitize.rs#L163-L172 */
+         https://github.com/anza-xyz/agave-sdk/blob/agave-transaction-view%40v10.1.0/transaction-view/src/sanitize.rs#L148-L157 */
       CHECK( (0UL<(ulong)program_id) & ((ulong)program_id<(ulong)acct_addr_cnt) );
       CHECK_LEFT( 1UL                           );   uchar  acct_cnt   = payload[ i ];        i++;
       CHECK_LEFT( 2UL                           );   ushort data_sz    = fd_ushort_load_2( payload+i ); i+=2UL;

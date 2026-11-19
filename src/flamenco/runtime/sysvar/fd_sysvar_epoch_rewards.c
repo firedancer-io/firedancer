@@ -79,10 +79,10 @@ fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
 
   fd_accdb_svm_update_t update[1];
   fd_acc_t              acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_epoch_rewards_id, 0 );
-  /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L101 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L94 */
   FD_TEST( acc.lamports>=debit_block_reward_lamports );
   acc.lamports -= debit_block_reward_lamports;
-  /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L102-L105 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L95-L98 */
   FD_TEST( acc.lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, acc.data_len ) );
   fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 }
@@ -101,7 +101,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
     /* Don't inherit the balance to ensure that any remaining lamports
        get burned: the balance is reset to the rent-exempt minimum and
        capitalization is updated.
-       https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L120-L135 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L111-L117 */
     write_epoch_rewards_reset_balance( bank, accdb, capture_ctx, epoch_rewards );
   } else {
     write_epoch_rewards( bank, accdb, capture_ctx, epoch_rewards );
@@ -110,7 +110,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
 
 /* Create EpochRewards sysvar with calculated rewards
 
-   https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L25 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L26 */
 void
 fd_sysvar_epoch_rewards_init( fd_bank_t *        bank,
                               fd_accdb_t *       accdb,
@@ -136,7 +136,7 @@ fd_sysvar_epoch_rewards_init( fd_bank_t *        bank,
   if( FD_UNLIKELY( fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_epoch_rewards( &epoch_rewards );
   write_epoch_rewards( bank, accdb, capture_ctx, &epoch_rewards );
 
-  /* https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L58-L69 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L54-L65 */
   if( block_rewards ) {
     fd_accdb_svm_credit( bank, accdb, capture_ctx, &fd_sysvar_epoch_rewards_id, block_rewards, 0 );
   }

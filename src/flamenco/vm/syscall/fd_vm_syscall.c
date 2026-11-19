@@ -54,7 +54,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     syscall_cnt++;                                                                      \
   } while(0)
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.20/programs/bpf_loader/src/syscalls/mod.rs#L392-L396 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L362-L366 */
 
   REGISTER( "abort",                                 fd_vm_syscall_abort );
   REGISTER( "sol_panic_",                            fd_vm_syscall_sol_panic );
@@ -62,12 +62,12 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   /* As of the activation of disable_deploy_of_alloc_free_syscall, which is activated on all networks,
      programs can no longer be deployed which use the sol_alloc_free_ syscall.
 
-    https://github.com/anza-xyz/agave/blob/d6041c002bbcf1526de4e38bc18fa6e781c380e7/programs/bpf_loader/src/syscalls/mod.rs#L429 */
+    https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L460-L466 */
   if ( FD_LIKELY( !is_deploy ) ) {
     REGISTER( "sol_alloc_free_",                       fd_vm_syscall_sol_alloc_free );
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.18.1/sdk/program/src/syscalls/definitions.rs#L39 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/define-syscall%40v5.3.0/define-syscall/src/definitions.rs#L10 */
 
   REGISTER( "sol_log_",                              fd_vm_syscall_sol_log );
   REGISTER( "sol_log_64_",                           fd_vm_syscall_sol_log_64 );

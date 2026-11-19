@@ -48,7 +48,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
 /* fd_runtime_new_fee_rate_governor_derived updates the bank's
    FeeRateGovernor to a new derived value based on the parent bank's
    FeeRateGovernor and the latest_signatures_per_slot.
-   https://github.com/anza-xyz/solana-sdk/blob/badc2c40071e6e7f7a8e8452b792b66613c5164c/fee-calculator/src/lib.rs#L97-L157
+   https://github.com/anza-xyz/solana-sdk/blob/fee-calculator%40v3.4.0/fee-calculator/src/lib.rs#L101-L161
 
    latest_signatures_per_slot is typically obtained from the parent
    slot's signature count for the bank being processed.
@@ -143,7 +143,7 @@ fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,
 
 /* Mirrors Agave function solana_sdk::transaction_context::get_key_of_account_at_index
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L212 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L264 */
 
 int
 fd_runtime_get_key_of_account_at_index( fd_txn_out_t *       txn_out,
@@ -161,7 +161,7 @@ fd_runtime_get_key_of_account_at_index( fd_txn_out_t *       txn_out,
    1. If the account is in the set of reserved pubkeys
    2. If the account is the program id AND the upgradeable loader account is in
       the set of transaction accounts. */
-/* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L137-L150 */
+/* https://github.com/anza-xyz/solana-sdk/blob/message%40v6.0.0/message/src/versions/v0/loaded.rs#L159-L171 */
 
 int
 fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,

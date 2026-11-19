@@ -44,7 +44,7 @@ FD_PROTOTYPES_BEGIN
    FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and
    FD_EXECUTOR_INSTR_ERR_MISSING_ACC otherwise.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L490 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L109 */
 
 static inline int
 fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t const * ctx,
@@ -68,7 +68,7 @@ fd_exec_instr_ctx_instr_account_map( fd_exec_instr_ctx_t const * ctx,
 
 /* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_index_of_instruction_account_in_transaction
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L552 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L137 */
 
 static inline int
 fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( fd_exec_instr_ctx_t const * ctx,
@@ -80,7 +80,7 @@ fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( fd_exec_instr_ctx_t
   }
 
   /* Return a MissingAccount error if the idx is out of bounds.
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L559 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L144 */
   if( FD_UNLIKELY( idx_in_instr>=ctx->instr->acct_cnt ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
@@ -95,23 +95,23 @@ fd_exec_instr_ctx_get_key_of_account_at_index( fd_exec_instr_ctx_t const * ctx,
                                                ushort                      idx_in_instr,
                                                fd_pubkey_t const * *       key );
 
-/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_last_program_key.
+/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_program_key.
 
    There can only be one program per instruction, so this function simply retrieves
    that program's pubkey, despite the name implying multiple programs per instruction.
    The function exists to match semantics with Agave.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L582 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L186 */
 
 int
 fd_exec_instr_ctx_get_last_program_key( fd_exec_instr_ctx_t const * ctx,
                                         fd_pubkey_t const * *       key );
 
-/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::try_borrow_account.
+/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::try_borrow_instruction_account.
 
    Borrows an account from the instruction context with a given account index.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L594 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L206 */
 
 int
 fd_exec_instr_ctx_try_borrow_instr_account( fd_exec_instr_ctx_t const * ctx,
@@ -131,7 +131,7 @@ fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * c
 
 /* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_signers
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L684 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L253 */
 
 int
 fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
@@ -148,7 +148,7 @@ fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
    specified as multiple different instruction accounts that might not
    all have the signer bit.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/programs/system/src/system_processor.rs#L35-L41 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L36-L42 */
 
 FD_FN_PURE int
 fd_exec_instr_ctx_any_signed( fd_exec_instr_ctx_t const * ctx,

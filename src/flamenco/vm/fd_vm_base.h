@@ -55,7 +55,7 @@
 #define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
 
 /* Syscall Errors
-   https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L67 */
 
 #define FD_VM_SYSCALL_ERR_INVALID_STRING                          (-1)
 #define FD_VM_SYSCALL_ERR_ABORT                                   (-2)
@@ -91,7 +91,7 @@
 #define FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS             (2)
 
 /* EbpfError
-   https://github.com/anza-xyz/sbpf/blob/main/src/error.rs#L20-L78 */
+   https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/error.rs#L20-L75 */
 
 #define FD_VM_ERR_EBPF_ELF_ERROR                                  (-1)
 #define FD_VM_ERR_EBPF_FUNCTION_ALREADY_REGISTERED                (-2)
@@ -171,7 +171,7 @@ FD_PROTOTYPES_END
      region 3  0x300000000  heap
      region 4  0x400000000  input
 
-   https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/ebpf.rs#L42-L51 */
+   https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/ebpf.rs#L42-L51 */
 
 #define FD_VM_LO_REGION    (0UL)
 #define FD_VM_PROG_REGION  (1UL)
@@ -191,8 +191,8 @@ FD_PROTOTYPES_END
 
 /* VM compute budget.  Note: these names should match exactly the names
    used in existing Solana validator.  See:
-   https://github.com/anza-xyz/agave/blob/v1.18.5/program-runtime/src/compute_budget.rs#L19
-   https://github.com/anza-xyz/agave/blob/v1.18.5/program-runtime/src/compute_budget.rs#L133 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/compute-budget/src/compute_budget.rs#L14
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/execution_budget.rs#L230-L293 */
 /* FIXME: DOUBLE CHECK THESE */
 
 /* FD_VM_COMPUTE_UNIT_LIMIT is the number of compute units that a
@@ -213,7 +213,7 @@ FD_PROTOTYPES_END
 
 /* FD_VM_INVOKE_UNITS is the number of compute units consumed by an
    invoke call (not including the cost incurred by the called program)
-   https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/execution_budget.rs#L22-L23 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/execution_budget.rs#L20-L21 */
 #define FD_VM_INVOKE_UNITS                              (             946UL)
 
 /* SIMD-0339 uses a fixed size (80 bytes) to bill each account info:
@@ -221,7 +221,7 @@ FD_PROTOTYPES_END
    - 32 bytes for owner address
    - 8 bytes for lamports
    - 8 bytes for data length
-   https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L63-L68
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L64-L69
  */
 #define FD_VM_ACCOUNT_INFO_BYTE_SIZE                     (             80UL)
 

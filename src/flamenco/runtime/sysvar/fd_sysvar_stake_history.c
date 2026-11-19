@@ -12,7 +12,7 @@ fd_sysvar_stake_history_init( fd_bank_t *        bank,
   fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_stake_history_id, data, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-rc.1/runtime/src/bank.rs#L2452-L2463 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L2875-L2886 */
 
 void
 fd_sysvar_stake_history_update( fd_bank_t *                      bank,
@@ -45,12 +45,12 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
     FD_LOG_ERR(( "invalid stake history sysvar: data_len too small (%lu, required %lu)", rw.data_len, min_sz ));
   }
 
-  /* https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/sysvar_account.rs#L34-L38 */
   if( FD_UNLIKELY( rw.data_len!=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) ) rw.data_len = FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ;
 
   fd_stake_history_entry_t * entries = fd_type_pun( rw.data+8UL );
 
-  /* https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L83 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/stake-history%40v2.1.0/stake-history/src/lib.rs#L197 */
   ulong idx   = 0UL;
   int   found = 0;
   {
@@ -77,11 +77,11 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
   ulong used_sz = 8UL + new_len * sizeof(fd_stake_history_entry_t);
 
   if( found ) {
-    /* https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L84 */
+    /* https://github.com/anza-xyz/solana-sdk/blob/stake-history%40v2.1.0/stake-history/src/lib.rs#L198 */
     entries[ idx ] = *entry;
   } else if( idx < FD_SYSVAR_STAKE_HISTORY_CAP ) {
-    /* https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L85
-       https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L87 */
+    /* https://github.com/anza-xyz/solana-sdk/blob/stake-history%40v2.1.0/stake-history/src/lib.rs#L199
+       https://github.com/anza-xyz/solana-sdk/blob/stake-history%40v2.1.0/stake-history/src/lib.rs#L201 */
     ulong shift_count = fd_ulong_min( len, FD_SYSVAR_STAKE_HISTORY_CAP-1UL ) - idx;
     memmove( &entries[ idx+1UL ], &entries[ idx ], shift_count * sizeof(fd_stake_history_entry_t) );
     entries[ idx ] = *entry;

@@ -8,26 +8,26 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_state_v4.rs#L80 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_v4.rs#L85 */
 void
 fd_vote_state_v4_create_new_with_defaults( fd_pubkey_t const *           vote_pubkey,
                                            fd_vote_init_t const *        vote_init,
                                            fd_sol_sysvar_clock_t const * clock,
                                            fd_vote_state_versioned_t *   versioned /* out */ );
 
-/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_state_v4.rs#L95 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_v4.rs#L102 */
 void
 fd_vote_state_v4_create_new( fd_vote_init_v2_t const *     vote_init_v2,
                              fd_sol_sysvar_clock_t const * clock,
                              fd_vote_state_versioned_t *   versioned /* out */ );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L576-L595 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L351-L373 */
 int
 fd_vote_state_v4_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                          fd_borrowed_account_t *     vote_account,
                                          fd_vote_state_versioned_t * versioned );
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L323-L334 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L166-L184 */
 int
 fd_vote_state_v4_get_and_update_authorized_voter( fd_vote_state_v4_t * self,
                                                   ulong                current_epoch,
@@ -35,7 +35,7 @@ fd_vote_state_v4_get_and_update_authorized_voter( fd_vote_state_v4_t * self,
 
 /* authorized_withdrawer_signer and signers are parameters to a closure
    called verify, which is passed into the associated Agave method.
-   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L500 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L129 */
 int
 fd_vote_state_v4_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
                                            fd_vote_state_v4_t *  self,

@@ -35,7 +35,7 @@ fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L391-L442 */
+/* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/syscalls.rs#L408-L458 */
 int
 fd_pubkey_derive_pda( fd_pubkey_t const *   program_id,
                       ulong                 seeds_cnt,
@@ -44,12 +44,12 @@ fd_pubkey_derive_pda( fd_pubkey_t const *   program_id,
                       uchar *               bump_seed,
                       fd_pubkey_t *         out,
                       uint *                custom_err ) {
-  /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L397-L399 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/syscalls.rs#L414-L416 */
   if( seeds_cnt + (bump_seed ? 1 : 0) > MAX_SEEDS ) { // In Agave, seeds_cnt includes the bump seed
     *custom_err = FD_PUBKEY_ERR_MAX_SEED_LEN_EXCEEDED;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
-  /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L400-L403 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/syscalls.rs#L417-L419 */
   for( ulong i=0UL; i<seeds_cnt; i++ ) {
     if( seed_szs[i]>MAX_SEED_LEN ) {
       *custom_err = FD_PUBKEY_ERR_MAX_SEED_LEN_EXCEEDED;
@@ -78,7 +78,7 @@ fd_pubkey_derive_pda( fd_pubkey_t const *   program_id,
   /* A PDA is valid if it is not a valid ed25519 curve point.
      In most cases the user will have derived the PDA off-chain,
      or the PDA is a known signer.
-     https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L417-L419 */
+     https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/syscalls.rs#L434-L436 */
   if( FD_UNLIKELY( fd_ed25519_point_validate( out->key ) ) ) {
     *custom_err = FD_PUBKEY_ERR_INVALID_SEEDS;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -87,10 +87,10 @@ fd_pubkey_derive_pda( fd_pubkey_t const *   program_id,
   return FD_PUBKEY_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.1.0/address/src/syscalls.rs#L299-L343
+/* https://github.com/anza-xyz/solana-sdk/blob/address%40v2.9.0/address/src/syscalls.rs#L299-L359
 
    Agave try_find_program_address iterates bump seeds 255 down to 1
-   (255 iterations via 0..u8::MAX). It returns None if no valid PDA
+   (255 iterations over BUMP_SEEDS). It returns None if no valid PDA
    is found. */
 int
 fd_pubkey_find_program_address( fd_pubkey_t const *   program_id,

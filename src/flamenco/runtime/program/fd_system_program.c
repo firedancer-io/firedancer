@@ -15,7 +15,7 @@
     snprintf( out_fmt, 128UL, "Address { address: %s, base: None }", account_b58 );                \
   }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L42-L68
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L43-L72
 
    Partial port of system_processor::Address::create, only covering the
    case of the "seed" input actually existing.  Note that this doesn't
@@ -56,8 +56,8 @@ verify_seed_address( fd_exec_instr_ctx_t * ctx,
   return 0;
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L183
-   https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L182
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L216
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L216
 
    Matches Solana Labs system_processor::transfer_verified */
 
@@ -68,19 +68,19 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
                                      ushort                to_acct_idx ) {
   int err;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L191-L192 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L223 */
 
   fd_guarded_borrowed_account_t from = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, from_acct_idx, &from );
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L193-L196 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L224-L227 */
 
   if( fd_borrowed_account_get_data_len( &from ) != 0UL ) {
     fd_log_collector_msg_literal( ctx, "Transfer: `from` must not carry data" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L197-L205 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L228-L236 */
 
   if( transfer_amount > fd_borrowed_account_get_lamports( &from ) ) {
     /* Max msg_sz: 45 - 6 + 20 + 20 = 79 < 127 => we can use printf */
@@ -89,22 +89,22 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L207 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L238 */
 
   err = fd_borrowed_account_checked_sub_lamports( &from, transfer_amount );
   /* Note: this err can never happen because of the check above */
   if( FD_UNLIKELY( err ) ) return err;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L208 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L239 */
 
   fd_borrowed_account_drop( &from );
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L209-L210 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L240 */
 
   fd_guarded_borrowed_account_t to = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, to_acct_idx, &to );
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L211 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L241 */
 
   err = fd_borrowed_account_checked_add_lamports( &to, transfer_amount );
   if( FD_UNLIKELY( err ) ) return err;
@@ -112,7 +112,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
   return 0;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L214
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L245
 
    Matches system_processor::transfer */
 
@@ -122,11 +122,11 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
                             ushort                from_acct_idx,
                             ushort                to_acct_idx ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L222-L232 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L252-L259 */
 
   int instr_err_code = 0;
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_acct_idx, &instr_err_code ) ) ) {
-    /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L236 */
     if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_acct_idx ].index_in_transaction;
@@ -136,13 +136,13 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L234-L241 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L261-L267 */
 
   return fd_system_program_transfer_verified( ctx, transfer_amount, from_acct_idx, to_acct_idx );
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L71-L111
-   https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L70
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L75-L115
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L75
 
    Based on Solana Labs system_processor::allocate() */
 
@@ -156,7 +156,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
 
   /* Assumes that acct_idx was bounds checked */
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L82-L89 */
 
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 35 - 2 + 125 = 158 */
@@ -168,7 +168,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L87-L96 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L91-L100 */
 
   if( FD_UNLIKELY( ( fd_borrowed_account_get_data_len( account ) != 0UL ) ||
                    ( 0!=memcmp( fd_borrowed_account_get_owner( account ), fd_solana_system_program_id.uc, 32UL ) ) ) ) {
@@ -182,7 +182,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L98-L106 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L102-L110 */
 
   if( FD_UNLIKELY( space > FD_RUNTIME_ACC_SZ_MAX ) ) {
     /* Max msg_sz: 48 - 6 + 2*20 = 82 < 127 => we can use printf */
@@ -192,7 +192,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L108 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L112 */
 
   err = fd_borrowed_account_set_data_length( account, space );
   if( FD_UNLIKELY( err ) ) {
@@ -202,8 +202,8 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L113-L131
-   https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L112
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L117-L135
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L117
 
    Based on Solana Labs system_processor::assign() */
 
@@ -215,12 +215,12 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
                           fd_pubkey_t const *     base ) {
   /* Assumes addr_idx was bounds checked */
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L121-L123 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L125-L127 */
 
   if( 0==memcmp( fd_borrowed_account_get_owner( account ), owner->uc, sizeof(fd_pubkey_t) ) )
     return 0;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L129-L132 */
 
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 28 - 2 + 125 = 151 */
@@ -235,7 +235,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
   return fd_borrowed_account_set_owner( account, owner );
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L133-L143
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L137-L147
 
    Based on Solana Labs system_processor::allocate_and_assign() */
 
@@ -255,8 +255,8 @@ fd_system_program_allocate_and_assign( fd_exec_instr_ctx_t *   ctx,
 
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L146-L181
-   https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L145
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L150-L182
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L150
 
    Matches Solana Labs system_processor::create_account() */
 
@@ -272,15 +272,15 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   int err;
 
   /* if it looks like the to account is already in use, bail
-     https://github.com/anza-xyz/agave/blob/v2.1.14/programs/system/src/system_processor.rs#L159-L172 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L162-L174 */
 
   do {
-    /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L160-L161 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L163 */
 
     fd_guarded_borrowed_account_t to = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, to_acct_idx, &to );
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L162-L169 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L164-L171 */
 
     if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &to ) ) ) {
       /* Max msg_sz: 41 - 2 + 125 = 164 */
@@ -293,21 +293,21 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L171 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L173 */
 
     err = fd_system_program_allocate_and_assign( ctx, &to, space, owner, authority, base );
     if( FD_UNLIKELY( err ) ) return err;
 
     /* Implicit drop
-       https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L172 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L174 */
   } while (0);
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L173-L180 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L175-L181 */
 
   return fd_system_program_transfer( ctx, lamports, from_acct_idx, to_acct_idx );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L184-L214 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L184-L214 */
 
 static int
 fd_system_program_create_account_allow_prefund( fd_exec_instr_ctx_t * ctx,
@@ -319,7 +319,7 @@ fd_system_program_create_account_allow_prefund( fd_exec_instr_ctx_t * ctx,
                                                 ushort               from_acct_idx ) {
   int err;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L198-L201 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L198-L201 */
   do {
     fd_guarded_borrowed_account_t to = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, to_acct_idx, &to );
@@ -327,7 +327,7 @@ fd_system_program_create_account_allow_prefund( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L202-L212 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L202-L212 */
   if( FD_LIKELY( lamports > 0 ) ) {
     return fd_system_program_transfer( ctx, lamports, from_acct_idx, to_acct_idx );
   }
@@ -335,7 +335,7 @@ fd_system_program_create_account_allow_prefund( fd_exec_instr_ctx_t * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L327-L352
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L331-L353
 
    Matches Solana Labs system_processor SystemInstruction::CreateAccount { ... } => { ... } */
 
@@ -343,18 +343,18 @@ int
 fd_system_program_exec_create_account( fd_exec_instr_ctx_t *    ctx,
                                        create_account_t const * create_acc ) {
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L332 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L336 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L333-L339
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L337-L341
      Authorization check is lifted out from 'allocate' to here. */
 
   ushort const from_acct_idx = 0UL;
   ushort const to_acct_idx   = 1UL;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/system/src/system_processor.rs#L317-L320 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L337-L338 */
   fd_pubkey_t const * authority = NULL;
   int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, to_acct_idx, &authority );
   if( FD_UNLIKELY( err ) ) return err;
@@ -370,18 +370,18 @@ fd_system_program_exec_create_account( fd_exec_instr_ctx_t *    ctx,
       NULL );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L530-L563 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L531-L564 */
 
 int
 fd_system_program_exec_create_account_allow_prefund( fd_exec_instr_ctx_t *    ctx,
                                                      create_account_t const * args ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L535-L540 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L536-L541 */
   if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->bank, create_account_allow_prefund ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L541-L547 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L542-L548 */
   ushort from_acct_idx = 0;
   if( args->lamports > 0 ) {
     if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 2U ) ) ) {
@@ -394,18 +394,18 @@ fd_system_program_exec_create_account_allow_prefund( fd_exec_instr_ctx_t *    ct
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L548-L552 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L549-L553 */
   ushort const to_acct_idx       = 0;
   fd_pubkey_t const * to_address = NULL;
   int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, to_acct_idx, &to_address );
   if( FD_UNLIKELY( err ) ) return err;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L553-L562 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L554-L563 */
   return fd_system_program_create_account_allow_prefund(
       ctx, to_acct_idx, args->lamports, args->space, &args->owner, to_address, from_acct_idx );
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L381-L393
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L380-L389
 
    Matches Solana Labs system_processor SystemInstruction::Assign { ... } => { ... } */
 
@@ -414,20 +414,20 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
                                fd_pubkey_t const *   owner ) {
   int err;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L382 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L381 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L383-L384 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L382 */
 
   fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &account );
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L385-L391
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L383-L387
      system_processor::Address::create eliminated (dead code) */
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L392 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L388 */
 
   err = fd_system_program_assign( ctx, &account, owner, (fd_pubkey_t*)account.acc->pubkey, NULL );
   if( FD_UNLIKELY( err ) ) return err;
@@ -437,7 +437,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
   return 0;
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L394-L404
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L390-L393
 
    Matches Solana Labs system_processor SystemInstruction::Transfer { ... } => { ... } */
 
@@ -445,17 +445,17 @@ int
 fd_system_program_exec_transfer( fd_exec_instr_ctx_t * ctx,
                                  ulong                 transfer_amount ) {
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L395 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L391 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L396-L402 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L392 */
 
   return fd_system_program_transfer( ctx, transfer_amount, 0UL, 1UL );
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L353
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L355
 
    Matches Solana Labs system_processor SystemInstruction::CreateAccountWithSeed { ... } => { ... } */
 
@@ -463,12 +463,12 @@ int
 fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *              ctx,
                                                  create_account_with_seed_t const * args ) {
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L360 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L362 */
 
   if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 2UL) ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L361-L367 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L363-L367 */
 
   fd_pubkey_t const * to_address = NULL;
   int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 1UL, &to_address );
@@ -485,7 +485,7 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L368-L379 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L368-L378 */
 
   ushort const from_acct_idx = 0UL;
   ushort const to_acct_idx   = 1UL;
@@ -500,7 +500,7 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
       &args->base );
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L504-L516
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L489-L498
 
    Matches Solana Labs system_processor SystemInstruction::Allocate { ... } => { ... } */
 
@@ -509,19 +509,19 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
                                  ulong                 space ) {
   int err;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L505 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L490 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L506-L507 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L491 */
   fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &account );
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L508-L514
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L492-L496
      system_processor::Address::create eliminated (dead code) */
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L515
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L497
      Authorization check is lifted out from 'allocate' to here. */
 
   err = fd_system_program_allocate( ctx, &account, space, (fd_pubkey_t*)account.acc->pubkey, NULL );
@@ -532,7 +532,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   return 0;
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L517-L541
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L499-L520
 
    Matches Solana Labs system_processor SystemInstruction::AllocateWithSeed { ... } => { ... } */
 
@@ -541,17 +541,17 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *        ctx,
                                            allocate_with_seed_t const * args ) {
   int err;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L523 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L505 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#524-525 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L506 */
 
   fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &account );
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L526-L532 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L507-L511 */
 
   err = verify_seed_address(
     ctx,
@@ -562,7 +562,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *        ctx,
     &args->owner );
   if( FD_UNLIKELY( err ) ) return err;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L533-L540
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L512-L519
      Authorization check is lifted out from 'allocate' to here. */
 
   err = fd_system_program_allocate_and_assign(
@@ -579,7 +579,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *        ctx,
   return 0;
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L542-L554
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L521-L530
 
    Matches Solana Labs system_processor SystemInstruction::AssignWithSeed { ... } => { ... } */
 
@@ -588,17 +588,17 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *      ctx,
                                          assign_with_seed_t const * args ) {
   int err;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#543 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L522 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L544-L545 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L523 */
 
   fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &account );
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L546-L552 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L524-L528 */
 
   err = verify_seed_address(
     ctx,
@@ -609,7 +609,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *      ctx,
     &args->owner );
   if( FD_UNLIKELY( err ) ) return err;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L553
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L529
      Authorization check is lifted out from 'assign' to here. */
 
   err = fd_system_program_assign( ctx, &account, &args->owner, &args->base, &args->base );
@@ -620,7 +620,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *      ctx,
   return 0;
 }
 
-/* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L405-L422
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L394-L410
 
    Matches Solana Labs system_processor SystemInstruction::TransferWithSeed { ... } => { ... } */
 
@@ -628,12 +628,12 @@ int
 fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *        ctx,
                                            transfer_with_seed_t const * args ) {
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L410 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L399 */
 
   if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 3UL ) ) )
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L411-L421
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L400-L409
      Inlined call to system_processor::transfer_with_seed */
 
   ushort const from_idx      = 0UL;
@@ -642,7 +642,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *        ctx,
 
   int instr_err_code = 0;
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_base_idx, &instr_err_code ) ) ) {
-    /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L236 */
     if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_base_idx ].index_in_transaction;
@@ -652,7 +652,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *        ctx,
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/system/src/system_processor.rs#L267-L274 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L290-L295 */
 
   fd_pubkey_t const * base = NULL;
   int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, from_base_idx, &base );
@@ -670,7 +670,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *        ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/system/src/system_processor.rs#L276-L287 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L297-L306 */
   fd_pubkey_t const * from_key = NULL;
   err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, from_idx, &from_key );
   if( FD_UNLIKELY( err ) ) return err;
@@ -689,7 +689,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *        ctx,
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L305-L312 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/system/src/system_processor.rs#L308-L314 */
   return fd_system_program_transfer_verified( ctx, args->lamports, from_idx, to_idx );
 }
 
@@ -744,22 +744,22 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
 int
 fd_get_system_account_kind( fd_acc_t const * acc ) {
-  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L56 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v5.0.0/nonce-account/src/lib.rs#L68-L70 */
   if( FD_UNLIKELY( memcmp( acc->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
   }
 
-  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L57-L58 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v5.0.0/nonce-account/src/lib.rs#L74-L75 */
   if( FD_LIKELY( !acc->data_len ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_SYSTEM;
   }
 
-  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L59 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v5.0.0/nonce-account/src/lib.rs#L76 */
   if( FD_UNLIKELY( acc->data_len!=FD_SYSTEM_PROGRAM_NONCE_DLEN ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
   }
 
-  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L60-L64 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v5.0.0/nonce-account/src/lib.rs#L77-L88 */
   fd_nonce_state_versions_t state[1];
   if( FD_UNLIKELY( fd_nonce_state_versions_decode( state, acc->data, acc->data_len ) ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;

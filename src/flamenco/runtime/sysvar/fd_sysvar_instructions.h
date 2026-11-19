@@ -12,7 +12,7 @@ FD_PROTOTYPES_BEGIN
    overflow. This is only possible for V1 transactions. This mirrors
    Agave's semantics.
 
-   https://github.com/anza-xyz/solana-sdk/blob/instructions-sysvar@v4.0.0/instructions-sysvar/src/lib.rs#L97-L156 */
+   https://github.com/anza-xyz/solana-sdk/blob/instructions-sysvar%40v5.0.0/instructions-sysvar/src/lib.rs#L97-L156 */
 FD_FN_PURE static inline int
 fd_sysvar_instructions_offsets_overflow( fd_txn_t const * txn ) {
   ulong off = sizeof(ushort) + (ulong)sizeof(ushort)*txn->instr_cnt;

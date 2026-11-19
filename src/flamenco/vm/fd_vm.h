@@ -74,7 +74,7 @@ typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
    input:  8 byte aligned
    rodata: 8 byte aligned
 
-    https://github.com/solana-labs/rbpf/blob/cd19a25c17ec474e6fa01a3cc3efa325f44cd111/src/ebpf.rs#L39-L40  */
+    https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/ebpf.rs#L35-L36  */
 #define FD_VM_HOST_REGION_ALIGN                   (16UL)
 
 struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
@@ -131,7 +131,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   /* IMPORTANT SAFETY TIP!  THE BEHAVIOR OF THE SYSCALL ALLOCATOR FOR
      HEAP_SZ MUST EXACTLY MATCH THE SOLANA VALIDATOR ALLOCATOR:
 
-     https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/invoke_context.rs#L122-L148
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L131-L157
 
      BIT-FOR-BIT AND BUG-FOR-BUG.  SEE THE SYSCALL_ALLOC_FREE FOR MORE
      DETAILS. */

@@ -52,7 +52,7 @@ fd_sysvar_epoch_schedule_init( fd_bank_t *        bank,
   fd_sysvar_epoch_schedule_write( bank, accdb, capture_ctx, epoch_schedule );
 }
 
-/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */
+/* https://github.com/anza-xyz/solana-sdk/blob/epoch-schedule%40v3.4.0/epoch-schedule/src/lib.rs#L136 */
 
 ulong
 fd_epoch_slot_cnt( fd_epoch_schedule_t const * schedule,
@@ -65,7 +65,7 @@ fd_epoch_slot_cnt( fd_epoch_schedule_t const * schedule,
   return schedule->slots_per_epoch;
 }
 
-/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L170 */
+/* https://github.com/anza-xyz/solana-sdk/blob/epoch-schedule%40v3.4.0/epoch-schedule/src/lib.rs#L201 */
 
 ulong
 fd_epoch_slot0( fd_epoch_schedule_t const * schedule,
@@ -84,7 +84,7 @@ fd_epoch_slot0( fd_epoch_schedule_t const * schedule,
           schedule->first_normal_slot);
 }
 
-/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L140 */
+/* https://github.com/anza-xyz/solana-sdk/blob/epoch-schedule%40v3.4.0/epoch-schedule/src/lib.rs#L171 */
 
 ulong
 fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
@@ -128,7 +128,7 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
   return epoch;
 }
 
-/* https://docs.rs/solana-epoch-schedule/2.2.1/src/solana_epoch_schedule/lib.rs.html#136-151 */
+/* https://github.com/anza-xyz/solana-sdk/blob/epoch-schedule%40v3.4.0/epoch-schedule/src/lib.rs#L148-L163 */
 
 ulong
 fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,

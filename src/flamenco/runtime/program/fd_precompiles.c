@@ -89,8 +89,8 @@ fd_precompile_get_instr_data( fd_exec_instr_ctx_t * ctx,
      This feature has been introduced for ed25519, but not for secp256k1 where
      index is 1-byte only.
      So, fortunately, we can use the same function.
-     https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L161-L163
-     https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L1018 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L97-L99
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L105 */
   if( index==USHORT_MAX ) {
 
     /* Use current instruction data */
@@ -128,7 +128,7 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
   uchar const * data    = ctx->instr->data;
   ulong         data_sz = ctx->instr->data_sz;
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L90-L96
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L16-L22
      note: this part is really silly and in fact in leaves out the edge case [0, 0].
 
      Our implementation does the following:
@@ -151,7 +151,7 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L97-L103 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L23-L29 */
   ulong expected_data_size = sig_cnt * SIGNATURE_OFFSETS_SERIALIZED_SIZE + SIGNATURE_OFFSETS_START;
   if( FD_UNLIKELY( data_sz < expected_data_size ) ) {
     ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
@@ -163,10 +163,10 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
     fd_ed25519_signature_offsets_t const * sigoffs = (const fd_ed25519_signature_offsets_t *) (data + off);
     off += SIGNATURE_OFFSETS_SERIALIZED_SIZE;
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L110-L112 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L35-L40 */
     // ???
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L114-L121 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L42-L49 */
     uchar const * sig = NULL;
     int err = fd_precompile_get_instr_data( ctx,
                                             sigoffs->sig_instr_idx,
@@ -178,11 +178,11 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L123-L124
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L51-L59
        Note: we parse the signature as part of fd_ed25519_verify.
        Because of this, the return error code might be different from Agave in some edge cases. */
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L126-L133 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L61-L68 */
     uchar const * pubkey = NULL;
     err = fd_precompile_get_instr_data( ctx,
                                         sigoffs->pubkey_instr_idx,
@@ -194,11 +194,11 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L135-L136
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L70-L71
        Note: we parse the public key as part of fd_ed25519_verify.
        Because of this, the return error code might be different from Agave in some edge cases. */
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L138-L145 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L73-L80 */
     uchar const * msg = NULL;
     ushort msg_sz = sigoffs->msg_data_sz;
     err = fd_precompile_get_instr_data( ctx,
@@ -211,7 +211,7 @@ fd_precompile_ed25519_verify( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/ed25519_instruction.rs#L147-L149 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/ed25519.rs#L81-L85 */
     fd_sha512_t sha[1];
     if( FD_UNLIKELY( fd_ed25519_verify( msg, msg_sz, sig, pubkey, sha )!=FD_ED25519_SUCCESS ) ) {
       ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
@@ -232,7 +232,7 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
   uchar const * data    = ctx->instr->data;
   ulong         data_sz = ctx->instr->data_sz;
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L934-L947
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L28-L37
      see comment in ed25519, here the special case is [0] instead of [0, 0] */
   if( FD_UNLIKELY( data_sz < SECP256K1_DATA_START ) ) {
     if( FD_UNLIKELY( data_sz == 1 && data[0] == 0 ) ) {
@@ -242,14 +242,14 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/sdk/src/secp256k1_instruction.rs#L938-L947 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L32-L37 */
   ulong sig_cnt = data[0];
   if( FD_UNLIKELY( sig_cnt==0 && data_sz>1 ) ) {
     ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L948-L953 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L38-L43 */
   ulong expected_data_size = sig_cnt * SECP256K1_SIGNATURE_OFFSETS_SERIALIZED_SIZE + SECP256K1_SIGNATURE_OFFSETS_START;
   if( FD_UNLIKELY( data_sz < expected_data_size ) ) {
     ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
@@ -261,10 +261,10 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
     fd_secp256k1_signature_offsets_t const * sigoffs = (const fd_secp256k1_signature_offsets_t *) (data + off);
     off += SECP256K1_SIGNATURE_OFFSETS_SERIALIZED_SIZE;
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L960-L961 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L50-L51 */
     // ???
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L963-L973
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L53-L63
        Note: for whatever reason, Agave returns InvalidInstructionDataSize instead of InvalidDataOffsets.
        We just return the err as is. */
     uchar const * sig = NULL;
@@ -278,12 +278,12 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L975-L981
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L65-L71
        Note: we parse the signature and recovery id as part of fd_secp256k1_recover.
        Because of this, the return error code might be different from Agave in some edge cases. */
     int recovery_id = (int)sig[SIGNATURE_SERIALIZED_SIZE]; /* extra byte is recovery id */
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L983-L989 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L73-L79 */
     uchar const * eth_address = NULL;
     err = fd_precompile_get_instr_data( ctx,
                                         sigoffs->pubkey_instr_idx,
@@ -295,7 +295,7 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L991-L997 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L81-L87 */
     uchar const * msg = NULL;
     ushort msg_sz = sigoffs->msg_data_sz;
     err = fd_precompile_get_instr_data( ctx,
@@ -308,18 +308,18 @@ fd_precompile_secp256k1_verify( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L999-L1001 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L89 */
     uchar msg_hash[ FD_KECCAK256_HASH_SZ ];
     fd_keccak256_hash( msg, msg_sz, msg_hash );
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L1003-L1008 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L90-L95 */
     uchar pubkey[64];
     if ( FD_UNLIKELY( fd_secp256k1_recover( pubkey, msg_hash, sig, recovery_id ) == NULL ) ) {
       ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/secp256k1_instruction.rs#L1009-L1013 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256k1.rs#L96-L100 */
     uchar pubkey_hash[ FD_KECCAK256_HASH_SZ ];
     fd_keccak256_hash( pubkey, 64, pubkey_hash );
 
@@ -353,7 +353,7 @@ fd_precompile_secp256r1_verify( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/precompiles/src/secp256r1.rs#L30 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/secp256r1.rs#L30 */
   if( FD_UNLIKELY( sig_cnt>8UL ) ) {
     ctx->txn_out->err.custom_err = FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;

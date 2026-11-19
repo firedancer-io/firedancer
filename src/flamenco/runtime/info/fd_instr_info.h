@@ -105,7 +105,7 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
                                    fd_txn_out_t *         txn_out,
                                    fd_txn_instr_t const * txn_instr );
 
-/* https://github.com/anza-xyz/solana-sdk/blob/589e6237f203c2719c300dc044f4e00f48e66a8f/message/src/versions/v0/loaded.rs#L152-L157 */
+/* https://github.com/anza-xyz/solana-sdk/blob/message%40v6.0.0/message/src/versions/v0/loaded.rs#L173-L178 */
 FD_FN_PURE static inline int
 fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,
                               ushort                  idx ) {
@@ -126,7 +126,7 @@ fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,
     - 0 if the query was successful. Check the return value to see
       if the account is a signer.
 
-  https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L770-L779    */
+  https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L229-L238    */
 static inline int
 fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
                             ushort                  idx,

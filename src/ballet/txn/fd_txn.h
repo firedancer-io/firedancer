@@ -90,7 +90,7 @@
 
 /* FD_TXN_INSTR_ACCT_MAX: The (inclusive) maximum number of accounts a
    single instruction can reference.
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/lib.rs#L17 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/lib.rs#L17 */
 #define FD_TXN_INSTR_ACCT_MAX        (255UL)
 
 
