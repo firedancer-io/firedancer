@@ -5,6 +5,7 @@
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
+#include "../../../../util/net/fd_eth.h"
 #include "../../../../util/net/fd_ip4.h"
 
 #include <stdio.h> /* printf */
@@ -85,12 +86,35 @@ pktgen_topo( config_t * config ) {
   fd_topo_print_log( /* stdout */ 1, topo );
 }
 
+/* PKTGEN_PKT_SZ_{MIN,MAX} bound --pkt-sz, the size of the L3 header +
+   payload.  MIN yields a minimum size Ethernet frame (60 bytes with the
+   14 byte Ethernet header).  MAX is limited by the net tile, which caps
+   the full Ethernet frame (including the Ethernet header) at
+   FD_ETH_PAYLOAD_MAX (1500) bytes (see fd_net_in_frag_validate). */
+
+#define PKTGEN_PKT_SZ_MIN (46UL)
+#define PKTGEN_PKT_SZ_MAX (FD_ETH_PAYLOAD_MAX-sizeof(fd_eth_hdr_t))
+
+/* The --help text below hardcodes these bounds */
+FD_STATIC_ASSERT( PKTGEN_PKT_SZ_MIN==46UL,   pktgen_pkt_sz_min );
+FD_STATIC_ASSERT( PKTGEN_PKT_SZ_MAX==1486UL, pktgen_pkt_sz_max );
+
 void
 pktgen_cmd_args( int *    pargc,
                  char *** pargv,
                  args_t * args ) {
-  /* FIXME add config options here */
-  (void)pargc; (void)pargv; (void)args;
+  ulong pkt_sz = fd_env_strip_cmdline_ulong( pargc, pargv, "--pkt-sz", NULL, PKTGEN_PKT_SZ_MIN );
+  if( FD_UNLIKELY( pkt_sz<PKTGEN_PKT_SZ_MIN || pkt_sz>PKTGEN_PKT_SZ_MAX ) ) {
+    FD_LOG_ERR(( "Invalid --pkt-sz %lu: size of the L3 header + payload must be in [%lu,%lu]",
+                 pkt_sz, PKTGEN_PKT_SZ_MIN, PKTGEN_PKT_SZ_MAX ));
+  }
+  args->pktgen.pkt_sz = pkt_sz;
+}
+
+static void
+pktgen_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--pkt-sz", "<bytes>", "Size of the L3 header + payload of each generated packet\n"
+                                                   "(default 46, range [46,1486])" );
 }
 
 /* Hacky: Since the pktgen runs in the same process, use globals to
@@ -253,13 +277,15 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
 static void
 render_status( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
                ulong                  net_tile_cnt,
-               char const *           provider ) {
+               char const *           provider,
+               ulong                  pkt_sz ) {
   fputs( "\0337"      /* save cursor position */
          "\033[H"     /* move cursor to (0,0) */
          "\033[2K\n", /* create an empty line to avoid spamming look back buffer */
          stdout );
-  printf( "\033[2K" "[Firedancer pktgen] mode=%s\n",
-          FD_VOLATILE_CONST( fd_pktgen_active ) ? "send+recv" : "recv" );
+  printf( "\033[2K" "[Firedancer pktgen] mode=%s pkt_sz=%lu\n",
+          FD_VOLATILE_CONST( fd_pktgen_active ) ? "send+recv" : "recv",
+          pkt_sz );
 
   fd_net_stats_t const * stats = get_net_stats( net_metrics, net_tile_cnt, provider );
 
@@ -311,7 +337,7 @@ render_status( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
 /* FIXME fixup screen on window size changes */
 
 void
-pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
+pktgen_cmd_fn( args_t *   args,
                config_t * config ) {
   fd_topo_t *      topo         = &config->topo;
   ulong            net_tile_cnt = config->layout.net_tile_count;
@@ -320,6 +346,8 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   }
 
   fd_topo_tile_t * metric_tile  = &topo->tiles[ fd_topo_find_tile( topo, "metric", 0UL ) ];
+  fd_topo_tile_t * pktgen_tile  = &topo->tiles[ fd_topo_find_tile( topo, "pktgen", 0UL ) ];
+  pktgen_tile->pktgen.pkt_sz = args->pktgen.pkt_sz;
 
   fd_topo_tile_t       * net_tiles  [ FD_TOPO_MAX_TILES ];
   ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ];
@@ -389,7 +417,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   puts( "" );
   char input[ 256 ] = {0};
   for(;;) {
-    render_status( net_metrics, net_tile_cnt, config->net.provider );
+    render_status( net_metrics, net_tile_cnt, config->net.provider, args->pktgen.pkt_sz );
     fputs( "pktgen> ", stdout );
     fflush( stdout );
 
@@ -397,7 +425,7 @@ pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
       struct pollfd fds[1] = {{ .fd=STDIN_FILENO, .events=POLLIN }};
       int poll_res = poll( fds, 1, 500 );
       if( poll_res==0 ) {
-        render_status( net_metrics, net_tile_cnt, config->net.provider );
+        render_status( net_metrics, net_tile_cnt, config->net.provider, args->pktgen.pkt_sz );
         continue;
       } else if( poll_res>0 ) {
         break;
@@ -435,5 +463,7 @@ action_t fd_action_pktgen = {
   .args        = pktgen_cmd_args,
   .fn          = pktgen_cmd_fn,
   .perm        = dev_cmd_perm,
-  .description = "Flood interface with invalid Ethernet frames"
+  .description = "Flood interface with invalid Ethernet frames",
+  .usage       = "pktgen [--pkt-sz <bytes>]",
+  .args_help   = pktgen_args_help
 };

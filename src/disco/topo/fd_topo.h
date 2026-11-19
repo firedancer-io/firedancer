@@ -611,7 +611,8 @@ struct fd_topo_tile {
     } rserve;
 
     struct {
-      uint fake_dst_ip;
+      uint  fake_dst_ip;
+      ulong pkt_sz; /* size of the L3 header + payload */
     } pktgen;
 
     struct {

@@ -152,6 +152,10 @@ union fdctl_args {
   } udpecho;
 
   struct {
+    ulong pkt_sz; /* size of the L3 header + payload */
+  } pktgen;
+
+  struct {
     char topo[ 64 ];
   } metrics;
 

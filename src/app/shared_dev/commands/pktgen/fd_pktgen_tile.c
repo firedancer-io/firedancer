@@ -1,6 +1,7 @@
-/* fd_pktgen_tile floods a net tile with small outgoing packets.
+/* fd_pktgen_tile floods a net tile with outgoing packets.
 
-   Each packet is a minimum size Ethernet frame. An invalid ip4 hdr
+   Each packet is an Ethernet frame whose L3 header + payload is pkt_sz
+   bytes (a minimum size Ethernet frame by default). An invalid ip4 hdr
    is used to avoid leaking the flood out to the Internet.
 
    Each packet contains a 64 bit sequence number such that each
@@ -20,6 +21,7 @@ struct fd_pktgen_tile_ctx {
   ulong  wmark;
   ulong  chunk;
   ulong  tag;
+  ulong  pkt_sz; /* size of the L3 header + payload */
   uint   fake_dst_ip;
 };
 
@@ -48,6 +50,13 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->chunk       = ctx->chunk0;
   ctx->tag         = 0UL;
   ctx->fake_dst_ip = tile->pktgen.fake_dst_ip;
+  ctx->pkt_sz      = tile->pktgen.pkt_sz;
+
+  /* L3 header + payload must hold the ip4 hdr and the seq number, and
+     the full frame must not exceed the net tile's max Ethernet frame
+     size (see fd_net_in_frag_validate) */
+  FD_TEST( ctx->pkt_sz>=sizeof(fd_ip4_hdr_t)+sizeof(ulong) );
+  FD_TEST( sizeof(fd_eth_hdr_t)+ctx->pkt_sz<=FD_ETH_PAYLOAD_MAX );
 
   /* Assume dcache was zero initialized */
 }
@@ -74,7 +83,7 @@ after_credit( fd_pktgen_tile_ctx_t * ctx,
   fd_eth_hdr_t * eth   = (fd_eth_hdr_t *)frame;
   fd_ip4_hdr_t * ip4   = (fd_ip4_hdr_t *)(eth+1);
   ulong          tag   = ctx->tag;
-  ulong          sz    = sizeof(fd_eth_hdr_t) + 46;
+  ulong          sz    = sizeof(fd_eth_hdr_t) + ctx->pkt_sz;
   eth->net_type        = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
   ip4->verihl          = FD_IP4_VERIHL( 4, 5 );
   /* Routing over the socket fallback requires a correct daddr */
@@ -84,10 +93,8 @@ after_credit( fd_pktgen_tile_ctx_t * ctx,
   fd_stem_publish( stem, 0UL, sig, chunk, sz, 0UL, 0UL, 0UL );
 
   /* Wind up for next iteration */
-  chunk++; /* Min sz Ethernet frames are exactly FD_CHUNK_SZ */
-  chunk      = fd_ulong_if( chunk>ctx->wmark, ctx->chunk0, chunk );
+  ctx->chunk = fd_dcache_compact_next( chunk, sz, ctx->chunk0, ctx->wmark );
   ctx->tag   = tag+1UL;
-  ctx->chunk = chunk;
 }
 
 #define STEM_BURST (1UL)
