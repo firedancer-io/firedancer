@@ -23,7 +23,7 @@
    running an advance_root / purge (T2), and against fd_accdb_release
    (prepend).  Hooks instrumented in fd_accdb.c:
      accdb_acquire:post_root_gen      (reader snapshotted root_generation)
-     accdb_acquire:post_next          (reader holds candidate + map.next)
+     accdb_acquire:post_next          (reader holds candidate + next)
      accdb_advance:pre_unlink         (T2 about to unlink an old version)
      accdb_advance:pre_publish_root   (T2 about to publish new root)
      accdb_advance:post_publish_root
@@ -2106,9 +2106,8 @@ uint fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb, ulong size_class, ulon
    fd_accdb.c, so a test cannot compute this itself. */
 void * fd_accdb_debug_line_addr( fd_accdb_t * accdb, ulong size_class, ulong line_idx );
 
-/* Address of a released accmeta's acc_pool free-list link, which
-   aliases accmeta->cache_idx. */
-uint * fd_accdb_debug_acc_pool_next( fd_accdb_t * accdb, uint acc_idx );
+/* An accmeta by pool index; the pool is private to fd_accdb.c. */
+fd_accdb_accmeta_t * fd_accdb_debug_accmeta( fd_accdb_t * accdb, uint acc_idx );
 
 static void
 write_acc( fd_accdb_t *       accdb,
@@ -2248,9 +2247,9 @@ test_tombstone_orphan_ebr_poison( void ) {
 /* test_tombstone_orphan_evict_pool_next: acc_unlink's pinned-reader
    branch leaves the tombstone's cache line naming its accmeta after the
    accmeta was released to acc_pool.  Evicting that line must not treat
-   the freed accmeta's cache_idx (aliased with pool.next) as live, or a
-   free-list link that happens to equal the line's packed index gets
-   clobbered to CIDX_INVAL. */
+   the freed accmeta as live: its free-list link (next) and its
+   cache_idx are left alone, even when cache_idx still holds the line's
+   packed index. */
 
 static void
 test_tombstone_orphan_evict_pool_next( void ) {
@@ -2294,16 +2293,19 @@ test_tombstone_orphan_evict_pool_next( void ) {
 
   fd_accdb_release( accdb_d, 1UL, acc_D );
 
-  /* Force the free-list link to collide with the line's packed index. */
-  uint * pool_next = fd_accdb_debug_acc_pool_next( accdb, acc_idx );
-  uint   cidx      = FD_ACCDB_ACC_CIDX_PACK( (uint)cls, (uint)idx );
-  uint   saved     = FD_VOLATILE_CONST( *pool_next );
-  FD_VOLATILE( *pool_next ) = cidx;
+  /* Let the freed accmeta's cache_idx name the line, as a stale
+     binding would. */
+  fd_accdb_accmeta_t * m      = fd_accdb_debug_accmeta( accdb, acc_idx );
+  uint                 cidx   = FD_ACCDB_ACC_CIDX_PACK( (uint)cls, (uint)idx );
+  uint                 next0  = FD_VOLATILE_CONST( m->map.next      );
+  uint                 saved  = FD_VOLATILE_CONST( m->cache_idx );
+  FD_VOLATILE( m->cache_idx ) = cidx;
 
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls, idx )==UINT_MAX );
-  FD_TEST( FD_VOLATILE_CONST( *pool_next )==cidx );
+  FD_TEST( FD_VOLATILE_CONST( m->cache_idx )==cidx  );
+  FD_TEST( FD_VOLATILE_CONST( m->map.next      )==next0 );
 
-  FD_VOLATILE( *pool_next ) = saved;
+  FD_VOLATILE( m->cache_idx ) = saved;
 
   free( accdb_d );
   test_teardown( accdb, fd );
@@ -3030,8 +3032,8 @@ test_orphan_evict_vs_real_evict( void ) {
    accmeta in the chain walk, acc_unlink runs with the tombstone's line
    already evicted (nothing to reclaim), then the reader cold-loads the
    unlinked accmeta and publishes a line and VALID.  Releasing the slot
-   to acc_pool must clear VALID, so evicting that line never treats
-   pool.next as a live cache_idx. */
+   to acc_pool must clear VALID, so evicting that line never treats the
+   free accmeta as bound to it. */
 struct late_coldload_fiber {
   fd_racesan_async_t async[1];
   fd_accdb_t *       accdb;
@@ -3073,8 +3075,8 @@ test_late_coldload_valid_leak( void ) {
   fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
   uint acc_idx = FD_VOLATILE_CONST( line->acc_idx );
   FD_TEST( acc_idx!=UINT_MAX );
-  uint * pool_next = fd_accdb_debug_acc_pool_next( accdb, acc_idx );
-  uint * es        = pool_next+1; /* executable_size follows the cache_idx/pool.next union */
+  fd_accdb_accmeta_t * m  = fd_accdb_debug_accmeta( accdb, acc_idx );
+  uint *               es = &m->executable_size;
 
   /* Evict the tombstone's line: P's accmeta has VALID clear. */
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls, idx )!=UINT_MAX );
@@ -3097,7 +3099,7 @@ test_late_coldload_valid_leak( void ) {
   async_finish( lf->async );
   fd_racesan_async_delete( lf->async );
   fd_racesan_stack_destroy( st, EVICT_FIBER_STACK_SZ );
-  uint cidx_after = FD_VOLATILE_CONST( *pool_next );
+  uint cidx_after = FD_VOLATILE_CONST( m->cache_idx );
   FD_TEST( FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
   FD_TEST( cidx_after!=FD_ACCDB_ACC_CIDX_INVAL );
   ulong cls_c = FD_ACCDB_ACC_CIDX_CLASS( cidx_after );
@@ -3112,14 +3114,13 @@ test_late_coldload_valid_leak( void ) {
   FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
   FD_TEST( FD_VOLATILE_CONST( line_c->acc_idx )==acc_idx );
 
-  /* Force the free-list link to collide with the line's packed index;
-     evicting the line must leave it alone. */
-  uint cidx  = FD_ACCDB_ACC_CIDX_PACK( (uint)cls_c, (uint)idx_c );
-  uint saved = FD_VOLATILE_CONST( *pool_next );
-  FD_VOLATILE( *pool_next ) = cidx;
+  /* The free accmeta's cache_idx still names the line; evicting the
+     line must leave the free accmeta (link and cache_idx) alone. */
+  uint next0 = FD_VOLATILE_CONST( m->map.next );
+  FD_TEST( FD_VOLATILE_CONST( m->cache_idx )==FD_ACCDB_ACC_CIDX_PACK( (uint)cls_c, (uint)idx_c ) );
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls_c, idx_c )==UINT_MAX );
-  FD_TEST( FD_VOLATILE_CONST( *pool_next )==cidx );
-  FD_VOLATILE( *pool_next ) = saved;
+  FD_TEST( FD_VOLATILE_CONST( m->cache_idx )==FD_ACCDB_ACC_CIDX_PACK( (uint)cls_c, (uint)idx_c ) );
+  FD_TEST( FD_VOLATILE_CONST( m->map.next      )==next0 );
 
   free( accdb_d );
   test_teardown( accdb, fd );
@@ -3129,7 +3130,8 @@ test_late_coldload_valid_leak( void ) {
    deferred accmeta T with VALID set.  An evictor of L clears VALID and
    stalls before storing cache_idx=INVAL while the deferred-free drain
    releases T.  The drain must wait for the evictor's CLAIM, so the
-   INVAL store lands before pool.next is written, not over it. */
+   INVAL store lands before T can be reacquired (not on T's next
+   owner), and T's free-list link is untouched. */
 static void
 test_evict_vs_drain_pool_next( void ) {
   int fd;
@@ -3144,8 +3146,8 @@ test_evict_vs_drain_pool_next( void ) {
   fd_accdb_fork_id_t F     = fd_accdb_attach_child( accdb, root0 );
   fd_accdb_fork_id_t D     = fd_accdb_attach_child( accdb, F );
 
-  /* Q closed on F before P so P's tombstone is not the tail of the
-     deferred batch and drain's own loop writes its pool.next. */
+  /* Q closed on F before P so P's tombstone is interior to the
+     deferred stack (its next is a real link). */
   write_acc( accdb, root0, pubkey_Q, 100UL, owner, NULL, 0UL );
   write_acc( accdb, F,     pubkey_Q,   0UL, owner, NULL, 0UL );
   write_acc( accdb, root0, pubkey_P, 100UL, owner, NULL, 0UL );
@@ -3155,8 +3157,8 @@ test_evict_vs_drain_pool_next( void ) {
   FD_TEST( fd_accdb_debug_find_line( accdb, pubkey_P, &cls, &idx ) );
   fd_accdb_cache_line_t * line = fd_accdb_debug_line_addr( accdb, cls, idx );
   uint acc_idx = FD_VOLATILE_CONST( line->acc_idx );
-  uint * pool_next = fd_accdb_debug_acc_pool_next( accdb, acc_idx );
-  uint * es        = pool_next+1;
+  fd_accdb_accmeta_t * m  = fd_accdb_debug_accmeta( accdb, acc_idx );
+  uint *               es = &m->executable_size;
 
   FD_TEST( fd_accdb_debug_clock_evict_line( accdb, cls, idx )!=UINT_MAX );
   FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
@@ -3174,7 +3176,7 @@ test_evict_vs_drain_pool_next( void ) {
   fd_racesan_async_delete( lf->async );
   fd_racesan_stack_destroy( st, EVICT_FIBER_STACK_SZ );
   FD_TEST( FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
-  uint cidx_c = FD_VOLATILE_CONST( *pool_next );
+  uint cidx_c = FD_VOLATILE_CONST( m->cache_idx );
   ulong cls_c = FD_ACCDB_ACC_CIDX_CLASS( cidx_c );
   ulong idx_c = FD_ACCDB_ACC_CIDX_IDX( cidx_c );
 
@@ -3186,19 +3188,62 @@ test_evict_vs_drain_pool_next( void ) {
   FD_TEST( fd_racesan_async_step_until( e->async, "accdb_evict_clear:pre_inval", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
 
   /* The drain runs in the background fiber and waits on E's CLAIM. */
+  uint next0 = FD_VOLATILE_CONST( m->map.next );
   fd_accdb_advance_root( accdb, D );
   fd_racesan_async_t * bg = fiber_background( &g_fiber[0], accdb );
   FD_TEST( fd_racesan_async_step_until( bg, "accdb_drain:claim_wait", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( FD_VOLATILE_CONST( m->map.next )==next0 );   /* still on the deferred stack */
 
+  /* Give the drain every chance to finish without E.  It must not: it
+     keeps waiting on E's CLAIM.  A drain that does not wait releases T
+     here, while E's INVAL store is still pending. */
+  int bg_done = 0;
+  for( ulong s=0UL; s<64UL && !bg_done; s++ ) bg_done = fd_racesan_async_step( bg )==FD_RACESAN_ASYNC_RET_EXIT;
+
+  /* Reacquire freed accmetas: new accounts take the top of the free
+     list, which is the released stack (4 entries: Q's and P's tombstone
+     and old version, in some order), so NEW_CNT new accounts are sure to
+     take T if the drain released it.  Each commit binds its accmeta to a
+     line (VALID, cache_idx). */
+# define NEW_CNT (6UL)
+  fd_accdb_fork_id_t C = fd_accdb_attach_child( accdb, D );
+  uchar pubkey_N[ NEW_CNT ][ 32 ];
+  for( ulong k=0UL; k<NEW_CNT; k++ ) { memset( pubkey_N[ k ], 0, 32UL ); pubkey_N[ k ][ 0 ] = 'N'; pubkey_N[ k ][ 1 ] = (uchar)k; }
+  if( bg_done ) {
+    for( ulong k=0UL; k<NEW_CNT; k++ ) write_acc( accdb, C, pubkey_N[ k ], 5UL+k, owner, NULL, 0UL );
+  }
+
+  /* E finishes: its late INVAL store must not land on a new owner */
   async_finish( e->async );
   fd_racesan_async_delete( e->async );
   fd_racesan_stack_destroy( e_stack, EVICT_FIBER_STACK_SZ );
-  async_finish( bg );
+  if( !bg_done ) {
+    async_finish( bg );
+    /* E's INVAL landed while the drain waited, before T was released */
+    FD_TEST( FD_VOLATILE_CONST( m->cache_idx )==FD_ACCDB_ACC_CIDX_INVAL );
+    FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
+    for( ulong k=0UL; k<NEW_CNT; k++ ) write_acc( accdb, C, pubkey_N[ k ], 5UL+k, owner, NULL, 0UL );
+  }
   fiber_done( &g_fiber[0] );
-  drain_background_n( accdb, 4UL );
 
-  FD_TEST( FD_VOLATILE_CONST( *pool_next )!=FD_ACCDB_ACC_CIDX_INVAL );
-  FD_TEST( !FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) );
+  /* Whoever owns T now: a bound accmeta names a real line */
+  if( FD_ACCDB_SIZE_CACHE_VALID( FD_VOLATILE_CONST( *es ) ) ) {
+    FD_TEST( FD_VOLATILE_CONST( m->cache_idx )!=FD_ACCDB_ACC_CIDX_INVAL );
+  }
+  for( ulong k=0UL; k<NEW_CNT; k++ ) {
+    FD_TEST( fd_accdb_lamports( accdb, C, pubkey_N[ k ] )==5UL+k );
+    /* Reading goes through the accmeta's cache binding: one clobbered
+       to INVAL (VALID set, cache_idx INVAL) fails or hangs here. */
+    uchar const * pks[1] = { pubkey_N[ k ] };
+    int wr[1] = { 0 };
+    fd_acc_t acc[1];
+    memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( accdb, C, 1UL, pks, wr, acc );
+    FD_TEST( acc[0].lamports==5UL+k );
+    fd_accdb_release( accdb, 1UL, acc );
+  }
+# undef NEW_CNT
+  drain_background_n( accdb, 4UL );
 
   free( accdb_d );
   test_teardown( accdb, fd );
@@ -4186,13 +4231,11 @@ covered( fd_accdb_shmem_t const * shmem,
   return off%part_sz < bound[ off/part_sz ];
 }
 
-/* accmeta_at returns the accmeta of an index entry (pool.next aliases
-   accmeta->cache_idx). */
+/* accmeta_at returns the accmeta of an index entry. */
 static fd_accdb_accmeta_t *
 accmeta_at( fd_accdb_t * accdb,
             uint         acc_idx ) {
-  uchar * cidx = (uchar *)fd_accdb_debug_acc_pool_next( accdb, acc_idx );
-  return (fd_accdb_accmeta_t *)( cidx - offsetof( fd_accdb_accmeta_t, cache_idx ) );
+  return fd_accdb_debug_accmeta( accdb, acc_idx );
 }
 
 static void
@@ -4653,6 +4696,81 @@ test_reset_vs_pass( void ) {
   test_shmem_delete();
 }
 
+/* test_walk_vs_deferred_stack: a reader has loaded next of a node
+   that T2 then unlinks and pushes onto the deferred-free stack (which
+   reuses next).  The walk order is load next, check the unlinked
+   mark, use next; the unlink order is set the mark, then reuse next.
+   So the reader either uses the next it loaded before the push (the
+   node's chain successor, still valid) or sees the mark and restarts
+   from the head.  It must never follow a stack link.
+
+   Chain for K (head -> tail), all on one hash chain:
+       A's X (head) -> P's X (unlinked by rooting A) -> P's K (tail)
+   P is the root.  The reader on A1 wants K.  It is parked at the first
+   post_next (on A's X, holding next == P's X); T2 roots A, pushing P's
+   X onto the stack; the reader resumes, loads P's X.next (now a stack
+   link), and must see the mark, restart, and find P's K. */
+
+static void
+test_walk_vs_deferred_stack( void ) {
+  test_shmem_new();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jr  = join_new();
+  fd_accdb_t * jb  = join_new();
+
+  uchar owner[ 32UL ] = { 7, 0 };
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  ulong chain_msk = g_shmem->chain_cnt-1UL;
+
+  /* X collides with K on the hash chain */
+  uchar K[ 32UL ]; mk_key( 1000UL, K );
+  uchar X[ 32UL ];
+  ulong hk = fd_hash32( K, g_shmem->seed ) & chain_msk;
+  for( ulong j=1UL;; j++ ) {
+    mk_key( 1000UL+j, X );
+    if( ( fd_hash32( X, g_shmem->seed ) & chain_msk )==hk ) break;
+  }
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    /* Base versions on P, rooted first: rooting P supersedes the last
+       iteration's K and X, so the pool stays bounded. */
+    fd_accdb_fork_id_t p = fd_accdb_attach_child( ctl, root );
+    seq_write( ctl, p, K, 500UL+i, owner );  /* tail: P's K */
+    seq_write( ctl, p, X, 1UL,     owner );  /* P's X */
+    fd_accdb_advance_root( ctl, p );
+    catch_up( jb );
+
+    fd_accdb_fork_id_t a  = fd_accdb_attach_child( ctl, p );
+    fd_accdb_fork_id_t a1 = fd_accdb_attach_child( ctl, a );
+    seq_write( ctl, a, X, 2UL, owner );         /* head: A's X */
+    fd_accdb_advance_root( ctl, a );
+
+    /* Park the reader on A's X, holding A's X.next == P's X.  It will
+       load P's X.next only after T2 has pushed P's X: that load returns
+       the stack link, and only the unlinked check stops the reader from
+       following it. */
+    fd_racesan_async_t * ra = fiber_acquire_expect( &g_fiber[0], jr, a1, K, 500UL+i );
+    FD_TEST( fd_racesan_async_step_until( ra, "accdb_acquire:post_next", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+    /* T2 roots A: unlinks P's X and pushes it.  The reader's epoch
+       keeps the batch from being released. */
+    drain_background( jb );
+    FD_TEST( g_shmem->deferred_acc_head!=UINT_MAX );
+
+    async_finish( ra );  /* expect_lamports==500+i is the oracle */
+    fiber_done( &g_fiber[0] );
+
+    fd_accdb_advance_root( ctl, a1 );
+    catch_up( jb );
+    root = a1;
+  }
+
+  join_delete( ctl );
+  join_delete( jr );
+  join_delete( jb );
+  test_shmem_delete();
+}
+
 struct test_case { char const * name; void (*fn)( void ); };
 
 int
@@ -4669,6 +4787,7 @@ main( int     argc,
     TEST( test_acquire_vs_advance ),
     TEST( test_acquire_vs_advance_sibling ),
     TEST( test_acquire_interior_unlink ),
+    TEST( test_walk_vs_deferred_stack ),
     TEST( test_acquire_vs_release ),
     TEST( test_acquire_vs_purge ),
     TEST( test_cold_load_same ),

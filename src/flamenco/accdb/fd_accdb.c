@@ -100,17 +100,6 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong const * const * external_epoch_slots;
   ulong                 external_epoch_cnt;
 
-  /* Side buffer of acc pool indices that have been CAS-unlinked from
-     their hash chains but cannot be released back to acc_pool yet,
-     because concurrent readers (acquire / compact) may still be
-     traversing the removed nodes via map.next.  The batch is released
-     once all joiner_epochs exceed shmem->deferred_epoch.  Indices
-     are written here (not into pool.next) until after the epoch drain
-     because pool.next is union-aliased to cache_idx, which a concurrent
-     cold_load_acc may still write through a captured pointer.  Backed
-     by shmem->deferred_acc_buf_off; cnt and epoch live in shmem too. */
-  uint * deferred_acc_buf;
-
   fd_accdb_metrics_t metrics[1];
 
   ulong prealloc_failed_at;
@@ -395,8 +384,6 @@ fd_accdb_new( void *              ljoin,
   accdb->carry_layer = 0UL;
   accdb->stage       = _bounce ? _bounce+FD_ACCDB_BOUNCE_SZ : NULL;
 
-  accdb->deferred_acc_buf = (uint *)( (uchar *)shmem + shmem->deferred_acc_buf_off );
-
   accdb->delta.chains = (uint *)             ( (uchar *)shmem + shmem->delta.chain_off );
   accdb->delta.pool   = (fd_accdb_delta_t *) ( (uchar *)shmem + shmem->delta.ele_off   );
 
@@ -516,8 +503,8 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->epoch = 1UL;
   for( ulong i=0UL; i<FD_ACCDB_MAX_JOINERS; i++ ) shmem->joiner_epochs[ i ].val = ULONG_MAX;
 
-  /* Deferred acc buffer. */
-  shmem->deferred_acc_buf_cnt = 0UL;
+  /* Deferred acc stack. */
+  shmem->deferred_acc_head    = UINT_MAX;
   shmem->deferred_epoch       = 0UL;
   shmem->deferred_fork_head   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   shmem->deferred_fork_tail   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
@@ -838,7 +825,6 @@ fd_accdb_join_readonly( void *             ljoin,
   accdb->bounce               = NULL;
   accdb->stage                = NULL;
 
-  accdb->deferred_acc_buf    = NULL;
   accdb->prealloc_failed_at  = ULONG_MAX;
 
   memset( accdb->metrics,      0, sizeof(fd_accdb_metrics_t) );
@@ -1323,14 +1309,13 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
     shmem->deferred_fork_tail = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   }
 
-  ulong n = accdb->shmem->deferred_acc_buf_cnt;
-  if( FD_LIKELY( !n ) ) return;
+  uint head_idx = shmem->deferred_acc_head;
+  if( FD_LIKELY( head_idx==UINT_MAX ) ) return;
 
   /* All readers that could have been holding a captured pointer to any
      of these accs at unlink time have now exited their epoch sections.
-     It is safe to materialize pool.next links and hand the chain to
-     acc_pool_release_chain. */
-  uint *               buf      = accdb->deferred_acc_buf;
+     The stack is already linked through map.next, the acc_pool link, so it
+     goes back to the pool as one chain. */
   fd_accdb_accmeta_t * acc_pool = accdb->acc_pool;
 
   /* Late-publish sweep: a concurrent acquire evictor may have published
@@ -1340,9 +1325,12 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
      orphaned disk bytes here, before the accmeta is released to the
      pool and its fields recycled. */
   ulong acc_pool_cap = acc_pool_ele_max( accdb->acc_pool_join );
-  for( ulong i=0UL; i<n; i++ ) {
-    FD_TEST( (ulong)buf[ i ]<acc_pool_cap );
-    fd_accdb_accmeta_t * accmeta = &acc_pool[ buf[ i ] ];
+  uint  tail_idx     = head_idx;
+  for( uint idx=head_idx; idx!=UINT_MAX; ) {
+    FD_TEST( (ulong)idx<acc_pool_cap );
+    fd_accdb_accmeta_t * accmeta = &acc_pool[ idx ];
+    uint next_idx = accmeta->map.next;
+    tail_idx = idx;
     ulong off = fd_accdb_acc_offset( accmeta );
     if( FD_UNLIKELY( off!=FD_ACCDB_OFF_INVAL ) ) {
       ulong entry_sz = (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t);
@@ -1353,7 +1341,8 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
        cold-loaded it since (tombstones skip the offset wait), publishing
        a line and VALID, and an evictor of that line may be clearing the
        binding right now under CLAIM.  Take CLAIM so that evictor has
-       finished its cache_idx store before pool.next overwrites it, then
+       finished its cache_idx store before the slot can be reacquired
+       (its late store would land on the next owner's cache_idx), then
        leave the slot with VALID clear. */
     for(;;) {
       uint cur = FD_VOLATILE_CONST( accmeta->executable_size );
@@ -1366,30 +1355,39 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
       FD_SPIN_PAUSE();
     }
     FD_ATOMIC_FETCH_AND_AND( &accmeta->executable_size, ~(FD_ACCDB_SIZE_CACHE_VALID_BIT|FD_ACCDB_SIZE_CACHE_CLAIM_BIT) );
+    idx = next_idx;
   }
 
-  for( ulong i=0UL; i+1UL<n; i++ ) {
-    acc_pool[ buf[ i ] ].pool.next = acc_pool_private_cidx( (ulong)buf[ i+1UL ] );
-  }
-  fd_accdb_accmeta_t * head = &acc_pool[ buf[ 0UL ] ];
-  fd_accdb_accmeta_t * tail = &acc_pool[ buf[ n-1UL ] ];
-  acc_pool_release_chain( accdb->acc_pool_join, head, tail );
-  accdb->shmem->deferred_acc_buf_cnt = 0UL;
+  acc_pool_release_chain( accdb->acc_pool_join, &acc_pool[ head_idx ], &acc_pool[ tail_idx ] );
+  shmem->deferred_acc_head = UINT_MAX;
 }
 
-/* deferred_acc_append records an unlinked acc index in the side buffer
-   for later release once its epoch drains.  T2 is the sole writer.
-   The chain link from acc->pool.next is NOT laid down here: pool.next
-   is union-aliased to cache_idx, and a concurrent cold_load_acc may
-   still publish through a captured pointer until the epoch drains.
-   Materialization of the chain happens in drain_deferred_frees. */
+/* deferred_acc_append pushes an acc that acc_unlink spliced out of its
+   chain onto the deferred stack, for release once its epoch drains.
+   T2 is the sole writer.
+
+   The stack is linked through map.next.  A concurrent chain walker may
+   still be standing on the acc and about to follow map.next, so the
+   acc is marked unlinked first: walkers load map.next, then
+   executable_size, and restart from the chain head on seeing the mark
+   (fd_accdb_acc_unlinked).  TSO keeps the two stores in order, so a
+   walker that read the stack link also sees the mark.  A walker that
+   read the old link (before the mark) follows the acc's chain successor,
+   which is either still linked or itself marked.
+
+   The stack links are acc_pool links (map.next is the pool's POOL_NEXT),
+   so drain_deferred_frees releases the stack as is. */
 
 static inline void
 deferred_acc_append( fd_accdb_t * accdb,
                      uint         acc_idx ) {
-  fd_accdb_shmem_t * shmem = accdb->shmem;
-  FD_TEST( shmem->deferred_acc_buf_cnt<shmem->deferred_acc_buf_max );
-  accdb->deferred_acc_buf[ shmem->deferred_acc_buf_cnt++ ] = acc_idx;
+  fd_accdb_shmem_t *   shmem   = accdb->shmem;
+  fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
+  FD_ATOMIC_FETCH_AND_OR( &accmeta->executable_size, FD_ACCDB_SIZE_UNLINKED_BIT );
+  fd_racesan_hook( "accdb_defer:post_mark" );
+  FD_COMPILER_MFENCE();  /* the mark before the stack link */
+  FD_VOLATILE( accmeta->map.next ) = shmem->deferred_acc_head;
+  shmem->deferred_acc_head = acc_idx;
 }
 
 /* acc_unlink unlinks an account from its hash map chain, frees any
@@ -1485,9 +1483,8 @@ acc_unlink( fd_accdb_t * accdb,
      CACHE_VALID — see evict_clear_acc_cache_ref for the protocol.
      Without CLAIM, a concurrent cold_load_acc can publish a fresh
      (cache_idx, VALID=1) pair into this acc between our two stores,
-     and our subsequent cache_idx=INVAL stomps onto the freelist
-     pool.next field (the union sibling of cache_idx), corrupting the
-     pool.  Unlike evict_clear_acc_cache_ref, we cannot bail when CLAIM
+     and our subsequent cache_idx=INVAL loses its line (leaking it as
+     VALID with no binding).  Unlike evict_clear_acc_cache_ref, we cannot bail when CLAIM
      is held: this acc is being permanently unlinked, so we must
      spin-wait for the cold-loader to release CLAIM and then invalidate
      whatever cache_idx is current. */
@@ -1932,26 +1929,16 @@ background_requests( fd_accdb_t * accdb ) {
   }
   done.purge_seq = req.purge_seq;
 
-  /* A level unlinks at most two accounts per txn (the replaced rooted
-     version and a rooted tombstone).  A level that could overflow the
-     deferred buffer is left for the next pass, which starts with an
-     empty buffer, so passes always progress. */
   for(;;) {
     fd_accdb_fork_shmem_t const * root = accdb->fork_pool[ shmem->root_fork_id.val ].shmem;
     done.root_gen = root->generation;
     if( done.root_gen==req.root_gen ) break;
     FD_TEST( done.root_gen<req.root_gen );
-    fd_accdb_fork_id_t level = root->child_id;
-    if( shmem->deferred_acc_buf_cnt ) {
-      ulong unlink_max = 0UL;
-      for( uint txn=accdb->fork_pool[ level.val ].shmem->txn_head; txn!=UINT_MAX; txn=txn_pool_ele( accdb->txn_pool, (ulong)txn )->fork.next ) unlink_max += 2UL;
-      if( FD_UNLIKELY( shmem->deferred_acc_buf_cnt+unlink_max>shmem->deferred_acc_buf_max ) ) break;
-    }
-    root_level( accdb, level );
+    root_level( accdb, root->child_id );
   }
 
   /* One grace period for everything unlinked or retired in this pass. */
-  if( FD_LIKELY( shmem->deferred_acc_buf_cnt || shmem->deferred_fork_head.val!=USHORT_MAX ) ) {
+  if( FD_LIKELY( shmem->deferred_acc_head!=UINT_MAX || shmem->deferred_fork_head.val!=USHORT_MAX ) ) {
     shmem->deferred_epoch = FD_ATOMIC_FETCH_AND_ADD( &shmem->epoch, 1UL );
     done.retiring         = 1U;
   }
@@ -2498,7 +2485,8 @@ background_compact( fd_accdb_t * accdb,
 
     fd_accdb_accmeta_t * accmeta = NULL;
     ulong source_packed = 0UL;
-    uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ] );
+    uint * chain = &accdb->acc_map[ fd_hash32( meta->pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL) ];
+    uint acc_idx = FD_VOLATILE_CONST( *chain );
     while( acc_idx!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ acc_idx ];
       uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
@@ -2508,6 +2496,7 @@ background_compact( fd_accdb_t * accdb,
         source_packed = candidate_packed;
         break;
       }
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { acc_idx = FD_VOLATILE_CONST( *chain ); continue; }
       acc_idx = next_idx;
     }
 
@@ -2831,6 +2820,13 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
                         fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
                         !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
                         memcmp( pubkeys[ i ], candidate_acc->key.pubkey, 32UL ) ) {
+        /* Before following next: if the node was unlinked since we
+           loaded it, next may be a deferred stack link, so restart */
+        if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) {
+          fd_racesan_hook( "accdb_acquire:restart" );
+          acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idxs[ i ] ] );
+          continue;
+        }
         acc = next_acc;
         continue;
       }
@@ -4082,6 +4078,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                       fd_accdb_acc_fork_id(candidate)!=fork_id.val &&
                       !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate) )) ) ||
                      memcmp( pubkey, candidate->key.pubkey, 32UL ) ) {
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
       acc_idx = next_idx;
       continue;
     }
@@ -4264,6 +4261,7 @@ fd_accdb_exists( fd_accdb_t *       accdb,
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
     if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
       acc = next_acc;
       continue;
     }
@@ -4300,6 +4298,7 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
     if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
       acc = next_acc;
       continue;
     }
@@ -4348,6 +4347,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
     if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
       acc = next_acc;
       continue;
     }
@@ -4381,6 +4381,7 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
     if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
       acc = next_acc;
       continue;
     }
@@ -4791,9 +4792,10 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     uint next_acc = chain_head;
     while( next_acc!=UINT_MAX ) {
       fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ next_acc ];
+      uint                 cand_next = FD_VOLATILE_CONST( candidate->map.next );
 
-      if( FD_LIKELY( candidate->map.next!=UINT_MAX ) ) {
-        __builtin_prefetch( &accdb->acc_pool[ candidate->map.next ], 0, 1 );
+      if( FD_LIKELY( cand_next!=UINT_MAX ) ) {
+        __builtin_prefetch( &accdb->acc_pool[ cand_next ], 0, 1 );
       }
 
       if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {
@@ -4812,7 +4814,8 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
         }
         break;
       }
-      next_acc = candidate->map.next;
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { next_acc = chain_head; continue; }
+      next_acc = cand_next;
     }
 
     if( FD_UNLIKELY( skip ) ) {
@@ -5111,11 +5114,11 @@ fd_accdb_debug_line_addr( fd_accdb_t * accdb,
   return cache_line( accdb, size_class, line_idx );
 }
 
-uint *
-fd_accdb_debug_acc_pool_next( fd_accdb_t * accdb,
-                              uint         acc_idx ) {
+fd_accdb_accmeta_t *
+fd_accdb_debug_accmeta( fd_accdb_t * accdb,
+                        uint         acc_idx ) {
   FD_TEST( (ulong)acc_idx<acc_pool_ele_max( accdb->acc_pool_join ) );
-  return &accdb->acc_pool[ acc_idx ].pool.next;
+  return &accdb->acc_pool[ acc_idx ];
 }
 
 /* Deterministically evict a single specified cache line via the
