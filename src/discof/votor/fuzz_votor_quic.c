@@ -378,7 +378,7 @@ fuzz_ctx_reset( uint sender_sel ) {
   ctx->next_epoch_info = &epoch_info_mem[1];
   ctx->curr_epoch_slot = FUZZ_ROOT_SLOT;
   ctx->next_epoch_slot = FUZZ_ROOT_SLOT+FUZZ_SLOTS_PER_EPOCH;
-  ctx->slots_per_epoch = FUZZ_SLOTS_PER_EPOCH;
+  ctx->epoch_slot_cnt  = FUZZ_SLOTS_PER_EPOCH;
   FD_TEST( ctx->curr_epoch_info->validator_cnt );
 
   /* Peers: one per ranked voter, as handle_epoch inserts them. */

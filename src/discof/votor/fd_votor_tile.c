@@ -289,7 +289,7 @@ struct fd_votor_tile {
 
   ushort                     shred_version;
   long                       ns_per_slot;
-  ulong                      slots_per_epoch;
+  ulong                      epoch_slot_cnt;
   fd_epoch_info_t *          prev_epoch_info;
   ulong                      prev_epoch_slot;
   fd_epoch_info_t *          curr_epoch_info;
@@ -975,7 +975,7 @@ quic_server_datagram_rx( fd_quic_conn_t * conn,
       break;
     case FD_VOTOR_POOL_ERR_SLOT_TOO_OLD: ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SLOT_OUT_OF_RANGE_IDX ]++; break;
     case FD_VOTOR_POOL_ERR_SLOT_TOO_NEW:
-      if( FD_LIKELY( ( cert_slot<=ctx->catchup_slot && ( !final || cert_slot<=ctx->catchup_final_slot ) ) || cert_slot>=ctx->next_epoch_slot+ctx->slots_per_epoch ) ) break;
+      if( FD_LIKELY( ( cert_slot<=ctx->catchup_slot && ( !final || cert_slot<=ctx->catchup_final_slot ) ) || cert_slot>=ctx->next_epoch_slot+ctx->epoch_slot_cnt ) ) break;
       ctx->metrics.bls_verify++;
       if( FD_UNLIKELY( fd_cert_verify( cert, epoch_info )!=FD_CERT_VERIFY_SUCCESS ) ) {
         ctx->metrics.cert_rx[ FD_METRICS_ENUM_CERT_RX_RESULT_V_SIGNATURE_FAILED_IDX ]++;
@@ -1815,7 +1815,7 @@ handle_epoch( fd_votor_tile_t *           ctx,
      votor times each window's skip deadlines by its own epoch's. */
 
   ctx->ns_per_slot     = (long)msg->ns_per_slot;
-  ctx->slots_per_epoch = msg->epoch_schedule.slots_per_epoch;
+  ctx->epoch_slot_cnt  = msg->slot_cnt;
 
   if( FD_UNLIKELY( ctx->failover_enabled && !ctx->vote_authority ) ) own_rank = USHORT_MAX;
   fd_votor_pool_advance_epoch( ctx->pool,  epoch_info,       own_rank, msg->start_slot );
@@ -2991,7 +2991,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->net_tx_cnt                = 0UL;
   ctx->next_leader_slot          = ULONG_MAX;
   ctx->ns_per_slot               = 400000000L; /* until epoch info */
-  ctx->slots_per_epoch           = 0UL;
+  ctx->epoch_slot_cnt            = 0UL;
   ctx->highest_parent_ready_slot = 0UL;
   ctx->highest_certed_final_slot = 0UL;
   ctx->catchup_slot              = 0UL;
