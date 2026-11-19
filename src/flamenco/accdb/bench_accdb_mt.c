@@ -9,6 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <fcntl.h>
 
 /* bench_accdb_mt: the accdb acquire/release hot path under many
    concurrent joins, the way exec tiles drive it.
@@ -27,6 +28,8 @@
    --threads       worker thread counts to sweep, e.g. 1,4,8,15
                    (default 4); every step reuses the same accdb
    --duration      seconds per step (default 10)
+   --file PATH     put the accounts file at PATH, which must not exist
+                   (default: in memory)
    --cache-gib     cache size, fractional allowed (default 4); a
                    working set larger than the cache exercises CLOCK
                    eviction and write-back
@@ -255,6 +258,7 @@ main( int     argc,
   double       cache_gib   = fd_env_strip_cmdline_double( &argc, &argv, "--cache-gib",  NULL, hot ? 3.0   : 4.0   );
   g_cpu0                   = fd_env_strip_cmdline_ulong ( &argc, &argv, "--cpu0",       NULL, 1UL                 );
   char const * mix         = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--mix",        NULL, "transfer"          );
+  char const * file        = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--file",       NULL, NULL                );
   g_ro_hot                 = fd_env_strip_cmdline_ulong ( &argc, &argv, "--ro-hot",     NULL, hot ? 4UL   : 0UL   );
   g_per_thread             = fd_env_strip_cmdline_ulong ( &argc, &argv, "--per-thread", NULL, hot ? 512UL : 0UL   );
   g_data_sz2               = fd_env_strip_cmdline_ulong ( &argc, &argv, "--data-sz2",   NULL, 0UL                 );
@@ -300,8 +304,12 @@ main( int     argc,
       FD_LOG_ERR(( "--accounts %lu too small: partitions need %lu accounts each", g_accounts, max_part_cnt ));
   }
 
-  int fd = memfd_create( "accdb_mt", 0 );
-  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+  /* The accounts file: in memory, or (--file PATH) a file on that
+     path's filesystem (unlinked at once; reads go through the page
+     cache). */
+  int fd = file ? open( file, O_RDWR|O_CREAT|O_EXCL, 0600 ) : memfd_create( "accdb_mt", 0 );
+  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "opening the accounts file failed" ));
+  if( file ) unlink( file );
 
   ulong cache_fp     = (ulong)( cache_gib*(double)(1UL<<30UL) );
   ulong joiner_cnt   = max_threads+2UL;
@@ -412,6 +420,14 @@ main( int     argc,
                     mix, g_threads, g_accounts, cache_gib, g_ro_hot, g_per_thread, g_data_sz2,
                     tps, tps/(double)g_threads, ns_txn, tps/tps0,
                     acquire_ticks/tick_per_ns/(double)acc_cnt, release_ticks/tick_per_ns/(double)acc_cnt, failed-failed0 ));
+    /* Eviction volume: foreground (exec joins) and pre-eviction (the
+       background join), and cold loads, cumulative since start. */
+    ulong evicted = 0UL, missed = 0UL;
+    for( ulong i=0UL; i<g_threads; i++ ) {
+      evicted += fd_accdb_metrics( joins[ i ] )->accounts_evicted;
+      for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) missed += fd_accdb_metrics( joins[ i ] )->accounts_not_found_per_class[ c ];
+    }
+    FD_LOG_NOTICE(( "EVICTIONS evicted=%lu preevicted=%lu missed=%lu", evicted, fd_accdb_metrics( bg )->accounts_preevicted, missed ));
   }
 
   free( workers );

@@ -206,15 +206,12 @@ fd_accdb_shmem_new( void * shmem,
   }
 
   /* The total addressable file space (partition_cnt * partition_sz)
-     must not exceed 2^FD_ACCDB_OFF_BITS.  File offsets are stored in
-     the 48-bit offset portion of acc->offset_fork, and the all-ones
-     value FD_ACCDB_OFF_INVAL is reserved as a dirty sentinel.  The
-     allocator guarantees record start offsets are always at least
-     sizeof(fd_accdb_disk_meta_t) below a partition boundary, so a
-     total of exactly 2^48 is safe (no valid offset reaches the
-     sentinel), but exceeding it is not. */
-  if( FD_UNLIKELY( partition_cnt>((1UL<<FD_ACCDB_OFF_BITS)/partition_sz) ) ) {
-    FD_LOG_WARNING(( "partition_cnt*partition_sz must be at most %lu", 1UL<<FD_ACCDB_OFF_BITS ));
+     must not exceed 2^47.  File offsets are stored in the 48-bit offset
+     portion of acc->offset_fork, and values with bit 47 set are the
+     DIRTY / UPDATING / DEAD sentinels (fd_accdb_private.h). */
+  FD_STATIC_ASSERT( FD_ACCDB_OFF_DIRTY_BIT==FD_ACCDB_FILE_SZ_MAX, file_sz_max );
+  if( FD_UNLIKELY( partition_cnt>(FD_ACCDB_FILE_SZ_MAX/partition_sz) ) ) {
+    FD_LOG_WARNING(( "partition_cnt*partition_sz must be at most %lu", FD_ACCDB_FILE_SZ_MAX ));
     return NULL;
   }
 
@@ -351,8 +348,8 @@ fd_accdb_shmem_new( void * shmem,
   accdb->root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   accdb->generation = 0U;
 
-  accdb->partition_lock   = 0;
-  accdb->grow_lock        = 0;
+  fd_spinlock_new( &accdb->partition_lock );
+  fd_spinlock_new( &accdb->grow_lock      );
   accdb->snapshot_loading = 0;
   accdb->bundle_enabled   = bundle_enabled;
 
@@ -410,29 +407,8 @@ fd_accdb_shmem_new( void * shmem,
   for( ulong i=0UL; i<FD_ACCDB_MAX_JOINERS; i++ ) accdb->joiner_epochs[ i ].val = ULONG_MAX;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_class_max[ c ] = cache_class_max[ c ];
-  fd_accdb_shmem_cache_alloc_reset( accdb );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_region_off[ c ] = (ulong)_cache_regions[ c ] - (ulong)shmem;
-
-  /* Pre-initialize every cache slot's metadata to the "empty" sentinel
-     (gen=UINT_MAX, acc_idx=UINT_MAX, refcnt=0).  Without this, the
-     lazy-init path in acquire_cache_line bumps cache_class_init before
-     writing the sentinels into the freshly-claimed line; a concurrent
-     background_preevict reading the bumped init counter could then sweep
-     a slot whose memory still reads as zero, see (gen=0, acc_idx=0)
-     instead of the skip predicate, CAS refcnt 0->EVICT_SENTINEL, and
-     "evict" a line the lazy-init owner is about to publish. */
-  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    ulong slot_sz = fd_accdb_cache_slot_sz[ c ];
-    for( ulong i=0UL; i<cache_class_max[ c ]; i++ ) {
-      fd_accdb_cache_line_t * line = (fd_accdb_cache_line_t *)( (uchar *)_cache_regions[ c ] + i*slot_sz );
-      line->key.generation = UINT_MAX;
-      line->acc_idx        = UINT_MAX;
-      line->refcnt         = 0U;
-      line->referenced     = 0;
-      line->persisted      = 1;
-      line->seq            = 0U;
-    }
-  }
+  fd_accdb_shmem_cache_alloc_reset( accdb );
 
   accdb->delta.seed       = seed+1UL;
   accdb->delta.chain_off  = (ulong)_delta_map - (ulong)shmem;
@@ -514,9 +490,9 @@ fd_accdb_shmem_bytes_freed( fd_accdb_shmem_t * accdb,
   if( FD_LIKELY( partition->bytes_freed<(accdb->partition_sz*FD_ACCDB_COMPACTION_THRESHOLD_PCT/100UL) ) ) return;
   if( FD_UNLIKELY( partition->marked_compaction ) ) return;
 
-  spin_lock_acquire( &accdb->partition_lock );
+  fd_spinlock_acquire( &accdb->partition_lock );
   fd_accdb_shmem_try_enqueue_compaction( accdb, partition_idx );
-  spin_lock_release( &accdb->partition_lock );
+  fd_spinlock_release( &accdb->partition_lock );
 }
 
 ulong

@@ -17,6 +17,11 @@
 
 #define FD_ACCDB_COMPACTION_THRESHOLD_PCT (30UL)
 
+/* FD_ACCDB_FILE_SZ_MAX bounds partition_cnt*partition_sz: a record
+   offset must be below 2^47. */
+
+#define FD_ACCDB_FILE_SZ_MAX (1UL<<47)
+
 typedef struct fd_accdb_shmem_private fd_accdb_shmem_t;
 
 struct fd_accdb_shmem_metrics {

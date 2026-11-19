@@ -4,29 +4,17 @@
 #include "fd_accdb_base.h"
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_cache.h"
+#include "../../util/racesan/fd_racesan_target.h"
+#include "../fd_rwlock.h"
 
-static inline void
-spin_lock_acquire( int * lock ) {
-# if FD_HAS_THREADS
-  for(;;) {
-    if( FD_LIKELY( !FD_ATOMIC_CAS( lock, 0, 1 ) ) ) break;
-    FD_SPIN_PAUSE();
-  }
-# else
-  *lock = 1;
-# endif
-  FD_COMPILER_MFENCE();
-}
+/* fd_spinlock_t is a plain mutex for accdb's rare slow paths
+   (partition switches, file growth): fd_rwlock's writer side. */
 
-static inline void
-spin_lock_release( int * lock ) {
-  FD_COMPILER_MFENCE();
-# if FD_HAS_THREADS
-  FD_VOLATILE( *lock ) = 0;
-# else
-  *lock = 0;
-# endif
-}
+typedef fd_rwlock_t fd_spinlock_t;
+
+static inline void fd_spinlock_new    ( fd_spinlock_t * lock ) { fd_rwlock_new    ( lock ); }
+static inline void fd_spinlock_acquire( fd_spinlock_t * lock ) { fd_rwlock_write  ( lock ); }
+static inline void fd_spinlock_release( fd_spinlock_t * lock ) { fd_rwlock_unwrite( lock ); }
 
 struct fd_accdb_txn {
   union {
@@ -194,20 +182,6 @@ typedef struct fd_accdb_partition fd_accdb_partition_t;
 
 #include "../../util/tmpl/fd_dlist.c"
 
-/* Per-join reservation credits (fd_accdb.c res_*).  fd_accdb_cred_max
-   is the most idle credits a join holds per tracked class: at most
-   FD_ACCDB_CRED_MAX, and all joins together at most
-   class_max/FD_ACCDB_CRED_DIV. */
-
-#define FD_ACCDB_CRED_MAX (64UL)
-#define FD_ACCDB_CRED_DIV (2UL)
-
-static inline ulong
-fd_accdb_cred_max( ulong class_max,
-                   ulong joiner_cnt ) {
-  return fd_ulong_min( FD_ACCDB_CRED_MAX, class_max/( FD_ACCDB_CRED_DIV*fd_ulong_max( joiner_cnt, 1UL ) ) );
-}
-
 struct fd_accdb_cache_key {
   uchar pubkey[ 32UL ];
   uint generation;
@@ -222,14 +196,18 @@ struct __attribute__((aligned(64))) fd_accdb_accmeta {
     uint next;
   } map;
 
+  /* The account's data word: the line its bytes are cached in (cidx,
+     meaningful while VALID is set) and its size word es (length, exec,
+     pd_write, VALID).  Changed only by a single store, CAS or swap of
+     the whole word (fd_accdb.c "Data word").  While a snapshot loads,
+     cidx holds the record's snapshot slot (VALID clear). */
   union {
     struct {
-      uint next;
-    } pool;
-    uint cache_idx;
+      uint cache_idx;
+      uint executable_size;
+    };
+    ulong data;
   };
-
-  uint   executable_size;
 
   ulong  lamports;
 
@@ -243,31 +221,50 @@ typedef struct fd_accdb_accmeta fd_accdb_accmeta_t;
 
 FD_STATIC_ASSERT( alignof(fd_accdb_accmeta_t)==64, layout );
 FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
+FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_t, cache_idx), layout );
 
-#define FD_ACCDB_OFF_BITS  48UL
-#define FD_ACCDB_OFF_MASK  ((1UL<<FD_ACCDB_OFF_BITS)-1UL)       /* 0x0000_FFFF_FFFF_FFFF */
-#define FD_ACCDB_OFF_INVAL FD_ACCDB_OFF_MASK                    /* sentinel: offset bits all-ones */
+#define FD_ACCDB_DATA_CIDX(d)  ( (uint)(d) )
+#define FD_ACCDB_DATA_ES(d)    ( (uint)( (ulong)(d)>>32 ) )
+#define FD_ACCDB_DATA(cidx,es) ( ( (ulong)(uint)(es)<<32 ) | (ulong)(uint)(cidx) )
+
+/* The disk offset (the low 48 bits of offset_fork) is in one of four
+   states:
+
+     CLEAN        a record offset, below 2^47 (fd_accdb_shmem_new checks
+                  the file fits): the version's bytes are on disk.
+     DIRTY(cidx)  line cidx holds the only copy (committed, not
+                  written back).  The account is bound to that line.
+     UPDATING     a commit that keeps the accmeta is rewriting the
+                  version (DIRTY of no line).
+     DEAD         unlinked: no record, and none will be published.
+
+   Only a clean version is ever unbound from its line, so an unbound
+   version's offset is CLEAN or DEAD. */
+
+#define FD_ACCDB_OFF_BITS      48UL
+#define FD_ACCDB_OFF_MASK      ((1UL<<FD_ACCDB_OFF_BITS)-1UL)
+#define FD_ACCDB_OFF_DIRTY_BIT (1UL<<47)
+#define FD_ACCDB_OFF_DIRTY(ci) ( FD_ACCDB_OFF_DIRTY_BIT | (ulong)(uint)(ci) )
+#define FD_ACCDB_OFF_UPDATING  FD_ACCDB_OFF_DIRTY( UINT_MAX )
+#define FD_ACCDB_OFF_DEAD      FD_ACCDB_OFF_MASK
+#define FD_ACCDB_OFF_CLEAN(o)  ( !( (o) & FD_ACCDB_OFF_DIRTY_BIT ) )
 
 /* The in-memory executable_size field in fd_accdb_accmeta_t packs
-   five things into 32 bits:
+   four things into 32 bits:
 
      bit  31     executable flag                       (FD_ACCDB_SIZE_EXEC_BIT)
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
-     bit  29     cache_claim flag, in-memory only      (FD_ACCDB_SIZE_CACHE_CLAIM_BIT)
      bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
      bits 27..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
 
    The data length is therefore 28 bits, max 256 MiB, still well above
    FD_RUNTIME_ACC_SZ_MAX of 10 MiB (enforced by the static assert below).
 
-   The three upper flag bits exist only in the in-memory index, never on
-   disk:
+   The cache_valid and pd_write bits exist only in the in-memory index,
+   never on disk:
      - cache_valid (bit 30): when set, cache_idx holds a valid
        (class, idx) pair; when clear, cache_idx must not be dereferenced
        (it may hold a snapshot slot number or garbage).
-     - cache_claim (bit 29): a short-lived eviction/install lock taken
-       via CAS while a writer mutates the cache_idx <-> cache-line
-       binding, so concurrent readers and the evictor do not race.
      - pd_write (bit 28): set on a committed version whose write changed
        BPF upgradeable-loader deploy status this slot (Deploy/Upgrade/
        Extend/Close).  Meaningful only while the accmeta's key.generation
@@ -284,14 +281,12 @@ FD_STATIC_ASSERT( sizeof (fd_accdb_accmeta_t)==64, layout );
 
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
-#define FD_ACCDB_SIZE_CACHE_CLAIM_BIT (1U<<29)
 #define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
 #define FD_ACCDB_SIZE_MASK            ((1U<<28)-1U)
 #define FD_ACCDB_SIZE_PACK(sz,exec)   ((uint)(sz) | ((exec) ? FD_ACCDB_SIZE_EXEC_BIT : 0U))
 #define FD_ACCDB_SIZE_DATA(packed)    ((packed) & FD_ACCDB_SIZE_MASK)
 #define FD_ACCDB_SIZE_EXEC(packed)    (!!((packed) & FD_ACCDB_SIZE_EXEC_BIT))
 #define FD_ACCDB_SIZE_CACHE_VALID(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_VALID_BIT))
-#define FD_ACCDB_SIZE_CACHE_CLAIM(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_CLAIM_BIT))
 #define FD_ACCDB_SIZE_PD_WRITE(p)     (!!((p) & FD_ACCDB_SIZE_PD_WRITE_BIT))
 
 FD_STATIC_ASSERT( (10UL<<20) < (1UL<<28), pd_write_bit_collides_with_len );
@@ -345,7 +340,7 @@ fd_accdb_acc_xchg_offset( fd_accdb_accmeta_t * acc,
 
 #define POOL_NAME       acc_pool
 #define POOL_ELE_T      fd_accdb_accmeta_t
-#define POOL_NEXT       pool.next
+#define POOL_NEXT       map.next  /* a free accmeta is on no chain */
 #define POOL_IDX_T      uint
 #define POOL_IDX_WIDTH  32
 #define POOL_IMPL_STYLE 0
@@ -353,22 +348,76 @@ fd_accdb_acc_xchg_offset( fd_accdb_accmeta_t * acc,
 
 #include "../../util/tmpl/fd_pool_para.c"
 
+/* A cache line: this 64 byte header, then the data.  state is one of
+   FD_ACCDB_LINE_*:
+
+     FREE     anyone may take it, with one CAS to OWNED.  Free lists are
+              only hints (fd_accdb.c "Free lines").
+     OWNED    private to one join: staging, a cold load or commit being
+              filled, just taken.
+     SHARED   holds account acc_idx's bytes, and the account is bound to
+              it (or was: an orphan, whose bytes are dead).
+     EVICTING one evictor owns it.  Its holders keep reading it; a new
+              holder waits until it ends (SHARED again, or unbound).
+
+   A reader holds a line by an entry in its join's hazard list, never
+   by a count on the line.  seq is odd while the bytes are unstable
+   (from a take until they are filled, and around an in-place commit),
+   for readers that copy without holding the line. */
+
 struct fd_accdb_cache_line {
-  fd_accdb_cache_key_t key;
-
-  uint acc_idx;
-  uint seq; /* incremented each time line is reused */
-
-  uint  refcnt;
-  uchar persisted;
-  uchar referenced;
-
-  uint next;
-
+  uint  acc_idx;
+  uint  _pad0;
+  ulong seq;
+  uchar state;
+  uchar hot;      /* CLOCK hint: set by hits (only if clear), spent by the sweep */
+  uchar _pad1[ 14 ];
   uchar owner[ 32UL ];
 };
 
 typedef struct fd_accdb_cache_line fd_accdb_cache_line_t;
+
+FD_STATIC_ASSERT( offsetof(fd_accdb_cache_line_t, owner)==32UL, layout );
+
+#define FD_ACCDB_LINE_FREE    ((uchar)0)
+#define FD_ACCDB_LINE_OWNED   ((uchar)1)
+#define FD_ACCDB_LINE_SHARED  ((uchar)2)
+#define FD_ACCDB_LINE_EVICTING ((uchar)3)
+
+/* fd_accdb_line_read_unheld copies owner (32 bytes) and data_sz bytes
+   of data out of line, which the caller found the account bound to
+   (data word d, loaded with acquire from *data_word), without holding
+   the line (read_one_nocache, backup).  Returns 1 if the copy is good:
+   the account is still bound to the line, and seq was even and
+   unchanged from before the copy until after that check.  The word is
+   checked first: seq never goes back, so an equal seq after it spans
+   the copy and the check, and the copy is of the incarnation the word
+   names.  The caller's epoch keeps the accmeta from being recycled
+   meanwhile. */
+
+static inline int
+fd_accdb_line_read_unheld( fd_accdb_cache_line_t const * line,
+                           ulong const *                 data_word,
+                           ulong                         d,
+                           uchar *                       owner,
+                           uchar *                       data,
+                           ulong                         data_sz ) {
+  fd_racesan_hook( "accdb_nocache:pre_seq" );
+  ulong s = FD_VOLATILE_CONST( line->seq );  /* after the word: its binder's take is visible */
+  if( FD_UNLIKELY( s&1UL ) ) return 0;
+  FD_COMPILER_MFENCE();                      /* seq before the copy */
+
+  fd_racesan_hook( "accdb_nocache:pre_copy" );
+  fd_memcpy( owner, line->owner, 32UL );
+  if( data_sz ) fd_memcpy( data, (uchar const *)( line+1UL ), data_sz );
+  fd_racesan_hook( "accdb_nocache:post_copy" );
+
+  FD_COMPILER_MFENCE();                      /* the copy before the rechecks */
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( *data_word )!=d ) ) return 0;
+  fd_racesan_hook( "accdb_nocache:mid_recheck" );
+  FD_COMPILER_MFENCE();                      /* the word before seq */
+  return FD_VOLATILE_CONST( line->seq )==s;
+}
 
 typedef struct __attribute__((aligned(64))) { ulong val; } accdb_offset_t;
 
@@ -402,21 +451,35 @@ packed_partition_file_offset( accdb_offset_t const * offset,
 
 /* Maximum number of concurrent joiners (tiles) that can publish an
    epoch in the accdb.  Each joiner claims a slot in the shared epoch
-   array during fd_accdb_new.  Must be less than or equal to 256 so
-   refcnt in cache lines can safely track the number of threads
-   referencing each cache line without overflow.  With a uint refcnt
-   field, 256 joiners is well within range. */
+   array during fd_accdb_new.  Every eviction scans each joiner's hazard
+   list, so keep it small. */
 #define FD_ACCDB_MAX_JOINERS (256UL)
-FD_STATIC_ASSERT( FD_ACCDB_MAX_JOINERS%64UL==0UL, joiner_bitmap );  /* cache_free_have words */
 
-/* EVICT_SENTINEL: stored in refcnt to indicate a cache line is being
-   claimed by an eviction scan.  Any thread seeing this value must treat
-   the line as unavailable. */
-#define FD_ACCDB_EVICT_SENTINEL UINT_MAX
+/* Free line hints (fd_accdb.c "Free lines"): per join and class, a
+   ring the accdb tile fills with lines it freed. */
+#define FD_ACCDB_RING_N (1024UL)
+
+/* Hazard list capacity: an acquire_a plus an acquire_b. */
+#define FD_ACCDB_HAZARD_MAX (2UL*FD_ACCDB_MAX_ACQUIRE_CNT)
+
+/* fd_accdb_ring_t is one join's ring of free line hints for one class
+   (fd_accdb.c "Free lines").  An empty slot reads INVAL: the accdb tile
+   fills slots that read INVAL and the join resets each slot it takes,
+   so neither side reads the other's position.  The p line is the accdb
+   tile's; the join sets hungry there when it runs out, and the tile
+   clears it once it has given lines.  The c line is the join's. */
+
+struct __attribute__((aligned(64))) fd_accdb_ring {
+  struct __attribute__((aligned(64))) { ulong prod; ulong hungry; } p;
+  struct __attribute__((aligned(64))) { ulong cons;               } c;
+  uint e[ FD_ACCDB_RING_N ];
+};
+
+typedef struct fd_accdb_ring fd_accdb_ring_t;
 
 struct fd_accdb_shmem_private {
-  int partition_lock  __attribute__((aligned(64)));
-  int grow_lock       __attribute__((aligned(64)));
+  fd_spinlock_t partition_lock __attribute__((aligned(64)));
+  fd_spinlock_t grow_lock      __attribute__((aligned(64)));
 
   /* Set non-zero by the snapin tile while a snapshot is being loaded.
      Suppresses compaction enqueue so the compaction tile does not race
@@ -438,23 +501,16 @@ struct fd_accdb_shmem_private {
      its own cacheline to avoid false sharing between classes. */
   struct __attribute__((aligned(64))) { ulong val; } clock_hand[ FD_ACCDB_CACHE_CLASS_CNT ];
 
-  /* Per-join, per-class free lists of cache lines (Treiber stacks, see
-     fd_accdb.c cache_free_*).  ver_top is a 32-bit ABA version (high)
-     and a line index (low, UINT_MAX = empty). */
-  struct __attribute__((aligned(64))) { ulong ver_top[ FD_ACCDB_CACHE_CLASS_CNT ]; } cache_free[ FD_ACCDB_MAX_JOINERS ];
+  /* Per-join, per-class rings of free line hints. */
+  fd_accdb_ring_t cache_ring[ FD_ACCDB_MAX_JOINERS ][ FD_ACCDB_CACHE_CLASS_CNT ];
 
-  /* Approximate depth of each of those lists. */
-  struct __attribute__((aligned(64))) { ulong val[ FD_ACCDB_CACHE_CLASS_CNT ]; } cache_free_cnt[ FD_ACCDB_MAX_JOINERS ];
-
-  /* Bit j of cache_free_have[c] is set whenever join j's class-c list
-     is non-empty (it may also be set when empty). */
-  struct __attribute__((aligned(64))) { ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ]; } cache_free_have[ FD_ACCDB_CACHE_CLASS_CNT ];
-
-  /* Bit j of cache_free_hungry[c] is set when join j ran out of free
-     class-c lines (own list empty, no never-used line).  Pre-eviction
-     takes and clears the bits, and hands the lines it frees to those
-     joins' lists. */
-  struct __attribute__((aligned(64))) { ulong bits[ FD_ACCDB_MAX_JOINERS/64UL ]; } cache_free_hungry[ FD_ACCDB_CACHE_CLASS_CNT ];
+  /* Per-join hazard lists: the cidx of every line join j holds for its
+     current acquire bracket, one entry per acquired account (account i
+     of an acquire is entry base+i; acquire_b's follow acquire_a's).
+     FD_ACCDB_ACC_CIDX_INVAL marks none.  Entries [0,cnt), emptied when
+     the bracket closes; 16 entries of padding past the end, so a scan
+     can read whole vectors. */
+  struct __attribute__((aligned(64))) { ulong cnt; uint cidx[ FD_ACCDB_HAZARD_MAX+16UL ]; } cache_hazard[ FD_ACCDB_MAX_JOINERS ];
 
   fd_accdb_fork_id_t root_fork_id;
 
@@ -483,10 +539,10 @@ struct fd_accdb_shmem_private {
      */
   uint generation;
 
-  /* Lazy initial-allocation counter per size class.  Atomically
-     incremented by acquire_cache_line (with undo on overflow). Each
-     element is on its own cacheline to avoid false sharing between
-     classes. */
+  /* cache_class_init[c].val: lines of class c ever taken.  Lines past
+     it have never been used: taken first (one FAA), so CLOCK does not
+     evict while the class still has room.  Each element is on its own
+     cacheline to avoid false sharing between classes. */
   struct __attribute__((aligned(64))) { ulong val; } cache_class_init[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
@@ -499,17 +555,19 @@ struct fd_accdb_shmem_private {
   ulong cache_region_off[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* Background pre-eviction watermarks (computed once in shmem_new).
-     cache_free_target[c]: desired free-list depth for class c.
-     cache_free_low_water[c]: trigger threshold ((target*3)/4). */
+     cache_free_target[c]: free class-c lines pre-eviction keeps in the
+     joins' rings, all joins together.  cache_free_low_water[c]: the
+     same, the level below which a ring asks for a refill. */
   ulong cache_free_target   [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_free_low_water[ FD_ACCDB_CACHE_CLASS_CNT ];
 
-  /* cache_class_used[i].val holds the number of reserved cache
-     slots in size class i, taken and returned in chunks by the joins'
-     reservation credits (fd_accdb.c res_*).  Each element is on its
-     own cacheline to avoid false sharing between classes.  The count
-     includes the joins' idle credits (join_cred), so used[i].val +
-     available[i] == cache_class_max[i] at all times. */
+  /* cache_class_used[i].val holds the number of reserved cache slots
+     in size class i: taken by acquires, and kept as the joins' idle
+     reservation credits on release (fd_accdb.c res_*).  The count
+     includes those idle credits (join_cred), so used[i].val +
+     available[i] == cache_class_max[i] at all times.  ULONG_MAX if the
+     class is untracked.  Each element is on its own cacheline to avoid
+     false sharing between classes. */
   struct __attribute__((aligned(64))) { ulong val; } cache_class_used[ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* Per-layer write heads.  whead[0] is the hot (execution) write
@@ -536,8 +594,8 @@ struct fd_accdb_shmem_private {
   ulong joiner_cnt_max;
 
   /* Per-joiner worst-case cache reservation, set at construction.
-     Used by fd_accdb_reset to replicate the cache_class_used sentinel
-     logic from fd_accdb_shmem_new. */
+     Used by fd_accdb_shmem_cache_alloc_reset (on new and on reset) to
+     pick the untracked classes. */
   ulong cache_min_reserved;
 
   ulong partition_pool_off;
@@ -613,10 +671,11 @@ struct fd_accdb_shmem_private {
 
   /* T2-only side buffer for deferred acc unlinks.  Holds the indices of
      accs that have been CAS-unlinked from their map chains in the
-     current advance_root or purge call but cannot yet have pool.next
-     written: a concurrent cold_load_acc may stomp it via the cache_idx
-     union alias.  After wait_for_epoch_drain the list is materialized
-     into pool.next links and released via acc_pool_release_chain.
+     current advance_root or purge pass but cannot be released yet: a
+     concurrent reader may still follow their map.next, which is also
+     the pool's free link.  Once the epoch drains, drain_deferred_frees
+     links them through map.next and releases them with
+     acc_pool_release_chain.
 
      T2 is the sole writer (it applies all root / purge requests), so
      cnt is plain.  Capacity is
@@ -666,13 +725,13 @@ struct fd_accdb_shmem_private {
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };
 
-/* fd_accdb_shmem_cache_alloc_reset empties the cache line allocator: no
-   line used yet, every free list empty, no idle reservation credits.
-   cache_class_max, cache_min_reserved and joiner_cnt_max must be set.
-   If a class has enough lines for every joiner's worst case at once
-   (cache_min_reserved per joiner), no reservation can overflow, and
-   the cache_class_used sentinel ULONG_MAX tells acquire/release to skip
-   the counter. */
+/* fd_accdb_shmem_cache_alloc_reset makes every cache line FREE and
+   empty, with no hints, holds or idle reservation credits.
+   cache_class_max, cache_region_off, cache_min_reserved and
+   joiner_cnt_max must be set.  If a class has enough lines for every
+   joiner's worst case at once (cache_min_reserved per joiner), no
+   reservation can overflow, and the cache_class_used sentinel
+   ULONG_MAX tells acquire to skip the counter. */
 
 static inline void
 fd_accdb_shmem_cache_alloc_reset( fd_accdb_shmem_t * shmem ) {
@@ -681,17 +740,20 @@ fd_accdb_shmem_cache_alloc_reset( fd_accdb_shmem_t * shmem ) {
     shmem->clock_hand      [ c ].val = 0UL;
     shmem->cache_class_init[ c ].val = 0UL;
     shmem->cache_class_used[ c ].val = fd_ulong_if( shmem->cache_class_max[ c ]>=worst, ULONG_MAX, 0UL );
-    for( ulong w=0UL; w<FD_ACCDB_MAX_JOINERS/64UL; w++ ) {
-      shmem->cache_free_have  [ c ].bits[ w ] = 0UL;
-      shmem->cache_free_hungry[ c ].bits[ w ] = 0UL;
+    uchar * region = (uchar *)shmem + shmem->cache_region_off[ c ];
+    for( ulong i=0UL; i<shmem->cache_class_max[ c ]; i++ ) {
+      memset( region + i*fd_accdb_cache_slot_sz[ c ], 0, sizeof(fd_accdb_cache_line_t) );  /* FREE, seq 0 */
     }
   }
   for( ulong j=0UL; j<FD_ACCDB_MAX_JOINERS; j++ ) {
     for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-      shmem->cache_free    [ j ].ver_top[ c ] = (ulong)UINT_MAX;
-      shmem->cache_free_cnt[ j ].val    [ c ] = 0UL;
-      shmem->join_cred     [ j ].val    [ c ] = 0UL;
+      fd_accdb_ring_t * r = &shmem->cache_ring[ j ][ c ];
+      r->p.prod = 0UL; r->p.hungry = 0UL;
+      r->c.cons = 0UL;
+      memset( r->e, 0xFF, sizeof(r->e) );  /* every slot empty */
+      shmem->join_cred [ j ].val[ c ]    = 0UL;
     }
+    shmem->cache_hazard[ j ].cnt = 0UL;
   }
 }
 

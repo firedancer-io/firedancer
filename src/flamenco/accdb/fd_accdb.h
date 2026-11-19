@@ -40,16 +40,14 @@ struct fd_accdb_entry {
 
   ushort  _fork_id;
   uint    _generation;
-  ulong   _acc_map_idx;
+  uint    _acc_map_idx;
 
-  ulong   _original_size_class;
-  ulong   _original_cache_idx;
-
-  /* Writable only.  _staging_cache_idx is the 10 MiB line the account
-     is written in.  _final_cache_idx is the line of the account's final
-     size class, taken at release (ULONG_MAX if none). */
-  ulong   _staging_cache_idx;
-  ulong   _final_cache_idx;
+  /* _acc is the version acquired (UINT_MAX if none), _cidx the line
+     held for it, and _staging (writable only) the 10 MiB line the
+     account is written in.  Lines are packed cidx (class, index). */
+  uint    _acc;
+  uint    _cidx;
+  uint    _staging;
 };
 
 typedef struct fd_accdb_entry fd_acc_t;
@@ -282,12 +280,12 @@ fd_accdb_purge( fd_accdb_t *       accdb,
                 fd_accdb_fork_id_t fork_id );
 
 /* fd_accdb_acquire brings all of the requested accounts as-of the given
-   fork_idx into the cache, and refcnts them in the cache so they cannot
-   be evicted until later released.
+   fork_idx into the cache, and holds their cache lines (in this join's
+   hazard list) so they cannot be evicted until later released.
 
    fork_idx is the fork index from replay to query as-of.  The caller
    must keep the fork live until every acquired account is released.
-   Cache pins prevent eviction; they do not prevent fork recycling.
+   Holds prevent eviction; they do not prevent fork recycling.
    advance_root(fork_idx) may run concurrently with read-only acquires
    on that fork, but advancing past it or purging it is forbidden while
    any acquire on it is outstanding.
@@ -334,10 +332,10 @@ fd_accdb_purge( fd_accdb_t *       accdb,
        it so the read-only acquire cannot overlap any same-fork write,
        and read-only acquires never mutate acc pool or fork state.
 
-   Violating this contract is undefined behavior and will likely crash
-   with an assertion failure inside the cache refcount logic.  In
-   practice, these constraints are naturally satisfied by the Solana
-   execution model: each transaction has exclusive write locks on its
+   Violating this contract is undefined behavior: readers may see torn
+   account state.  In practice, these constraints are naturally
+   satisfied by the Solana execution model: each transaction has
+   exclusive write locks on its
    writable accounts within a slot, the scheduler ensures no two
    concurrent transactions write to the same account on the same fork,
    and the replay scheduler serializes parent block completion before
