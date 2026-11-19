@@ -92,6 +92,13 @@ struct fd_configf {
       ulong send_timeout_millis;
       ulong send_buffer_size_kib;
     } server;
+
+    struct {
+      int enabled;
+      struct {
+        int enabled;
+      } serve;
+    } fast_boot;
   } snapshots;
 
   struct {

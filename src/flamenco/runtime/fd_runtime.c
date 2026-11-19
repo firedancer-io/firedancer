@@ -1010,7 +1010,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   } else {
     err = fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
   }
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS || txn_out->err.is_deferred ) ) {
     txn_out->err.is_committable = 0;
     return err;
   }
@@ -1313,7 +1313,7 @@ fd_runtime_cancel_txn( fd_runtime_t *      runtime,
                        fd_txn_out_t *      txn_out ) {
   FD_TEST( !txn_out->err.is_committable );
 
-  if( FD_UNLIKELY( bank && fd_bank_report_runtime_diffs( bank ) ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
+  if( FD_UNLIKELY( bank && fd_bank_report_runtime_diffs( bank ) && !txn_out->err.is_deferred ) ) fd_event_runtime_txn_emit( txn_in, txn_out, bank );
 
   if( FD_UNLIKELY( !txn_out->accounts.is_setup || txn_out->accounts.is_bundle ) ) return;
 
@@ -1395,6 +1395,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;
   txn_out->err.is_noop        = 0;
+  txn_out->err.is_deferred    = 0;
   txn_out->err.txn_err        = FD_RUNTIME_EXECUTE_SUCCESS;
   txn_out->err.exec_err       = FD_EXECUTOR_INSTR_SUCCESS;
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
@@ -1463,7 +1464,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
   runtime->metrics.cu_cum += fd_ulong_sat_sub( cu_before, cu_after );
 
   /* Phase 2: Capture TxnResult after execution and write to disk. */
-  if( FD_UNLIKELY( dump_txn && runtime->log.txn_dump_ctx ) ) {
+  if( FD_UNLIKELY( dump_txn && runtime->log.txn_dump_ctx && !txn_out->err.is_deferred ) ) {
     fd_dump_txn_result_to_protobuf( runtime->log.txn_dump_ctx, txn_in, txn_out, txn_out->err.txn_err );
     fd_dump_txn_fixture_to_file( runtime->log.txn_dump_ctx, runtime->log.dump_proto_ctx, txn_in );
   }
@@ -1640,6 +1641,14 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
     }
 
     fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, ULONG_MAX, &new_rate_activation_epoch );
+
+    bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
+    fd_stake_delegations_refresh( stake_delegations,
+                                  0UL,
+                                  stake_history, /* may be NULL */
+                                  &bank->f.warmup_cooldown_rate_epoch,
+                                  FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
+                                  FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
   }
 
   /* At genesis (epoch 0) there is no previous epoch, so the t-2 set

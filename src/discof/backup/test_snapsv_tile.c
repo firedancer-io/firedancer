@@ -2,6 +2,7 @@
 
 #define FD_TILE_TEST
 #include "fd_snapsv_tile.c"
+#include "fd_strmk_tile.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../util/tmpl/fd_unit_test.c"
 #include <stdatomic.h>
@@ -11,11 +12,14 @@
 #define CONN_MAX  32
 #define SQ_DEPTH 128
 #define CQ_DEPTH 128
+#define FAST_BOOT_MAX   2
 
 #define SNAP_FILE_SZ (65536UL)
 #define SNAP_RES_MAX (SNAP_FILE_SZ+4096UL)
+#define FAST_BOOT_FILE_SZ (8192UL)
 
 static uchar snap_file[ SNAP_FILE_SZ ];
+static uchar fast_boot_file[ FAST_BOOT_FILE_SZ ];
 
 struct fake_client {
   uchar req[ 2048 ];
@@ -137,10 +141,17 @@ fake_client_handle_sqe( fake_client_t *     fake,
   }
   case FD_IORING_OP_READ_FIXED: {
     FD_TEST( sqe->flags & FD_IOSQE_FIXED_FILE );
-    FD_TEST( sqe->fd==(int)FIXED_FD_CNT ); /* pool_idx 0 */
-    ulong off = fd_ulong_min( sqe->off, SNAP_FILE_SZ );
-    ulong len = fd_ulong_min( sqe->len, SNAP_FILE_SZ-off );
-    memcpy( (void *)sqe->addr, snap_file+off, len );
+    uchar const * file    = snap_file;
+    ulong         file_sz = SNAP_FILE_SZ;
+    if( sqe->fd!=(int)FIXED_FD_CNT ) { /* not snapshot pool_idx 0 */
+      /* fast boot stream 0 */
+      FD_TEST( sqe->fd==(int)( FIXED_FD_CNT+SNAP_MAX ) );
+      file    = fast_boot_file;
+      file_sz = FAST_BOOT_FILE_SZ;
+    }
+    ulong off = fd_ulong_min( sqe->off, file_sz );
+    ulong len = fd_ulong_min( sqe->len, file_sz-off );
+    memcpy( (void *)sqe->addr, file+off, len );
     fake_client_post_cqe( cq, sqe->user_data, (int)len, 0U );
     break;
   }
@@ -200,8 +211,8 @@ struct snapsv_env {
   ulong         wksp_sz;
 
   fd_stem_context_t stem[1];
-  fd_stem_tile_in_t stem_in[1];
-  ulong             stem_fseq;
+  fd_stem_tile_in_t stem_in[2];
+  ulong             stem_fseq[2];
   fd_frag_meta_t *  out_mcache[1];
   ulong             out_seq[1];
   ulong             out_depth[1];
@@ -316,6 +327,19 @@ snapsv_env_create( void ) {
   link->dcache          = fd_dcache_join( fd_dcache_new( dcache_mem, dcache_data_sz, 0UL ) ); FD_TEST( link->dcache );
   dcache_obj->offset    = fd_wksp_gaddr_fast( wksp, dcache_mem );
 
+  /* The stream maker announces fast boot stream files on a link of its
+     own, which the tile expects whenever it serves them. */
+  fd_topo_link_t * strmk_link = fd_topob_link( topo, "strmk_out", "snapsv", 128UL, sizeof(fd_strmk_msg_t), 1UL );
+  fd_topo_obj_t * strmk_mcache_obj = &topo->objs[ strmk_link->mcache_obj_id ];
+  void * strmk_mcache_mem  = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( 128UL, 0UL ), 1UL );
+  strmk_link->mcache       = fd_mcache_join( fd_mcache_new( strmk_mcache_mem, 128UL, 0UL, 0UL ) ); FD_TEST( strmk_link->mcache );
+  strmk_mcache_obj->offset = fd_wksp_gaddr_fast( wksp, strmk_mcache_mem );
+
+  fd_topo_obj_t * strmk_dcache_obj = &topo->objs[ strmk_link->dcache_obj_id ];
+  void * strmk_dcache_mem  = fd_wksp_alloc_laddr( wksp, fd_dcache_align(), fd_dcache_footprint( dcache_data_sz, 0UL ), 1UL );
+  strmk_link->dcache       = fd_dcache_join( fd_dcache_new( strmk_dcache_mem, dcache_data_sz, 0UL ) ); FD_TEST( strmk_link->dcache );
+  strmk_dcache_obj->offset = fd_wksp_gaddr_fast( wksp, strmk_dcache_mem );
+
   fd_topo_link_t * out_link = fd_topob_link( topo, "snapsv_out", "snapsv", OUT_DEPTH, sizeof(fd_snapsv_msg_t), 1UL );
   fd_topo_obj_t * out_mcache_obj = &topo->objs[ out_link->mcache_obj_id ];
   void * out_mcache_mem  = fd_wksp_alloc_laddr( wksp, fd_mcache_align(), fd_mcache_footprint( OUT_DEPTH, 0UL ), 1UL );
@@ -330,19 +354,21 @@ snapsv_env_create( void ) {
 
   fd_topo_tile_t * tile = fd_topob_tile( topo, "snapsv", "snapsv", "snapsv", 0UL, 0, 0, 0 );
   fd_topob_tile_in( topo, "snapsv", 0UL, "snapsv", "snapmk_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "snapsv", 0UL, "snapsv", "strmk_out",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapsv", 0UL, "snapsv_out", 0UL );
   tile->snapsv.snap_max             = SNAP_MAX;
   tile->snapsv.conn_max             = CONN_MAX;
   tile->snapsv.send_buffer_size_kib = 4UL;
   tile->snapsv.idle_timeout_millis  = 1000UL;
   tile->snapsv.send_timeout_millis  = 1000UL;
+  tile->snapsv.fast_boot_stream_max = FAST_BOOT_MAX;
 
   fd_snapsv_t * ctx = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
   FD_TEST( ctx );
   topo->objs[ tile->tile_obj_id ].offset = fd_wksp_gaddr_fast( wksp, ctx );
   memset( ctx, 0, sizeof(*ctx) );
   ctx->conn_max              = CONN_MAX;
-  ctx->conn0_fd_idx          = FIXED_FD_CNT+SNAP_MAX;
+  ctx->conn0_fd_idx          = FIXED_FD_CNT+SNAP_MAX+FAST_BOOT_MAX;
   ctx->accept_addr.ss_family = AF_INET;
   ctx->ring->ioring_fd     = -1;
   ctx->ring->sq->depth     = (uint)snapsv_sq_depth( tile );
@@ -359,6 +385,16 @@ snapsv_env_create( void ) {
 
   unprivileged_init( topo, tile );
 
+  /* The tile reads the size of a fast boot file with fstat on every
+     request, so the test gives it real files holding the fast boot file
+     contents. */
+  for( ulong i=0UL; i<FAST_BOOT_MAX; i++ ) {
+    int fd = memfd_create( "boot", 0U );
+    FD_TEST( fd>=0 );
+    FD_TEST( !ftruncate( fd, (long)FAST_BOOT_FILE_SZ ) );
+    ctx->fast_boot_fd[ i ] = fd;
+  }
+
   snapsv_env_t * env = aligned_alloc(
       alignof(snapsv_env_t), fd_ulong_align_up( sizeof(snapsv_env_t), alignof(snapsv_env_t) ) );
   FD_TEST( env );
@@ -369,7 +405,8 @@ snapsv_env_create( void ) {
     .wksp_sz  = wksp_sz
   };
 
-  env->stem_in[0]    = (fd_stem_tile_in_t){ .fseq = &env->stem_fseq };
+  env->stem_in[0]    = (fd_stem_tile_in_t){ .fseq = &env->stem_fseq[ 0 ] };
+  env->stem_in[1]    = (fd_stem_tile_in_t){ .fseq = &env->stem_fseq[ 1 ] };
   env->out_mcache[0] = out_link->mcache;
   env->out_depth[0]  = OUT_DEPTH;
   env->stem[0]       = (fd_stem_context_t) {
@@ -423,6 +460,7 @@ snapsv_env_del_snap( snapsv_env_t * env,
 static void
 snapsv_env_destroy( snapsv_env_t * env ) {
   fd_snapsv_t * ctx = env->ctx;
+  for( ulong i=0UL; i<FAST_BOOT_MAX; i++ ) FD_TEST( !close( ctx->fast_boot_fd[ i ] ) );
   free( ctx->ring->cq->cqes  );
   free( ctx->ring->cq->khead );
   free( ctx->ring->sq->sqes  );
@@ -1338,6 +1376,270 @@ expect_range_err( char const * value,
   FD_TEST( parse_range_header( value, strlen( value ), object_sz, &range0, &range1 )==expect_err );
 }
 
+/* fast_boot_msg publishes a fast boot stream message the way the
+   stream maker does, on the strmk_out link, which is the second one.
+   Every test stream carries the same hash. */
+
+#define FAST_BOOT_IN_IDX (1UL)
+#define FAST_BOOT_HASH_BYTE (0xab)
+
+static void
+fast_boot_msg_idx( snapsv_env_t * env,
+                   ulong          msg_type,
+                   ulong          slot,
+                   uint           idx ) {
+  fd_snapsv_t *    ctx   = env->ctx;
+  ulong            chunk = ctx->in[ FAST_BOOT_IN_IDX ].chunk0;
+  fd_strmk_msg_t * msg   = fd_chunk_to_laddr( ctx->in[ FAST_BOOT_IN_IDX ].mem, chunk );
+  *msg = (fd_strmk_msg_t){ .slot = slot, .idx = idx };
+  memset( msg->hash, FAST_BOOT_HASH_BYTE, sizeof(msg->hash) );
+  returnable_frag( ctx, FAST_BOOT_IN_IDX, 0UL, msg_type, chunk, sizeof(fd_strmk_msg_t), 0UL, 0UL, 0UL, NULL );
+}
+
+static void
+fast_boot_msg( snapsv_env_t * env,
+               ulong          msg_type,
+               ulong          slot ) {
+  fast_boot_msg_idx( env, msg_type, slot, 0U );
+}
+
+static snapsv_env_t *
+fast_boot_env( ulong slot ) {
+  snapsv_env_t * env = snapsv_env_create();
+  fast_boot_msg( env, FD_STRMK_MSG_OPEN, slot );
+  return env;
+}
+
+/* fast_boot_name formats the name a test stream is served under. */
+
+static char *
+fast_boot_name( char  out[ static 128 ],
+                ulong slot ) {
+  uchar hash[ 32 ]; memset( hash, FAST_BOOT_HASH_BYTE, sizeof(hash) );
+  char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( hash, NULL, hash_b58 );
+  FD_TEST( fd_cstr_printf_check( out, 128UL, NULL, "fast-boot-stream-%lu-%s.tar.zst", slot, hash_b58 ) );
+  return out;
+}
+
+FD_UNIT_TEST( fast_boot_stream_unknown ) {
+  snapsv_env_t * env = snapsv_env_create();
+  char name[ 128 ];
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
+  expect_res_env( env, req, RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( fast_boot_stream_res ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  char name[ 128 ];
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
+  char expected[ 256 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: %lu\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, expected );
+  snapsv_env_destroy( env );
+}
+
+/* A stream grows while it is served, so a range that starts at the end
+   of the file is not satisfiable yet. */
+
+FD_UNIT_TEST( fast_boot_stream_range_past_end ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  char name[ 128 ];
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=%lu-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ), FAST_BOOT_FILE_SZ );
+  char expected[ 256 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 416 Range Not Satisfiable\r\n"
+      "Content-Range: bytes */%lu\r\n"
+      "Content-Length: 0\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, expected );
+  snapsv_env_destroy( env );
+}
+
+FD_UNIT_TEST( fast_boot_stream_body ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  char name[ 128 ];
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=100-199\r\n"
+      "\r\n", fast_boot_name( name, 100UL ) );
+  static char res[ SNAP_RES_MAX ];
+  ulong res_len = sizeof(res);
+  curl_session( env, res, &res_len, req );
+
+  char expected_hdr[ 256 ];
+  fd_cstr_printf( expected_hdr, sizeof(expected_hdr), NULL,
+      "HTTP/1.1 206 Partial Content\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Range: bytes 100-199/%lu\r\n"
+      "Content-Length: 100\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ );
+  FD_TEST( res_len>strlen( expected_hdr ) );
+  FD_TEST( !memcmp( res, expected_hdr, strlen( expected_hdr ) ) );
+
+  ulong        body_len;
+  char const * body = res_body( res, res_len, &body_len );
+  FD_TEST( body_len==100UL );
+  FD_TEST( !memcmp( body, fast_boot_file+100, 100UL ) );
+
+  FD_TEST( !env->ctx->conn_cnt );
+  FD_TEST( env->ctx->iobuf_free_cnt==2U*CONN_MAX );
+  snapsv_env_destroy( env );
+}
+
+/* The stream closes while a download is in progress.  A closed stream
+   is still served to its end, so the download completes. */
+
+FD_UNIT_TEST( fast_boot_stream_closed_mid_download ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  fd_snapsv_t *  ctx = env->ctx;
+  char name[ 128 ];
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=100-199\r\n"
+      "\r\n", fast_boot_name( name, 100UL ) );
+  fake_client_t fake;
+  fake_client_req( &fake, req );
+  int closed = 0;
+  for( uint iter=0U; iter<64U; iter++ ) {
+    snapsv_step( env, &fake, iter );
+    if( !closed && ctx->conn0[ 0 ].state==CONN_STATE_RES_SHOVEL ) {
+      fast_boot_msg( env, FD_STRMK_MSG_CLOSE, 100UL );
+      closed = 1;
+    }
+  }
+  FD_TEST( closed );
+  char expected_hdr[ 256 ];
+  fd_cstr_printf( expected_hdr, sizeof(expected_hdr), NULL,
+      "HTTP/1.1 206 Partial Content\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Range: bytes 100-199/%lu\r\n"
+      "Content-Length: 100\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ );
+  FD_TEST( fake.res_sz==strlen( expected_hdr )+100UL );
+  FD_TEST( !memcmp( fake.res, expected_hdr, strlen( expected_hdr ) ) );
+  FD_TEST( !memcmp( fake.res+strlen( expected_hdr ), fast_boot_file+100, 100UL ) );
+  snapsv_env_destroy( env );
+}
+
+/* A closed stream is served to its end, and a range past its end is
+   a 404 rather than a 416 while no stream follows it.  It goes away
+   when the next stream closes, as its file is reused then. */
+
+FD_UNIT_TEST( fast_boot_stream_closed ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  fast_boot_msg( env, FD_STRMK_MSG_CLOSE, 100UL );
+  char name[ 128 ];
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL, "HEAD /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
+  char expected[ 256 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: %lu\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, expected );
+
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=%lu-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ), FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, RES_404_KEEPALIVE );
+
+  fast_boot_msg_idx( env, FD_STRMK_MSG_OPEN,  200UL, 1U );
+  fast_boot_msg_idx( env, FD_STRMK_MSG_CLOSE, 200UL, 1U );
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
+  expect_res_env( env, req, RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
+/* A read past the end of a closed stream is sent on to the first
+   stream after it once there is one, closed or not; a read resumed on
+   a stream that is gone likewise, while a first read of it is a 404. */
+
+FD_UNIT_TEST( fast_boot_stream_ended ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  char name[ 128 ];
+  char next[ 128 ];
+  char req[ 256 ];
+  fast_boot_msg( env, FD_STRMK_MSG_CLOSE, 100UL );
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=%lu-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ), FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, RES_404_KEEPALIVE );
+  fast_boot_msg_idx( env, FD_STRMK_MSG_OPEN, 150UL, 1U );
+  expect_redirect( env, req, fast_boot_name( next, 150UL ) );
+
+  /* A HEAD past the end of the closed stream is still a 200. */
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "HEAD /%s HTTP/1.1\r\n"
+      "Range: bytes=%lu-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ), FAST_BOOT_FILE_SZ );
+  char expected[ 256 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: %lu\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, expected );
+
+  /* The stream is gone: a ranged read, from any offset, is sent on
+     past it; a read without a range is not. */
+  fast_boot_msg_idx( env, FD_STRMK_MSG_CLOSE, 150UL, 1U ); /* frees the pool file holding 100 */
+  fast_boot_msg_idx( env, FD_STRMK_MSG_OPEN,  200UL, 0U );
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=5-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ) );
+  expect_redirect( env, req, fast_boot_name( next, 150UL ) );
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=0-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ) );
+  expect_redirect( env, req, fast_boot_name( next, 150UL ) );
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
+  expect_res_env( env, req, RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
+/* A name with the wrong hash, a bad slot, or a bad shape is not a
+   stream. */
+
+FD_UNIT_TEST( fast_boot_malformed ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  char name[ 128 ];
+  char req[ 256 ];
+  fast_boot_name( name, 100UL );
+  name[ 16 ] = name[ 16 ]=='1' ? '2' : '1'; /* flip a hash character */
+  fd_cstr_printf( req, sizeof(req), NULL, "GET /%s HTTP/1.1\r\n\r\n", name );
+  expect_res_env( env, req, RES_404_KEEPALIVE );
+  expect_res_env( env, "GET /fast-boot-stream-1x0-abc.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
+  expect_res_env( env, "GET /fast-boot-stream-100.tar.zst HTTP/1.1\r\n\r\n",     RES_404_KEEPALIVE );
+  expect_res_env( env, "GET /fast-boot-stream-100-.tar.zst HTTP/1.1\r\n\r\n",    RES_404_KEEPALIVE );
+  expect_res_env( env, "GET /fast-boot-stream-.tar.zst HTTP/1.1\r\n\r\n",        RES_404_KEEPALIVE );
+  expect_res_env( env, "GET /fast-boot/index HTTP/1.1\r\n\r\n",                  RES_404_KEEPALIVE );
+  snapsv_env_destroy( env );
+}
+
 FD_UNIT_TEST( range_basic ) {
   expect_range( "bytes=0-99",    1000UL, 0UL,   100UL  );
   expect_range( "bytes=10-19",   1000UL, 10UL,  20UL   );
@@ -1445,6 +1747,9 @@ main( int     argc,
 
   for( ulong i=0UL; i<SNAP_FILE_SZ; i+=sizeof(ulong) ) {
     FD_STORE( ulong, snap_file+i, fd_ulong_hash( i ) );
+  }
+  for( ulong i=0UL; i<FAST_BOOT_FILE_SZ; i+=sizeof(ulong) ) {
+    FD_STORE( ulong, fast_boot_file+i, fd_ulong_hash( ~i ) );
   }
 
   (void)rlimit_file_cnt;

@@ -116,6 +116,8 @@
 #define REPLAY_SIG_MISSING_FEC    (13)
 #define REPLAY_SIG_NEXT_LEADER    (14)
 #define REPLAY_SIG_SLOT_STATES    (15)
+#define REPLAY_SIG_STREAM_STOP    (16)
+#define REPLAY_SIG_STREAM_TXN     (17)
 
 /* replay_out mcache seq[i] slots */
 #define REPLAY_SYNC_SEQ  (0UL) /* mcache->seq[0]: recently published seq no */
@@ -291,8 +293,20 @@ struct fd_replay_snap_start {
   ulong       base_slot;
   ulong       slot;   /* ==base_slot implies full snapshot, else incremental */
   fd_pubkey_t leader; /* leader of slot, written to the manifest for Agave */
+  int         should_open_stream; /* open a fast boot stream at slot */
 };
 typedef struct fd_replay_snap_start fd_replay_snap_start_t;
+
+/* The replay tile sends the stream maker every transaction it
+   dispatches (REPLAY_SIG_STREAM_TXN), so that the stream maker can
+   find the accounts it touches. */
+
+struct fd_strmk_txn_msg {
+  ulong              slot;           /* the transaction's block */
+  fd_accdb_fork_id_t parent_fork_id; /* the block's parent, where its lookup tables are read */
+  fd_txn_p_t         txn[ 1 ];
+};
+typedef struct fd_strmk_txn_msg fd_strmk_txn_msg_t;
 
 /* fd_replay_final_cert carries the finalization cert parsed out of an
    Alpenglow block footer. */

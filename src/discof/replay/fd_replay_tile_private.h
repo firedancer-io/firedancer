@@ -468,6 +468,13 @@ struct fd_replay_tile {
      or from genesis. */
   int is_booted;
 
+  /* Whether or not the full+incremental snapshot is still loading. */
+  int snapshots_loading;
+
+  /* Replay holds at an epoch boundary until the snapshots behind the
+     stream are done loading. */
+  int epoch_boundary_hold;
+
   fd_multi_epoch_leaders_t * mleaders;
 
   ulong max_txn_per_slot;
@@ -578,6 +585,7 @@ struct fd_replay_tile {
   fd_replay_out_link_t rotor_out[1]; /* REPLAY_SIG_MISSING_FEC */
   ulong const *        slot_out_seq;
   fd_replay_out_link_t snapmk_out[1];
+  fd_replay_out_link_t strmk_out[1];
   ulong admin_out_idx;
 
   fd_replay_out_link_t epoch_out[1];
@@ -615,6 +623,17 @@ struct fd_replay_tile {
     ulong snap_produced_incr_cnt;
     fd_epoch_credits_view_t epoch_credits_view[1];
   } snapmk;
+
+  /* fast boot stream maker */
+  struct {
+    uint  supported:1;
+    uint  active:1;
+    uint  stopping:1;         /* the stream is closing for the snapshot below */
+    uint  snap_incremental:1;
+    ulong snap_block_height;
+    ulong bank_idx;
+    fd_epoch_credits_view_t epoch_credits_view[1];
+  } strmk;
 
   struct {
     fd_histf_t store_query_work[1];

@@ -97,6 +97,9 @@ struct fd_execrp_tile {
     /* Ticks spent committing a txn (database writes) */
     ulong txn_commit_cum_ticks;
 
+    /* Ticks spent on transactions handed back to replay */
+    ulong txn_returned_ticks;
+
     ulong txn_result[ FD_METRICS_ENUM_TXN_RESULT_CNT ];
     ulong txn_version[ FD_METRICS_ENUM_TXN_VERSION_CNT ];
   } metrics;
@@ -154,6 +157,7 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_LOAD,    ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_EXECUTE, ctx->metrics.txn_exec_cum_ticks   );
   FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_COMMIT,  ctx->metrics.txn_commit_cum_ticks );
+  FD_MCNT_SET( EXECRP, TXN_RETURNED_DURATION_NANOS,       ctx->metrics.txn_returned_ticks   );
 
   fd_runtime_t const * runtime = ctx->runtime;
   ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks +
@@ -291,6 +295,19 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         }
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+
+        /* Fast boot case: an account has not been loaded in yet.  Hand
+           the transaction back to replay to try again later. */
+        if( FD_UNLIKELY( ctx->txn_out.err.is_deferred ) ) {
+          fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+          ctx->metrics.txn_returned_ticks += (ulong)(fd_tickcount()-ctx->txn_out.details.load_start_ticks);
+          fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+          out_msg->bank_idx              = msg->bank_idx;
+          out_msg->txn_deferred->txn_idx = msg->txn_idx;
+          fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_DEFERRED<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+          ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+          break;
+        }
 
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
         ctx->metrics.txn_version[ fd_execle_version_from_txn( TXN( ctx->txn_in.txn ) ) ]++;

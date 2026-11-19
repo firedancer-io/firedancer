@@ -134,6 +134,7 @@ struct fd_topo_tile {
 
   int   is_waker_client;        /* Tile has file descriptors which must be serviced by the external waker tile. */
   int   allow_shutdown;         /* If the tile is allowed to shutdown gracefully.  If false, when the tile exits it will tear down the entire application. */
+  int   outlives_startup;       /* A startup tile that keeps running once the post-start tiles are up, so the layout must not place it on their CPUs. */
 
   ulong cpu_idx;                /* The CPU index to pin the tile on.  A value of ULONG_MAX or more indicates the tile should be floating and not pinned to a core. */
   int   floats;                 /* Scheduled by the kernel over the CPUs of the floating tiles on its NUMA node, never a pinned tile's CPU, instead of pinned to cpu_idx (efficient mode).  cpu_idx still places memory and isolation, and is the fallback when no such CPU remains. */
@@ -647,6 +648,7 @@ struct fd_topo_tile {
       ulong resolv_epoch_obj_ids[ 16 ];
       ulong resolv_epoch_obj_cnt;
       ulong snapmk_epoch_obj_id;
+      ulong strmk_epoch_obj_id;
       ulong snapzp_epoch_obj_ids[ 64 ];
       ulong snapzp_epoch_obj_cnt;
     } accdb;
@@ -686,6 +688,8 @@ struct fd_topo_tile {
       } sources;
 
       int    incremental_snapshots;
+      int    fast_boot;
+      int    fast_boot_stream;
       uint   max_full_snapshots_to_keep;
       uint   max_incremental_snapshots_to_keep;
       uint   max_retry_abort;
@@ -705,6 +709,10 @@ struct fd_topo_tile {
     } snapld;
 
     struct {
+      int fast_boot_stream;
+    } snapdc;
+
+    struct {
       ulong     wait_for_supermajority_at_slot;
       fd_hash_t wait_for_supermajority_with_bank_hash;
       ushort    expected_shred_version;
@@ -714,6 +722,7 @@ struct fd_topo_tile {
       ulong     banks_obj_id;
       ulong     shmem_obj_id; /* shared parallel snapin state */
       ulong     max_txn_per_slot;
+      int       fast_boot;
     } snapin;
 
     struct {
@@ -800,7 +809,18 @@ struct fd_topo_tile {
       ulong         send_buffer_size_kib;
       fd_ip6_addr_t listen_addr;
       ushort        listen_port;
+      ulong         fast_boot_stream_max;
     } snapsv;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong accdb_epoch_obj_id;
+      ulong banks_obj_id;
+      ulong txncache_obj_id;
+      ulong max_live_slots;
+      ulong max_txn_per_slot;
+      ulong stream_max;
+    } strmk;
   };
 };
 

@@ -1320,10 +1320,13 @@ test_snapshot_write_one( fd_accdb_t *       accdb,
   };
   ulong ignored, replaced, loaded, ignored_lamports;
   uchar results[ 1 ];
-  int result = fd_accdb_snapshot_write_batch( accdb, fork_id, 1UL, pubkeys, slots, lamports_arr,
-                                               data_lens, executables, file_offsets, &ignored,
-                                               &replaced, &loaded, out_replaced_lamports,
-                                               &ignored_lamports, results );
+  ulong replaced_slots[ 1 ];
+  int mode = fork_id.val!=USHORT_MAX ? FD_ACCDB_RESTORE_MODE_INCREMENTAL : FD_ACCDB_RESTORE_MODE_FULL;
+  if( mode==FD_ACCDB_RESTORE_MODE_FULL ) fork_id = fd_accdb_root_fork_id( accdb );
+  int result = fd_accdb_restore_write_batch( accdb, fork_id, mode, 1UL, pubkeys, slots, lamports_arr,
+                                              data_lens, executables, file_offsets, NULL, &ignored,
+                                              &replaced, &loaded, out_replaced_lamports,
+                                              &ignored_lamports, replaced_slots, results );
   FD_TEST( !result );
   if( ignored ) return -1;
   if( replaced ) return 2;
@@ -1459,6 +1462,37 @@ test_reserve_write_dead_tail( void ) {
   fd_accdb_partition_t const * pool = (fd_accdb_partition_t const *)( (uchar const *)test_shmem_mem + test_shmem_mem->partition_pool_off );
   FD_TEST( pool[ off0/test_shmem_mem->partition_sz ].bytes_freed==1000UL );
   fd_accdb_snapshot_load_end( accdb );
+  test_teardown( accdb, fd );
+}
+
+/* test_snapshot_write_head: the loader writes through its own head,
+   never the hot one.  Its partitions are Cold.  When the load ends
+   its last partition becomes the cold write head, or is closed when
+   that head is taken. */
+static void
+test_snapshot_write_head( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 11UL<<20UL );
+  fd_accdb_shmem_t const *     shmem = test_shmem_mem;
+  fd_accdb_partition_t const * pool  = (fd_accdb_partition_t const *)( (uchar const *)shmem + shmem->partition_pool_off );
+  ulong const                  cold  = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
+
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong snap_idx = fd_accdb_snapshot_reserve_write( accdb, 8192UL, 0UL )/shmem->partition_sz;
+  FD_TEST( shmem->has_partition[ FD_ACCDB_SNAPSHOT_WHEAD ] && !shmem->has_partition[ 0 ] );
+  FD_TEST( pool[ snap_idx ].layer==cold );
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( !shmem->has_partition[ FD_ACCDB_SNAPSHOT_WHEAD ] );
+  FD_TEST( shmem->has_partition[ cold ] && packed_partition_idx( &shmem->whead[ cold ] )==snap_idx );
+  FD_TEST( packed_partition_offset( &shmem->whead[ cold ] )==8192UL );
+
+  /* The cold head is taken now, so the next load's partition is closed. */
+  fd_accdb_snapshot_load_begin( accdb );
+  ulong next_idx = fd_accdb_snapshot_reserve_write( accdb, 8192UL, 0UL )/shmem->partition_sz;
+  FD_TEST( next_idx!=snap_idx );
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( packed_partition_idx( &shmem->whead[ cold ] )==snap_idx );
+  FD_TEST( pool[ next_idx ].write_offset==8192UL && pool[ next_idx ].bytes_freed==shmem->partition_sz-8192UL );
   test_teardown( accdb, fd );
 }
 
@@ -1756,19 +1790,21 @@ typedef struct {
   ulong loaded;
   ulong replaced_lamports;
   ulong ignored_lamports;
+  ulong replaced_slots[ 8 ];
   uchar results[ 8 ];
 } test_batch_result_t;
 
 static test_batch_result_t
-test_write_batch( fd_accdb_t *                         accdb,
-                  fd_accdb_fork_id_t                   fork_id,
-                  ulong                                cnt,
-                  uchar const * const                  pubkeys[],
-                  ulong const                          slots[],
-                  ulong const                          lamports[],
-                  ulong const                          data_lens[],
-                  int const                            executables[],
-                  test_store_ctx_t *                   store ) {
+test_write_batch_on( fd_accdb_t *                         accdb,
+                     fd_accdb_fork_id_t                   fork_id,
+                     int                                  mode,
+                     ulong                                cnt,
+                     uchar const * const                  pubkeys[],
+                     ulong const                          slots[],
+                     ulong const                          lamports[],
+                     ulong const                          data_lens[],
+                     int const                            executables[],
+                     test_store_ctx_t *                   store ) {
   ulong total_sz = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) total_sz += sizeof(fd_accdb_disk_meta_t)+data_lens[ i ];
 
@@ -1789,11 +1825,27 @@ test_write_batch( fd_accdb_t *                         accdb,
   }
 
   test_batch_result_t result = {0};
-  result.err = fd_accdb_snapshot_write_batch( accdb, fork_id, cnt, pubkeys, slots, lamports, data_lens,
-                                               executables, file_offsets, &result.ignored, &result.replaced,
-                                               &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
-                                               result.results );
+  result.err = fd_accdb_restore_write_batch( accdb, fork_id, mode, cnt, pubkeys, slots, lamports, data_lens,
+                                              executables, file_offsets, NULL, &result.ignored, &result.replaced,
+                                              &result.loaded, &result.replaced_lamports, &result.ignored_lamports,
+                                              result.replaced_slots, result.results );
   return result;
+}
+
+/* SENTINEL means full mode onto the current root. */
+static test_batch_result_t
+test_write_batch( fd_accdb_t *                         accdb,
+                  fd_accdb_fork_id_t                   fork_id,
+                  ulong                                cnt,
+                  uchar const * const                  pubkeys[],
+                  ulong const                          slots[],
+                  ulong const                          lamports[],
+                  ulong const                          data_lens[],
+                  int const                            executables[],
+                  test_store_ctx_t *                   store ) {
+  int mode = fork_id.val!=USHORT_MAX ? FD_ACCDB_RESTORE_MODE_INCREMENTAL : FD_ACCDB_RESTORE_MODE_FULL;
+  if( mode==FD_ACCDB_RESTORE_MODE_FULL ) fork_id = fd_accdb_root_fork_id( accdb );
+  return test_write_batch_on( accdb, fork_id, mode, cnt, pubkeys, slots, lamports, data_lens, executables, store );
 }
 
 static void
@@ -1851,6 +1903,246 @@ test_read_one_meta( void ) {
   FD_TEST( fd_accdb_read_one_meta( accdb, child, pubkey0, owner, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_MISS );
   FD_TEST( fd_accdb_read_one_meta( accdb, child, pubkey1, owner, &data_len )==FD_ACCDB_READ_ONE_NOCACHE_MISS );
 
+  test_teardown( accdb, fd );
+}
+
+/* test_fork_hide_ancestor: a fork reads past a hidden ancestor until
+   that ancestor is rooted, and its own records stay ahead of the
+   hidden ones whichever side writes first. */
+static void
+test_fork_hide_ancestor( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  test_store_ctx_t store = { .fd=fd };
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t snap  = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t seen  = fd_accdb_attach_child( accdb, snap );
+  fd_accdb_fork_id_t blind = fd_accdb_attach_child( accdb, snap );
+  fd_accdb_restore_hide_ancestor( accdb, blind, snap );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, blind ); /* inherits the hiding */
+  fd_accdb_snapshot_load_begin( accdb );
+
+  /* pk1 only on snap; pk2 snap first, then blind; pk3 blind first. */
+  uchar pk1[ 32 ] = {9}; uchar pk2[ 32 ] = {8}; uchar pk3[ 32 ] = {7};
+  uchar const * k1[ 1 ] = { pk1 }; uchar const * k2[ 1 ] = { pk2 }; uchar const * k3[ 1 ] = { pk3 };
+  ulong snap_slot[ 1 ] = { 5UL };    ulong blind_slot[ 1 ] = { 7UL };
+  ulong snap_lamp[ 1 ] = { 100UL };  ulong blind_lamp[ 1 ] = { 200UL };
+  ulong len[ 1 ] = { 0UL }; int exec[ 1 ] = { 0 };
+  test_write_batch_on( accdb, snap,  FD_ACCDB_RESTORE_MODE_FULL, 1UL, k1, snap_slot,  snap_lamp,  len, exec, &store );
+  test_write_batch_on( accdb, snap,  FD_ACCDB_RESTORE_MODE_FULL, 1UL, k2, snap_slot,  snap_lamp,  len, exec, &store );
+  test_write_batch_on( accdb, blind, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, k2, blind_slot, blind_lamp, len, exec, &store );
+  test_write_batch_on( accdb, blind, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, k3, blind_slot, blind_lamp, len, exec, &store );
+  test_write_batch_on( accdb, snap,  FD_ACCDB_RESTORE_MODE_FULL, 1UL, k3, snap_slot,  snap_lamp,  len, exec, &store );
+
+  /* A hidden record is not there yet to the hiding fork, an empty
+     streamed one is: that is how a fast boot peer tells a key not
+     streamed yet from one that does not exist. */
+  uchar pk4[ 32 ] = {6}; uchar const * k4[ 1 ] = { pk4 }; ulong zero[ 1 ] = { 0UL };
+  test_write_batch_on( accdb, blind, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, k4, blind_slot, zero, len, exec, &store );
+  FD_TEST(  fd_accdb_has_record( accdb, blind, pk4 ) && !fd_accdb_exists( accdb, blind, pk4 ) );
+  FD_TEST( !fd_accdb_has_record( accdb, blind, pk1 ) &&  fd_accdb_has_record( accdb, seen, pk1 ) );
+  FD_TEST(  fd_accdb_has_record( accdb, blind, pk2 ) );
+
+  FD_TEST( fd_accdb_lamports( accdb, seen,  pk1 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, seen,  pk2 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, seen,  pk3 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk1 )==0UL   );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk1 )==0UL   );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk3 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk3 )==200UL );
+
+  /* Rooting snap reveals pk1; blind's own records still win. */
+  fd_accdb_advance_root( accdb, snap );
+  drain_background( accdb );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk1 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk1 )==100UL );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, blind, pk3 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk3 )==200UL );
+  fd_accdb_advance_root( accdb, blind );
+  drain_background( accdb );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk2 )==200UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, pk3 )==200UL );
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST(  fd_accdb_has_record( accdb, child, pk1 ) );
+  FD_TEST( !fd_accdb_has_record( accdb, child, pk4 ) ); /* rooting drops empty records */
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL ); /* and the shadowed copies */
+  test_teardown( accdb, fd );
+}
+
+/* test_write_cached writes one stream record that is kept in the
+   cache: the record bytes are passed instead of a file offset. */
+static test_batch_result_t
+test_write_cached( fd_accdb_t *       accdb,
+                   fd_accdb_fork_id_t fork_id,
+                   uchar const *      pubkey,
+                   uchar const *      owner,
+                   ulong              lamports,
+                   uchar const *      data,
+                   ulong              data_len ) {
+  static uchar rec[ sizeof(fd_accdb_disk_meta_t)+4096UL ];
+  FD_TEST( data_len<=4096UL );
+  fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)rec;
+  fd_memcpy( meta->pubkey, pubkey, 32UL );
+  meta->size       = (uint)data_len;
+  meta->generation = 0U;
+  fd_memcpy( meta->owner, owner, 32UL );
+  if( data_len ) fd_memcpy( rec+sizeof(fd_accdb_disk_meta_t), data, data_len );
+
+  uchar const * pubkeys[ 1 ] = { pubkey }; ulong slots[ 1 ] = { 7UL }; ulong lamp[ 1 ] = { lamports };
+  ulong lens[ 1 ] = { data_len }; int execs[ 1 ] = { 0 }; ulong offs[ 1 ] = { 0UL };
+  fd_accdb_disk_meta_t const * records[ 1 ] = { meta };
+  test_batch_result_t result = {0};
+  result.err = fd_accdb_restore_write_batch( accdb, fork_id, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, pubkeys, slots, lamp, lens, execs,
+                                              offs, records, &result.ignored, &result.replaced, &result.loaded,
+                                              &result.replaced_lamports, &result.ignored_lamports, result.replaced_slots, result.results );
+  FD_TEST( !result.err );
+  return result;
+}
+
+static void
+test_check_account( fd_accdb_t *       accdb,
+                    fd_accdb_fork_id_t fork_id,
+                    uchar const *      pubkey,
+                    uchar const *      owner,
+                    ulong              lamports,
+                    uchar const *      data,
+                    ulong              data_len ) {
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, pubkey );
+  FD_TEST( acc.lamports==lamports && acc.data_len==data_len );
+  FD_TEST( !memcmp( acc.owner, owner, 32UL ) );
+  FD_TEST( !data_len || !memcmp( acc.data, data, data_len ) );
+  fd_accdb_unread_one( accdb, &acc );
+}
+
+/* test_restore_cached: a stream record kept in the cache is read
+   from its line, a repeat gives the line back, a full class evicts
+   earlier records to disk on the way in, the background pre-evict
+   writes more back, and every record reads right throughout.  The
+   counters move like a committed write's. */
+static void
+test_restore_cached( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1UL<<18, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t snap  = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t blind = fd_accdb_attach_child( accdb, snap );
+  fd_accdb_restore_hide_ancestor( accdb, blind, snap );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, blind );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  ulong used0[ FD_ACCDB_CACHE_CLASS_CNT ], used1[ FD_ACCDB_CACHE_CLASS_CNT ], cmax[ FD_ACCDB_CACHE_CLASS_CNT ], resv[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, used0, cmax, resv );
+  ulong disk0 = fd_accdb_shmetrics( accdb )->disk_used_bytes;
+
+  uchar pk1[ 32 ] = {9}; uchar owner[ 32 ] = {4}; uchar data[ 100 ];
+  for( ulong i=0UL; i<sizeof(data); i++ ) data[ i ] = (uchar)(i*7UL);
+  ulong cls = fd_accdb_cache_class( sizeof(data) );
+  FD_TEST( fd_accdb_cache_class( 0UL )==cls );
+
+  /* In the cache, read from there by the stream fork and its child,
+     not on disk. */
+  test_batch_result_t r = test_write_cached( accdb, blind, pk1, owner, 500UL, data, sizeof(data) );
+  FD_TEST( r.loaded==1UL && r.results[ 0 ]==FD_ACCDB_RESTORE_WRITE_LOADED );
+  ulong misses0 = fd_accdb_metrics( accdb )->accounts_not_found_per_class[ cls ];
+  test_check_account( accdb, blind, pk1, owner, 500UL, data, sizeof(data) );
+  test_check_account( accdb, child, pk1, owner, 500UL, data, sizeof(data) );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_not_found_per_class[ cls ]==misses0 );
+  fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+  FD_TEST( used1[ cls ]==used0[ cls ]+1UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->disk_used_bytes==disk0 );
+
+  /* A repeat is ignored and its line goes back. */
+  r = test_write_cached( accdb, blind, pk1, owner, 501UL, data, sizeof(data) );
+  FD_TEST( r.ignored==1UL && r.results[ 0 ]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+  fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+  FD_TEST( used1[ cls ]==used0[ cls ]+1UL );
+  test_check_account( accdb, child, pk1, owner, 500UL, data, sizeof(data) );
+
+  /* One batch of eight, as the tile sends them: two classes, the
+     repeat gives its line back, an empty record marks a key as
+     streamed. */
+  {
+    static uchar recs[ 8 ][ sizeof(fd_accdb_disk_meta_t)+300UL ];
+    uchar const * pks8[ 8 ]; fd_accdb_disk_meta_t const * recs8[ 8 ];
+    ulong slots8[ 8 ], lamp8[ 8 ], lens8[ 8 ], offs8[ 8 ]; int execs8[ 8 ];
+    for( ulong i=0UL; i<8UL; i++ ) {
+      fd_accdb_disk_meta_t * meta = (fd_accdb_disk_meta_t *)recs[ i ];
+      fd_memset( recs[ i ], 0, sizeof(recs[ i ]) );
+      if( i==6UL ) fd_memcpy( meta->pubkey, pk1, 32UL );
+      else         FD_STORE( ulong, meta->pubkey, 500UL+i );
+      fd_memcpy( meta->owner, owner, 32UL );
+      lens8[ i ] = (i&1UL) ? 300UL : 0UL;
+      meta->size = (uint)lens8[ i ];
+      for( ulong b=0UL; b<lens8[ i ]; b++ ) recs[ i ][ sizeof(fd_accdb_disk_meta_t)+b ] = (uchar)(i+b);
+      pks8  [ i ] = meta->pubkey;
+      recs8 [ i ] = meta;
+      slots8[ i ] = 7UL;
+      lamp8 [ i ] = i==7UL ? 0UL : 600UL+i;
+      execs8[ i ] = 0;
+      offs8 [ i ] = 0UL;
+    }
+    ulong before[ FD_ACCDB_CACHE_CLASS_CNT ];
+    fd_accdb_cache_class_occupancy( accdb, before, cmax, resv );
+    ulong ign, rep, ld, rl, il, rs[ 8 ]; uchar res[ 8 ];
+    FD_TEST( !fd_accdb_restore_write_batch( accdb, blind, FD_ACCDB_RESTORE_MODE_STREAM, 8UL, pks8, slots8, lamp8, lens8, execs8,
+                                            offs8, recs8, &ign, &rep, &ld, &rl, &il, rs, res ) );
+    FD_TEST( ign==1UL && ld==7UL && res[ 6 ]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+    for( ulong i=0UL; i<6UL; i++ ) test_check_account( accdb, child, pks8[ i ], owner, lamp8[ i ], recs[ i ]+sizeof(fd_accdb_disk_meta_t), lens8[ i ] );
+    FD_TEST( fd_accdb_has_record( accdb, blind, pks8[ 7 ] ) && !fd_accdb_exists( accdb, blind, pks8[ 7 ] ) );
+    ulong cls300 = fd_accdb_cache_class( 300UL );
+    fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+    FD_TEST( cls300!=cls && used1[ cls ]==before[ cls ]+3UL && used1[ cls300 ]==before[ cls300 ]+4UL );
+  }
+
+  /* More empty records than the class has lines: the cache evicts
+     earlier ones to disk while taking them in. */
+  ulong extra = 16UL;
+  ulong n     = cmax[ cls ]+extra;
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32 ]; fd_memset( pk, 0, 32UL ); FD_STORE( ulong, pk, i+1000UL );
+    r = test_write_cached( accdb, blind, pk, owner, i+1UL, NULL, 0UL );
+    FD_TEST( r.loaded==1UL );
+  }
+  FD_TEST( fd_accdb_shmetrics( accdb )->disk_used_bytes>=disk0+extra*sizeof(fd_accdb_disk_meta_t) );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_evicted>=extra );
+  fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+  FD_TEST( used1[ cls ]==cmax[ cls ] );
+
+  /* The class is full of dirty lines, so the background pre-evict
+     writes some back to disk and frees their lines, given enough
+     ticks for its sweep. */
+  ulong preevicted0 = fd_accdb_metrics( accdb )->accounts_preevicted;
+  disk0 = fd_accdb_shmetrics( accdb )->disk_used_bytes;
+  for( ulong i=0UL; i<100000UL && fd_accdb_metrics( accdb )->accounts_preevicted==preevicted0; i++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_preevicted>preevicted0 );
+  FD_TEST( fd_accdb_shmetrics( accdb )->disk_used_bytes>disk0 );
+  fd_accdb_cache_class_occupancy( accdb, used1, cmax, resv );
+  FD_TEST( used1[ cls ]<cmax[ cls ] );
+
+  /* Every record reads right, from its line or from disk. */
+  for( ulong i=0UL; i<n; i++ ) {
+    uchar pk[ 32 ]; fd_memset( pk, 0, 32UL ); FD_STORE( ulong, pk, i+1000UL );
+    test_check_account( accdb, child, pk, owner, i+1UL, NULL, 0UL );
+  }
+  test_check_account( accdb, child, pk1, owner, 500UL, data, sizeof(data) );
+
+  /* Rooting keeps them. */
+  fd_accdb_advance_root( accdb, snap );
+  drain_background( accdb );
+  fd_accdb_advance_root( accdb, blind );
+  drain_background( accdb );
+  test_check_account( accdb, child, pk1, owner, 500UL, data, sizeof(data) );
+  for( ulong i=0UL; i<n; i+=97UL ) {
+    uchar pk[ 32 ]; fd_memset( pk, 0, 32UL ); FD_STORE( ulong, pk, i+1000UL );
+    test_check_account( accdb, child, pk, owner, i+1UL, NULL, 0UL );
+  }
+  fd_accdb_snapshot_load_end( accdb );
+  fd_accdb_flush_metrics( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==7UL+n ); /* rooting dropped the empty record */
   test_teardown( accdb, fd );
 }
 
@@ -1976,13 +2268,34 @@ test_snapshot_equal_slot_rejected( void ) {
   FD_TEST( result.err==-1 );
   FD_TEST( fd_accdb_lamports( accdb, root, pubkey )==2UL );
 
+  /* In stream mode the repeat is dropped instead, whether it is
+     already in the chain or earlier in the same batch, and without
+     looking at the slot. */
+  result = test_write_batch_on( accdb, root, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, pubkeys, slots, lamports, data_lens, execs, &store );
+  FD_TEST( !result.err && !result.loaded && result.ignored==1UL && result.ignored_lamports==3UL );
+  FD_TEST( result.results[0]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+  FD_TEST( fd_accdb_lamports( accdb, root, pubkey )==2UL );
+  slots[ 0 ] = 200UL;
+  result = test_write_batch_on( accdb, root, FD_ACCDB_RESTORE_MODE_STREAM, 1UL, pubkeys, slots, lamports, data_lens, execs, &store );
+  FD_TEST( !result.err && !result.loaded && result.ignored==1UL && result.results[0]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+  FD_TEST( fd_accdb_lamports( accdb, root, pubkey )==2UL );
+  slots[ 0 ] = 100UL;
+
+  uchar pubkey2[ 32UL ] = {2};
+  pubkeys[ 0 ] = pubkeys[ 1 ] = pubkey2;
+  slots[ 1 ] = 100UL;
+  result = test_write_batch_on( accdb, root, FD_ACCDB_RESTORE_MODE_STREAM, 2UL, pubkeys, slots, lamports, data_lens, execs, &store );
+  FD_TEST( !result.err && result.loaded==1UL && result.ignored==1UL );
+  FD_TEST( result.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED && result.results[1]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+  FD_TEST( fd_accdb_lamports( accdb, root, pubkey2 )==3UL );
+
   fd_accdb_snapshot_load_end( accdb );
 
   acc_pool_t pool_join[ 1 ];
   FD_TEST( acc_pool_join( pool_join, test_shmem_mem->acc_pool, par_acc_ele( max_accounts ), max_accounts ) );
   ulong free_cnt = 0UL;
   while( acc_pool_acquire( pool_join ) ) free_cnt++;
-  FD_TEST( free_cnt==max_accounts-1UL );
+  FD_TEST( free_cnt==max_accounts-2UL );
 
   test_teardown( accdb, fd );
 }
@@ -2073,6 +2386,177 @@ test_snapshot_chain_locked_writers( void ) {
   FD_TEST( free_cnt==max_accounts-PAR_KEYS );
 
   for( ulong t=0UL; t<PAR_THREADS; t++ ) free( joins[ t ] );
+  test_teardown( accdb, fd );
+}
+
+/* Snapshot loader threads write one key set while a live writer
+   repeatedly overwrites a second key set on a child fork.  A third
+   key set is written once, before any thread starts, and only ever
+   read after that: accdb does not support a reader racing an
+   in-place overwrite of the same key on the same fork (production
+   never does this, since transactions hold account locks).  All keys
+   land in a small chain table so chains are shared with the ones the
+   loader locks, which is what this test exercises.  Nothing may
+   crash, and after the threads join the repeatedly-written key must
+   hold its last value, the read-only key its one value, and the
+   loaded key its highest-slot value. */
+
+#define LIVE_KEYS   (256UL)
+#define LIVE_ROUNDS (64UL)
+
+typedef struct {
+  fd_accdb_t *        accdb;
+  fd_accdb_fork_id_t  fork;
+  uchar            (* pks)[ 32UL ];
+  ulong               key_cnt;
+  pthread_barrier_t * start;
+  int volatile *      stop;
+  ulong               rounds;
+  int                 chain_walk_only;
+} live_ctx_t;
+
+static void *
+live_writer_main( void * _ctx ) {
+  live_ctx_t * ctx = _ctx;
+  int barrier_result = pthread_barrier_wait( ctx->start );
+  FD_TEST( !barrier_result || barrier_result==PTHREAD_BARRIER_SERIAL_THREAD );
+  uchar owner[ 32UL ] = { 9, 0 };
+  uchar data[ 64UL ];
+  for( ulong r=0UL; r<ctx->rounds; r++ ) {
+    for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+      memset( data, (int)(r&0xFFUL), sizeof(data) );
+      accdb_write( ctx->accdb, ctx->fork, ctx->pks[ k ], 5000000UL+r, data, (k%64UL), owner );
+    }
+  }
+  return NULL;
+}
+
+static void *
+live_reader_main( void * _ctx ) {
+  live_ctx_t * ctx = _ctx;
+  int barrier_result = pthread_barrier_wait( ctx->start );
+  FD_TEST( !barrier_result || barrier_result==PTHREAD_BARRIER_SERIAL_THREAD );
+  ulong iter = 0UL;
+  while( !FD_VOLATILE_CONST( *ctx->stop ) ) {
+    ulong k = iter%ctx->key_cnt;
+    /* accdb_read pulls the account through the cache, which races
+       the snapshot loader's in-place replace of an existing key the
+       same way it races a live writer's in-place overwrite: neither
+       is supported.  fd_accdb_exists and fd_accdb_lamports only walk
+       the chain under the loader's lock, so they are safe here and
+       are the actual point of this test. */
+    if( !ctx->chain_walk_only ) {
+      ulong lamports = 0UL;
+      accdb_read( ctx->accdb, ctx->fork, ctx->pks[ k ], &lamports, NULL, NULL, NULL );
+    }
+    (void)fd_accdb_exists  ( ctx->accdb, ctx->fork, ctx->pks[ k ] );
+    (void)fd_accdb_lamports( ctx->accdb, ctx->fork, ctx->pks[ k ] );
+    iter++;
+  }
+  return NULL;
+}
+
+static void
+test_snapshot_writers_vs_live( void ) {
+  int fd;
+  ulong psz = 11UL<<20UL;
+  ulong max_accounts = 2048UL;
+  fd_accdb_t * accdb = test_setup_ex( &fd, max_accounts, 64UL, 1024UL, 64UL, psz,
+                                      TEST_CACHE_FOOTPRINT, TEST_CACHE_MIN_RESERVED,
+                                      PAR_THREADS+4UL );
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  static uchar load_pks[ PAR_KEYS  ][ 32UL ];
+  static uchar live_pks[ LIVE_KEYS ][ 32UL ];
+  static uchar read_pks[ LIVE_KEYS ][ 32UL ];
+  for( ulong k=0UL; k<PAR_KEYS; k++ ) {
+    fd_memset( load_pks[ k ], 0, 32UL );
+    load_pks[ k ][ 0 ] = (uchar)( k+1UL );
+    load_pks[ k ][ 1 ] = 0x77;
+  }
+  for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+    fd_memset( live_pks[ k ], 0, 32UL );
+    live_pks[ k ][ 0 ] = (uchar)( k&0xFFUL );
+    live_pks[ k ][ 1 ] = 0x88;
+    live_pks[ k ][ 2 ] = (uchar)( k>>8 );
+  }
+  for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+    fd_memset( read_pks[ k ], 0, 32UL );
+    read_pks[ k ][ 0 ] = (uchar)( k&0xFFUL );
+    read_pks[ k ][ 1 ] = 0x99;
+    read_pks[ k ][ 2 ] = (uchar)( k>>8 );
+  }
+
+  /* read_pks is written once, before any thread starts, then only
+     ever read: accdb does not support a reader racing an in-place
+     overwrite of the same key on the same fork. */
+  {
+    uchar owner[ 32UL ] = { 9, 0 };
+    uchar data[ 64UL ];
+    memset( data, 0, sizeof(data) );
+    for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+      accdb_write( accdb, child, read_pks[ k ], 7000000UL+k, data, (k%64UL), owner );
+    }
+  }
+
+  fd_accdb_t * loader_joins[ PAR_THREADS ];
+  par_writer_ctx_t loader_ctxs[ PAR_THREADS ];
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) loader_joins[ t ] = test_join_writer( fd );
+  memset( loader_ctxs, 0, sizeof(loader_ctxs) );
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) {
+    loader_ctxs[ t ].accdb      = loader_joins[ t ];
+    loader_ctxs[ t ].store.fd   = fd;
+    loader_ctxs[ t ].thread_idx = t;
+    loader_ctxs[ t ].fork       = SENTINEL;
+    loader_ctxs[ t ].pks        = load_pks;
+  }
+
+  fd_accdb_t * live_join    = test_join_writer( fd );
+  fd_accdb_t * reader_join  = test_join_writer( fd );
+  fd_accdb_t * reader2_join = test_join_writer( fd );
+  int volatile stop = 0;
+  pthread_barrier_t start;
+  FD_TEST( !pthread_barrier_init( &start, NULL, (uint)(PAR_THREADS+3UL) ) );
+  live_ctx_t live = { .accdb=live_join,    .fork=child, .pks=live_pks, .start=&start, .stop=&stop, .rounds=LIVE_ROUNDS };
+  live_ctx_t rd1  = { .accdb=reader_join,  .fork=child, .pks=read_pks, .key_cnt=LIVE_KEYS, .start=&start, .stop=&stop, .rounds=0UL };
+  live_ctx_t rd2  = { .accdb=reader2_join, .fork=root,  .pks=load_pks, .key_cnt=PAR_KEYS,  .start=&start, .stop=&stop, .rounds=0UL, .chain_walk_only=1 };
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) loader_ctxs[ t ].start = &start;
+
+  pthread_t threads[ PAR_THREADS+3UL ];
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) FD_TEST( !pthread_create( &threads[ t ], NULL, par_writer_main, &loader_ctxs[ t ] ) );
+  FD_TEST( !pthread_create( &threads[ PAR_THREADS     ], NULL, live_writer_main, &live ) );
+  FD_TEST( !pthread_create( &threads[ PAR_THREADS+1UL ], NULL, live_reader_main, &rd1  ) );
+  FD_TEST( !pthread_create( &threads[ PAR_THREADS+2UL ], NULL, live_reader_main, &rd2  ) );
+  for( ulong t=0UL; t<PAR_THREADS+1UL; t++ ) FD_TEST( !pthread_join( threads[ t ], NULL ) );
+  stop = 1;
+  FD_TEST( !pthread_join( threads[ PAR_THREADS+1UL ], NULL ) );
+  FD_TEST( !pthread_join( threads[ PAR_THREADS+2UL ], NULL ) );
+  FD_TEST( !pthread_barrier_destroy( &start ) );
+
+  for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+    ulong lamports = 0UL;
+    FD_TEST( accdb_read( accdb, child, live_pks[ k ], &lamports, NULL, NULL, NULL ) );
+    FD_TEST( lamports==5000000UL+LIVE_ROUNDS-1UL );
+  }
+  for( ulong k=0UL; k<LIVE_KEYS; k++ ) {
+    ulong lamports = 0UL;
+    FD_TEST( accdb_read( accdb, child, read_pks[ k ], &lamports, NULL, NULL, NULL ) );
+    FD_TEST( lamports==7000000UL+k );
+  }
+  for( ulong k=0UL; k<PAR_KEYS; k++ ) {
+    ulong lamports = 0UL;
+    FD_TEST( accdb_read( accdb, root, load_pks[ k ], &lamports, NULL, NULL, NULL ) );
+    FD_TEST( lamports==PAR_LAMPORTS( PAR_THREADS-1UL, k ) );
+  }
+
+  fd_accdb_snapshot_load_end( accdb );
+  for( ulong t=0UL; t<PAR_THREADS; t++ ) free( loader_joins[ t ] );
+  free( live_join );
+  free( reader_join );
+  free( reader2_join );
   test_teardown( accdb, fd );
 }
 
@@ -2315,16 +2799,18 @@ test_snapshot_write_results( void ) {
 
   /* First versions load. */
   r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 10UL, 10UL }, (ulong[]){ 100UL, 5UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_LOADED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_LOADED );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED && r.results[1]==FD_ACCDB_RESTORE_WRITE_LOADED );
 
   /* Newer pk0 replaces a funded version, older pk1 is ignored. */
   r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 20UL, 5UL }, (ulong[]){ 0UL, 7UL }, (ulong[]){ 0UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED && r.results[1]==FD_ACCDB_RESTORE_WRITE_IGNORED );
   FD_TEST( r.ignored==1UL && r.replaced==1UL && r.loaded==0UL );
+  FD_TEST( r.replaced_slots[0]==10UL && r.replaced_slots[1]==ULONG_MAX );
 
   /* Replacing an empty version reports LOADED. */
   r = test_write_batch( accdb, SENTINEL, 2UL, pubkeys, (ulong[]){ 30UL, 30UL }, (ulong[]){ 9UL, 6UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_LOADED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED && r.results[1]==FD_ACCDB_RESTORE_WRITE_REPLACED );
+  FD_TEST( r.replaced_slots[0]==ULONG_MAX && r.replaced_slots[1]==10UL );
   fd_accdb_snapshot_load_end( accdb );
 
   /* Incremental: replacing the full snapshot's version is cross fork,
@@ -2332,10 +2818,146 @@ test_snapshot_write_results( void ) {
   fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
   fd_accdb_snapshot_load_begin( accdb );
   r = test_write_batch( accdb, incr, 2UL, pubkeys, (ulong[]){ 40UL, 25UL }, (ulong[]){ 11UL, 8UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_IGNORED );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS && r.results[1]==FD_ACCDB_RESTORE_WRITE_IGNORED );
+  FD_TEST( r.replaced_slots[0]==30UL && r.replaced_slots[1]==ULONG_MAX );
   r = test_write_batch( accdb, incr, 2UL, pubkeys, (ulong[]){ 41UL, 41UL }, (ulong[]){ 12UL, 8UL }, (ulong[]){ 200UL, 64UL }, executables, &store );
-  FD_TEST( !r.err && r.results[0]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED && r.results[1]==FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED && r.results[1]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS );
   fd_accdb_snapshot_load_end( accdb );
+
+  test_teardown( accdb, fd );
+}
+
+/* A fork that is not an ancestor of the snapshot loader's fork writes
+   a key before the loader reaches it.  The loader must keep that write
+   ahead of its own copy, so the fork keeps reading its own value
+   during the load, after it, and after it is rooted. */
+static void
+test_snapshot_behind_live_full( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, 11UL<<20UL );
+  test_store_ctx_t store = { .fd=fd };
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t child = fd_accdb_attach_child( accdb, root );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  uchar key  [ 32UL ] = { 0xF0 };
+  uchar owner[ 32UL ] = { 9, 0 };
+  accdb_write( accdb, child, key, 500UL, NULL, 0UL, owner );
+
+  uchar const * pks[ 1 ] = { key };
+  int execs[ 1 ] = { 0 };
+  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, (ulong[]){ 10UL }, (ulong[]){ 100UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED && r.loaded==1UL );
+
+  /* A second copy from the stream replaces the first and is counted. */
+  r = test_write_batch( accdb, SENTINEL, 1UL, pks, (ulong[]){ 20UL }, (ulong[]){ 150UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED && r.replaced_lamports==100UL );
+
+  ulong got = 0UL;
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) && got==500UL );
+  FD_TEST( accdb_read( accdb, root,  key, &got, NULL, NULL, NULL ) && got==150UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) && got==500UL );
+  FD_TEST( fd_accdb_lamports( accdb, child, key )==500UL );
+
+  fd_accdb_advance_root( accdb, child );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, child, key, &got, NULL, NULL, NULL ) && got==500UL );
+  fd_accdb_flush_metrics( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
+
+  test_teardown( accdb, fd );
+}
+
+/* Same with an incremental snapshot: the full snapshot's copy on root
+   is still found behind the live write and counted as replaced. */
+static void
+test_snapshot_behind_live_incremental( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, 11UL<<20UL );
+  test_store_ctx_t store = { .fd=fd };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_snapshot_load_begin( accdb );
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t d    = fd_accdb_attach_child( accdb, incr );
+
+  uchar key  [ 32UL ] = { 0xF1 };
+  uchar owner[ 32UL ] = { 9, 0 };
+  uchar const * pks[ 1 ] = { key };
+  int execs[ 1 ] = { 0 };
+  test_batch_result_t r = test_write_batch( accdb, SENTINEL, 1UL, pks, (ulong[]){ 5UL }, (ulong[]){ 100UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED );
+
+  accdb_write( accdb, d, key, 500UL, NULL, 0UL, owner );
+
+  r = test_write_batch( accdb, incr, 1UL, pks, (ulong[]){ 20UL }, (ulong[]){ 200UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS && r.replaced_lamports==100UL );
+
+  ulong got = 0UL;
+  FD_TEST( accdb_read( accdb, d,    key, &got, NULL, NULL, NULL ) && got==500UL );
+  FD_TEST( accdb_read( accdb, incr, key, &got, NULL, NULL, NULL ) && got==200UL );
+  FD_TEST( accdb_read( accdb, root, key, &got, NULL, NULL, NULL ) && got==100UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+  fd_accdb_advance_root( accdb, incr );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, d,    key, &got, NULL, NULL, NULL ) && got==500UL );
+  FD_TEST( accdb_read( accdb, incr, key, &got, NULL, NULL, NULL ) && got==200UL );
+
+  fd_accdb_advance_root( accdb, d );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, d, key, &got, NULL, NULL, NULL ) && got==500UL );
+  fd_accdb_flush_metrics( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
+
+  test_teardown( accdb, fd );
+}
+
+/* The full snapshot is written on its own fork.  Nothing outside that
+   fork sees it until it is rooted, and rooting a fork with no txn
+   records works. */
+static void
+test_restore_full_on_fork( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 1024UL, 64UL, 11UL<<20UL );
+  test_store_ctx_t store = { .fd=fd };
+
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t snap = fd_accdb_attach_child( accdb, root );
+  fd_accdb_fork_id_t side = fd_accdb_attach_child( accdb, root );
+  fd_accdb_snapshot_load_begin( accdb );
+
+  uchar key[ 32UL ] = { 0xF2 };
+  uchar const * pks[ 1 ] = { key };
+  int execs[ 1 ] = { 0 };
+  test_batch_result_t r = test_write_batch_on( accdb, snap, FD_ACCDB_RESTORE_MODE_FULL, 1UL, pks, (ulong[]){ 10UL }, (ulong[]){ 100UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_LOADED );
+
+  ulong got = 0UL;
+  FD_TEST( accdb_read( accdb, snap, key, &got, NULL, NULL, NULL ) && got==100UL );
+  FD_TEST( !accdb_read( accdb, root, key, &got, NULL, NULL, NULL ) );
+  FD_TEST( !accdb_read( accdb, side, key, &got, NULL, NULL, NULL ) );
+  FD_TEST( fd_accdb_lamports( accdb, side, key )==0UL );
+
+  /* An incremental on top of it supersedes the full copy. */
+  fd_accdb_fork_id_t incr = fd_accdb_attach_child( accdb, snap );
+  r = test_write_batch_on( accdb, incr, FD_ACCDB_RESTORE_MODE_INCREMENTAL, 1UL, pks, (ulong[]){ 20UL }, (ulong[]){ 200UL }, (ulong[]){ 0UL }, execs, &store );
+  FD_TEST( !r.err && r.results[0]==FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS && r.replaced_lamports==100UL );
+
+  fd_accdb_snapshot_load_end( accdb );
+  fd_accdb_advance_root( accdb, snap );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, snap, key, &got, NULL, NULL, NULL ) && got==100UL );
+  FD_TEST( accdb_read( accdb, incr, key, &got, NULL, NULL, NULL ) && got==200UL );
+
+  fd_accdb_advance_root( accdb, incr );
+  drain_background( accdb );
+  FD_TEST( accdb_read( accdb, incr, key, &got, NULL, NULL, NULL ) && got==200UL );
+  fd_accdb_flush_metrics( accdb );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
 
   test_teardown( accdb, fd );
 }
@@ -2988,6 +3610,12 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_reserve_write_dead_tail ..." ));
   test_reserve_write_dead_tail();
+  FD_LOG_NOTICE(( "test_snapshot_write_head ..." ));
+  test_snapshot_write_head();
+  FD_LOG_NOTICE(( "test_fork_hide_ancestor ..." ));
+  test_fork_hide_ancestor();
+  FD_LOG_NOTICE(( "test_restore_cached ..." ));
+  test_restore_cached();
 
   FD_LOG_NOTICE(( "test_overwrite_same_fork ..." ));
   test_overwrite_same_fork();
@@ -3056,6 +3684,9 @@ main( int     argc,
   FD_LOG_NOTICE(( "test_snapshot_chain_locked_writers ..." ));
   test_snapshot_chain_locked_writers();
 
+  FD_LOG_NOTICE(( "test_snapshot_writers_vs_live ..." ));
+  test_snapshot_writers_vs_live();
+
   FD_LOG_NOTICE(( "test_snapshot_equal_slot_rejected ..." ));
   test_snapshot_equal_slot_rejected();
 
@@ -3067,6 +3698,15 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_snapshot_write_results ..." ));
   test_snapshot_write_results();
+
+  FD_LOG_NOTICE(( "test_snapshot_behind_live_full ..." ));
+  test_snapshot_behind_live_full();
+
+  FD_LOG_NOTICE(( "test_snapshot_behind_live_incremental ..." ));
+  test_snapshot_behind_live_incremental();
+
+  FD_LOG_NOTICE(( "test_restore_full_on_fork ..." ));
+  test_restore_full_on_fork();
 
   FD_LOG_NOTICE(( "test_incremental_retry_reuses_acc_pool ..." ));
   test_incremental_retry_reuses_acc_pool();

@@ -569,7 +569,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
     case IN_KIND_SNAPIN_MANIF: {
       if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
 
-      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
+      if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_REPLAY_READY ) ) {
         /* Classify boot against WFS (see fd_wfs.h):
              MODE_ERROR      -> keep state, never signal WFS_DONE
              MODE_UNRESOLVED -> error condition
@@ -586,7 +586,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
           break;
         }
         if( FD_UNLIKELY( wfs_mode==FD_WFS_MODE_UNRESOLVED ) ) {
-          FD_LOG_CRIT(( "snapshot DONE received before any manifest" ));
+          FD_LOG_CRIT(( "snapshot REPLAY_READY received before any manifest" ));
         }
         ctx->wfs_state = fd_int_if( wfs_mode==FD_WFS_MODE_MATCH,
                                     FD_GOSSIP_WFS_STATE_WAIT, FD_GOSSIP_WFS_STATE_DONE );

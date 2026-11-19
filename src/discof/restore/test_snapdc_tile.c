@@ -575,6 +575,18 @@ test_controls_and_retry( void ) {
   test_env_delete( env );
 }
 
+/* A fast boot stream is shut down wherever it is, so a shutdown
+   applies while still processing. */
+static void
+test_stream_shutdown( void ) {
+  test_env_t * env = test_env_new( 0UL, 1UL );
+  begin_load( env, 1, 1 );
+  FD_TEST( env->ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+  send_control( env, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+  FD_TEST( env->ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN );
+  test_env_delete( env );
+}
+
 static void
 test_retry_resets_frame_state( void ) {
   static uchar const payload[] = "retry frame ownership";
@@ -765,6 +777,18 @@ test_control_publication_counts( void ) {
   send_control( env, FD_SNAPSHOT_MSG_LOAD_COMPLETE );
   FD_TEST( !test_pub_cnt );
 
+  /* Caught up goes on to snapin, and does not cut the frame in flight. */
+  static uchar const payload[] = "caught up";
+  uchar frame[4096];
+  ulong frame_sz = make_frame( frame, sizeof(frame), payload, sizeof(payload)-1UL, 1, 0 );
+  send_data( env, frame, frame_sz/2UL );
+  send_control( env, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
+  FD_TEST( test_pub[ test_pub_cnt-1UL ].sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
+  send_data( env, frame+frame_sz/2UL, frame_sz-frame_sz/2UL );
+  FD_TEST( env->ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !env->ctx->dirty );
+  FD_TEST( env->ctx->metrics.full.decompressed_bytes_written==sizeof(payload)-1UL );
+  capture_reset( env );
+
   fd_memset( env->meta, 0, sizeof(fd_ssctrl_meta_t) );
   fd_memcpy( env->in, env->meta, sizeof(fd_ssctrl_meta_t) );
   send_control( env, FD_SNAPSHOT_MSG_META );
@@ -775,6 +799,8 @@ test_control_publication_counts( void ) {
   FD_TEST( test_pub_cnt==2UL );
   FD_TEST( test_pub[1].sig==FD_SNAPSHOT_MSG_CTRL_ERROR );
   send_control( env, FD_SNAPSHOT_MSG_CTRL_DONE );
+  FD_TEST( test_pub_cnt==2UL );
+  send_control( env, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
   FD_TEST( test_pub_cnt==2UL );
   send_control( env, FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( test_pub_cnt==3UL );
@@ -824,6 +850,7 @@ main( int     argc,
   test_truncated_and_malformed();
   test_raw_tile_zero();
   test_controls_and_retry();
+  test_stream_shutdown();
   test_retry_resets_frame_state();
   test_malformed_unowned_frame();
   test_mixed_frame_rotation();

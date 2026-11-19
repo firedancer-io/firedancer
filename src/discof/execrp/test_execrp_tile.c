@@ -15,6 +15,9 @@
 #include "../../flamenco/runtime/program/fd_system_program.h"
 #include "../../flamenco/stakes/fd_vote_stakes.h"
 #include "../../choreo/votor/fd_vote_serde.h"
+#if FD_HAS_RACESAN
+#include "../../util/racesan/fd_racesan.h"
+#endif
 #include "../../util/tmpl/fd_unit_test.c"
 #include <unistd.h>
 
@@ -520,19 +523,14 @@ test_poison_out( test_env_t * env ) {
   fd_memset( env->execrp->result, 0xA5, sizeof(fd_execrp_result_t) );
 }
 
-/* test_execrp_run_alts executes txn and checks that the done frag
-   reports exactly alt_writable_cnt lookup table accounts, which the
-   tile leaves in its result entry. */
+/* test_execrp_send hands txn to the tile as replay would and returns
+   once the tile has processed the frag. */
 
-static fd_execrp_task_done_msg_t const *
-test_execrp_run_alts( test_env_t * env,
-                      fd_txn_p_t * txn,
-                      ulong        txn_idx,
-                      int          want_alts,
-                      ulong        alt_writable_cnt ) {
-  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
-  FD_TEST( bank );
-
+static void
+test_execrp_send( test_env_t * env,
+                  fd_txn_p_t * txn,
+                  ulong        txn_idx,
+                  int          want_alts ) {
   ulong in_chunk = env->execrp->replay_in->chunk0;
   fd_execrp_txn_exec_msg_t * in_msg = fd_chunk_to_laddr( env->execrp->replay_in->mem, in_chunk );
   fd_memset( in_msg, 0, sizeof(fd_execrp_txn_exec_msg_t) );
@@ -548,7 +546,22 @@ test_execrp_run_alts( test_env_t * env,
   FD_TEST( !returnable_frag( env->execrp, env->execrp->replay_in->idx, 0UL, sig, in_chunk,
                              sizeof(fd_execrp_txn_exec_msg_t), 0UL, 0UL,
                              fd_frag_meta_ts_comp( fd_tickcount() ), test_stem( env->execrp, stem ) ) );
+}
 
+/* test_execrp_run_alts executes txn and checks that the done frag
+   reports exactly alt_writable_cnt lookup table accounts, which the
+   tile leaves in its result entry. */
+
+static fd_execrp_task_done_msg_t const *
+test_execrp_run_alts( test_env_t * env,
+                      fd_txn_p_t * txn,
+                      ulong        txn_idx,
+                      int          want_alts,
+                      ulong        alt_writable_cnt ) {
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+  FD_TEST( bank );
+
+  test_execrp_send( env, txn, txn_idx, want_alts );
   fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_EXEC );
   FD_TEST( out_msg->txn_exec->txn_idx==txn_idx );
   FD_TEST( out_msg->txn_exec->slot==bank->f.slot );
@@ -955,6 +968,193 @@ FD_UNIT_TEST( execrp_simple_ok ) {
 
   test_env_destroy( env );
 }
+
+/* While the snapshots behind a fast boot stream are loading, a
+   transaction that touches an account with no record yet is handed
+   back instead of being run against an empty account. */
+FD_UNIT_TEST( execrp_deferred_while_loading ) {
+  test_env_t * env = test_env_create();
+  fd_bank_t * bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer = { .ul = { 0x1111UL } };
+  fd_pubkey_t recipient = { .ul = { 0x2222UL } };
+  fd_pubkey_t unseen    = { .ul = { 0x3333UL } };
+  fd_blockhash_info_t * blockhash_info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &bank->f.block_hash_queue );
+  FD_TEST( blockhash_info );
+  blockhash_info->lamports_per_signature = 5000UL;
+  test_fund_account( env, &fee_payer, 1000000000UL );
+  test_fund_account( env, &recipient, 1UL );
+
+  fd_accdb_snapshot_load_begin( env->execrp->accdb );
+
+  /* Every account has a record: runs as usual. */
+  fd_txn_p_t txn[1];
+  test_build_system_transfer_txn( txn, bank, fee_payer, recipient, 1234567UL );
+  fd_execrp_task_done_msg_t const * out_msg = test_execrp_run( env, txn, 18UL );
+  FD_TEST( out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+
+  /* No record for the recipient yet: handed back, nothing changed. */
+  test_build_system_transfer_txn( txn, bank, fee_payer, unseen, 1234567UL );
+  test_execrp_send( env, txn, 19UL, 0 );
+  out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_DEFERRED );
+  FD_TEST( out_msg->txn_deferred->txn_idx==19UL );
+  FD_TEST( !env->execrp->txn_out.err.is_committable );
+  FD_TEST( test_read_lamports( env, &fee_payer )==1000000000UL-5000UL-1234567UL );
+  FD_TEST( !test_read_lamports( env, &unseen ) );
+
+  fd_accdb_snapshot_load_end( env->execrp->accdb );
+
+  /* Loading is done: the account is known to be missing, so the
+     transfer creates it. */
+  test_execrp_send( env, txn, 19UL, 0 );
+  out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_EXEC );
+  FD_TEST( out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( test_read_lamports( env, &unseen )==1234567UL );
+
+  test_env_destroy( env );
+}
+
+/* A lookup table the server streamed as a tombstone is missing for
+   real, so the transaction fails like it does on the server.  One with
+   no record yet is handed back. */
+
+FD_UNIT_TEST( execrp_missing_alt_while_loading ) {
+  test_env_t * env  = test_env_create();
+  fd_bank_t *  bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer  = { .ul = { 0xA1A1UL } };
+  fd_pubkey_t dead_alt   = { .ul = { 0xA2A2UL } };
+  fd_pubkey_t unseen_alt = { .ul = { 0xA3A3UL } };
+  fd_pubkey_t alt_addrs[ 3 ] = { { .ul = { 0xA4A4UL } }, { .ul = { 0xA5A5UL } }, { .ul = { 0xA6A6UL } } };
+  fd_blockhash_info_t * blockhash_info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &bank->f.block_hash_queue );
+  FD_TEST( blockhash_info );
+  blockhash_info->lamports_per_signature = 5000UL;
+  test_fund_account( env, &fee_payer, 1000000000UL );
+  test_put_account( env, bank->parent_accdb_fork_id, &dead_alt, &fd_solana_system_program_id, 0UL, 0, NULL, 0UL );
+
+  fd_accdb_snapshot_load_begin( env->execrp->accdb );
+
+  fd_txn_p_t txn[1];
+  test_build_alt_transfer_txn( txn, bank, fee_payer, dead_alt, alt_addrs, 40UL );
+  fd_execrp_task_done_msg_t const * out_msg = test_execrp_run_alts( env, txn, 40UL, 1, 0UL );
+  FD_TEST( !out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND );
+
+  test_build_alt_transfer_txn( txn, bank, fee_payer, unseen_alt, alt_addrs, 41UL );
+  test_execrp_send( env, txn, 41UL, 1 );
+  out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_DEFERRED );
+  FD_TEST( out_msg->txn_deferred->txn_idx==41UL );
+
+  fd_accdb_snapshot_load_end( env->execrp->accdb );
+  test_env_destroy( env );
+}
+
+/* While loading, every account is checked for a record before the fee
+   payer is checked for the fee.  A fee payer short of the fee and a
+   recipient with no record yet: handed back, not failed. */
+
+FD_UNIT_TEST( execrp_deferred_before_fee_check ) {
+  test_env_t * env  = test_env_create();
+  fd_bank_t *  bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer = { .ul = { 0xC1C1UL } };
+  fd_pubkey_t unseen    = { .ul = { 0xC2C2UL } };
+  fd_blockhash_info_t * blockhash_info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &bank->f.block_hash_queue );
+  FD_TEST( blockhash_info );
+  blockhash_info->lamports_per_signature = 5000UL;
+  test_fund_account( env, &fee_payer, 100UL );
+
+  fd_accdb_snapshot_load_begin( env->execrp->accdb );
+
+  fd_txn_p_t txn[1];
+  test_build_system_transfer_txn( txn, bank, fee_payer, unseen, 1UL );
+  test_execrp_send( env, txn, 42UL, 0 );
+  fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_DEFERRED );
+  FD_TEST( out_msg->txn_deferred->txn_idx==42UL );
+  FD_TEST( test_read_lamports( env, &fee_payer )==100UL );
+
+  fd_accdb_snapshot_load_end( env->execrp->accdb );
+
+  /* Loading is done: the fee payer cannot pay, so the transaction
+     fails. */
+  out_msg = test_execrp_run( env, txn, 42UL );
+  FD_TEST( !out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_FEE );
+  FD_TEST( test_read_lamports( env, &fee_payer )==100UL );
+
+  test_env_destroy( env );
+}
+
+#if FD_HAS_RACESAN
+
+struct test_late_alt {
+  test_env_t *        env;
+  fd_pubkey_t const * alt;
+  fd_pubkey_t const * addrs;
+  int                 landed;
+};
+
+typedef struct test_late_alt test_late_alt_t;
+
+static void
+test_land_alt_at_probe( void * ctx,
+                        ulong  name_hash ) {
+  (void)name_hash;
+  test_late_alt_t * late = ctx;
+  if( late->landed ) return;
+  late->landed = 1;
+  test_put_alt( late->env, late->alt, late->addrs, 3UL );
+}
+
+/* The lookup table lands in the account database right as the exec
+   tile checks for its record.  The check comes before the read, so
+   the table is read and the transaction runs.  Reading first would
+   fail the transaction on a table the server has. */
+
+FD_UNIT_TEST( execrp_alt_lands_at_probe_while_loading ) {
+  test_env_t * env  = test_env_create();
+  fd_bank_t *  bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  fd_pubkey_t fee_payer = { .ul = { 0xD1D1UL } };
+  fd_pubkey_t late_alt  = { .ul = { 0xD2D2UL } };
+  fd_pubkey_t alt_addrs[ 3 ] = { { .ul = { 0xD3D3UL } }, { .ul = { 0xD4D4UL } }, { .ul = { 0xD5D5UL } } };
+  fd_blockhash_info_t * blockhash_info = (fd_blockhash_info_t *)fd_blockhashes_peek_last( &bank->f.block_hash_queue );
+  FD_TEST( blockhash_info );
+  blockhash_info->lamports_per_signature = 5000UL;
+  test_fund_account( env, &fee_payer, 1000000000UL );
+  for( ulong i=0UL; i<3UL; i++ ) test_fund_account( env, &alt_addrs[ i ], 1000000000UL );
+
+  fd_accdb_snapshot_load_begin( env->execrp->accdb );
+
+  test_late_alt_t late = { .env = env, .alt = &late_alt, .addrs = alt_addrs };
+  fd_racesan_t racesan[1];
+  FD_TEST( fd_racesan_new( racesan, &late ) );
+  fd_racesan_inject( racesan, "accdb_exists:pre_lookup", test_land_alt_at_probe );
+
+  fd_txn_p_t txn[1];
+  test_build_alt_transfer_txn( txn, bank, fee_payer, late_alt, alt_addrs, 40UL );
+  FD_RACESAN_INJECT_BEGIN( racesan ) {
+    test_execrp_send( env, txn, 43UL, 1 );
+  }
+  FD_RACESAN_INJECT_END;
+  FD_TEST( late.landed );
+
+  fd_execrp_task_done_msg_t const * out_msg = test_assert_out_msg( env, 0UL, FD_EXECRP_TT_TXN_EXEC );
+  FD_TEST( out_msg->txn_exec->txn_idx==43UL );
+  FD_TEST( out_msg->txn_exec->is_committable );
+  FD_TEST( out_msg->txn_exec->txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( out_msg->txn_exec->alt_writable_cnt==2UL );
+  FD_TEST( test_read_lamports( env, &alt_addrs[ 0 ] )==1000000000UL+40UL );
+  FD_TEST( test_read_lamports( env, &alt_addrs[ 1 ] )==1000000000UL+40UL );
+
+  fd_racesan_delete( racesan );
+  fd_accdb_snapshot_load_end( env->execrp->accdb );
+  test_env_destroy( env );
+}
+
+#endif /* FD_HAS_RACESAN */
 
 FD_UNIT_TEST( execrp_simple_fee_payer_fail ) {
   test_env_t * env = test_env_create();

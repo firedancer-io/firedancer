@@ -33,7 +33,7 @@
                   the gap.  The operator must supply a snapshot at S.
 
    Specific rules:
-     - boot_slot is the last manifest before FD_SSMSG_DONE, which
+     - boot_slot is the last manifest before FD_SSMSG_REPLAY_READY, which
        ssload makes the boot bank.  Take the latest, never the
        maximum: a reset can legitimately lower the slot.
      - Booting from genesis with WFS configured is not allowed (ERROR).

@@ -36,6 +36,8 @@
 
 #define FD_SNAPCT_STATE_SHUTDOWN                        (21) /* The tile is done, and has likely already exited */
 
+#define FD_SNAPCT_STATE_READING_STREAM                  (22) /* Reading a fast boot stream from HTTP, until the snapshots behind it are in */
+#define FD_SNAPCT_STATE_FLUSHING_STREAM_RESET           (23) /* Resetting to ask for another fast boot stream, confirm decompress and inserter are reset too */
 
 
 
@@ -64,6 +66,8 @@ fd_snapct_state_str( int state ) {
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:  return "flushing_incremental_http_done";
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET: return "flushing_incremental_http_reset";
     case FD_SNAPCT_STATE_SHUTDOWN:                        return "shutdown";
+    case FD_SNAPCT_STATE_READING_STREAM:                  return "reading_stream";
+    case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET:           return "flushing_stream_reset";
     default:                                              return "unknown";
   }
 }

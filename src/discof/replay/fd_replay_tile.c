@@ -50,6 +50,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
@@ -113,6 +114,7 @@
 #define IN_KIND_GOSSIP_OUT (10)
 #define IN_KIND_SNAPMK     (11)
 #define IN_KIND_ADMIN      (12)
+#define IN_KIND_STRMK      (13)
 
 #define DEBUG_LOGGING 0
 
@@ -243,7 +245,8 @@ wait_info_publish( fd_replay_tile_t * ctx ) {
   int   healthy           = wait_info_healthy( ctx->caught_up, ctx->catch_up_max_fec_slot, ctx->reset_slot );
 
   fd_wait_info_write_begin( ctx->wait_info );
-  ctx->wait_info->info.caught_up                  = healthy;
+  ctx->wait_info->info.caught_up                  = healthy && !ctx->epoch_boundary_hold;
+  ctx->wait_info->info.epoch_boundary_hold        = ctx->epoch_boundary_hold;
   ctx->wait_info->info.reset_slot                 = ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot;
   ctx->wait_info->info.tip_slot                   = ctx->catch_up_max_fec_slot==ULONG_MAX ? 0UL : ctx->catch_up_max_fec_slot;
   ctx->wait_info->info.leader_highwater_slot      = highwater;
@@ -1605,7 +1608,8 @@ try_become_leader( fd_replay_tile_t *  ctx,
                  ctx->is_leader ||
                  /* (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) ||  // deprecated */
                  ctx->replay_out->idx==ULONG_MAX ||
-                 !ctx->wfs_complete ) ) {
+                 !ctx->wfs_complete ||
+                 ctx->snapshots_loading ) ) {
     return 0;
   }
 
@@ -2241,8 +2245,6 @@ refresh_vote_account_staked( fd_replay_tile_t * ctx,
 static void
 init_after_snapshot( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
-  /* snapin built the root stake delegations while writing the accounts
-     db index.  Refresh finalizes them in memory. */
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
@@ -2293,41 +2295,15 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   bank->progcache_fork_id = fd_progcache_fork_id_initial();
 
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
-  fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
-  uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
-  fd_stake_history_t stake_history_[1];
-  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( ctx->accdb, bank->accdb_fork_id, stake_history_data, stake_history_ );
-  fd_stake_delegations_refresh(
-      root_delegations,
-      bank->f.epoch,
-      stake_history, /* may be NULL */
-      &bank->f.warmup_cooldown_rate_epoch,
-      FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
-  fd_stake_history_entry_t totals = fd_stake_delegations_totals( root_delegations );
+  fd_stake_history_entry_t totals = fd_stake_delegations_totals( fd_banks_stake_delegations_root_query( ctx->banks ) );
   bank->f.total_effective_stake    = totals.effective;
   bank->f.total_activating_stake   = totals.activating;
   bank->f.total_deactivating_stake = totals.deactivating;
 
-  /* Emit the stake-delegations boot baseline from the finalized root
-     cache (snapshot accepted and refreshed, or genesis loaded), so the
-     rows match the post-reconciliation cache rather than the raw
-     account stream. */
-  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
-    fd_stake_delegations_iter_t iter_[1];
-    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, root_delegations );
-         !fd_stake_delegations_iter_done( iter );
-         fd_stake_delegations_iter_next( iter ) ) {
-      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
-      ulong ae = d->activation_epoch  ==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->activation_epoch;
-      ulong de = d->deactivation_epoch==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->deactivation_epoch;
-      fd_event_runtime_stake_delegation_bootup_emit( bank->f.slot, bank->f.epoch, d->stake_account.uc,
-                                                     d->vote_account.uc, d->stake, ae, de, d->credits_observed );
-    }
-  }
-
   fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );
 
-  refresh_vote_account_staked( ctx, bank );
+  ctx->snapshots_loading = 1;
+  fd_sched_set_lthash_inband_only( ctx->sched, 1 );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -2569,10 +2545,10 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                      ulong               chunk,
                      ulong               sig ) {
   ulong msg = fd_ssmsg_sig_message( sig );
-  if( FD_LIKELY( msg==FD_SSMSG_DONE ) ) {
+  if( FD_LIKELY( msg==FD_SSMSG_REPLAY_READY ) ) {
     long snapshot_done_nanos = fd_log_wallclock();
 
-    /* An end of message notification indicates the snapshot is loaded.
+    /* The snapshot is loaded, or a fast boot stream is caught up.
        Replay is able to start executing from this point onwards. */
     /* TODO: replay should finish booting. Could make replay a
        state machine and set the state here accordingly. */
@@ -2641,9 +2617,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       }
     }
 
-    /* Manifest message must arrive before DONE */
+    /* Manifest message must arrive before REPLAY_READY */
     if( FD_UNLIKELY( !ctx->has_expected_genesis_timestamp ) ) {
-      FD_LOG_CRIT(( "snapshot DONE received before manifest" ));
+      FD_LOG_CRIT(( "snapshot REPLAY_READY received before manifest" ));
     }
 
     /* FIXME: This is a hack when the block id of the snapshot slot
@@ -2794,6 +2770,17 @@ dispatch_task( fd_replay_tile_t *  ctx,
       }
       fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
+
+      /* The stream maker finds the accounts the transaction touches. */
+      if( FD_UNLIKELY( ctx->strmk_out->idx!=ULONG_MAX ) ) {
+        fd_strmk_txn_msg_t * strmk_msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
+        strmk_msg->slot           = bank->f.slot;
+        strmk_msg->parent_fork_id = bank->parent_accdb_fork_id;
+        fd_txn_p_copy( strmk_msg->txn, txn_p );
+        fd_stem_publish( stem, ctx->strmk_out->idx, REPLAY_SIG_STREAM_TXN, ctx->strmk_out->chunk, sizeof(*strmk_msg), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->strmk_out->chunk = fd_dcache_compact_next( ctx->strmk_out->chunk, sizeof(*strmk_msg), ctx->strmk_out->chunk0, ctx->strmk_out->wmark );
+      }
+      
       break;
     }
     case FD_SCHED_TT_CERT_VERIFY: {
@@ -3173,11 +3160,20 @@ can_process_rotor_fec( fd_replay_tile_t       * ctx,
     return PROCESS_FEC_SKIP; // context for slot exists, but this is an earlier or non-contiguous FEC. Safe to skip.
   }
 
+  /* Since fast boot streams do not serve all stake accounts, we must
+     wait on the snapshot to finish loading before processing an epoch
+     boundary. */
+  if( FD_UNLIKELY( ctx->snapshots_loading && fec->fec_set_idx==fec->update_parent_fec_idx && fec->slot>ctx->epoch_end_slot ) ) {
+    if( FD_UNLIKELY( !ctx->epoch_boundary_hold ) ) FD_LOG_NOTICE(( "holding replay at slot %lu until the snapshots are done loading", fec->slot ));
+    ctx->epoch_boundary_hold = 1;
+    return PROCESS_FEC_WAIT;
+  }
+
   if( FD_UNLIKELY( !fd_banks_can_start_bank( ctx->banks ) ) ) {
     int is_new_block = fec->fec_set_idx==fec->update_parent_fec_idx && !fec->is_leader;
     if( FD_UNLIKELY( is_new_block ) ) {
       ctx->metrics.banks_full++;
-      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active ) ) *evict_banks_out = 1; /* see can_process_fec */
+      if( FD_UNLIKELY( fd_sched_is_drained( ctx->sched ) && !ctx->snapmk.active && !ctx->strmk.active && !ctx->snapshots_loading ) ) *evict_banks_out = 1; /* see can_process_fec */
       return PROCESS_FEC_WAIT;
     }
   }
@@ -3239,9 +3235,19 @@ snapshot_due_for_root( fd_replay_tile_t * ctx,
                        ulong              advanceable_root_slot,
                        ulong              advanceable_root_block_height,
                        ulong              consensus_root_block_height,
-                       int *              out_incremental ) {
-  *out_incremental = 0;
+                       int *              out_incremental,
+                       ulong *            out_block_height ) {
+  *out_incremental  = 0;
+  *out_block_height = ULONG_MAX;
   if( FD_LIKELY( !ctx->snapmk.supported || ctx->snapmk.active ) ) return 0;
+
+  /* A stream closed for this snapshot, so its block height is settled:
+     the root walks there, not to a later one. */
+  if( FD_UNLIKELY( ctx->strmk.stopping ) ) {
+    *out_incremental  = ctx->strmk.snap_incremental && advanceable_root_slot<ctx->snapmk.scheduled_at_slot;
+    *out_block_height = ctx->strmk.snap_block_height;
+    return advanceable_root_block_height>=ctx->strmk.snap_block_height || advanceable_root_slot>=ctx->snapmk.scheduled_at_slot;
+  }
 
   int   caught_up   = ctx->caught_up; /* suspend periodic snaps until caught up */
   ulong full_target = ULONG_MAX;
@@ -3278,7 +3284,8 @@ snapshot_due_for_root( fd_replay_tile_t * ctx,
   int   incremental = incremental_target<full_target;
   if( FD_UNLIKELY( incremental ) ) target = incremental_target;
   if( FD_LIKELY( advanceable_root_block_height<target ) ) return 0;
-  *out_incremental = incremental;
+  *out_incremental  = incremental;
+  *out_block_height = target;
   return 1;
 }
 
@@ -3293,8 +3300,10 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
 
-  /* accdb does not root while producing a snapshot. */
-  if( FD_UNLIKELY( ctx->snapmk.active ) ) return 0;
+  /* accdb does not root while producing a snapshot.  Loading a fast
+     boot stream holds the root at its start slot until the snapin
+     tiles are done. */
+  if( FD_UNLIKELY( ctx->snapmk.active || ctx->snapshots_loading ) ) return 0;
 
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
@@ -3319,6 +3328,23 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
      then we are now ready to produce blocks. */
   if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
     if( target_bank->f.identity_vote_idx==ctx->identity_idx ) ctx->identity_vote_rooted = 1;
+  }
+
+  /* Serving a fast boot stream holds the root at its start slot until
+     the next snapshot and stream are due.  Once the next snapshot is
+     due, have strmk end its current stream and start a new one. */
+  if( FD_UNLIKELY( ctx->strmk.active ) ) {
+    int   incremental;
+    ulong block_height;
+    if( FD_UNLIKELY( !ctx->strmk.stopping &&
+                     snapshot_due_for_root( ctx, published_root_block_height, target_bank->f.slot, consensus_root_block_height, consensus_root_block_height, &incremental, &block_height ) ) ) {
+      fd_stem_publish( stem, ctx->strmk_out->idx, REPLAY_SIG_STREAM_STOP, ctx->strmk_out->chunk, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->strmk.stopping          = 1;
+      ctx->strmk.snap_incremental  = !!incremental;
+      ctx->strmk.snap_block_height = block_height;
+      return 1;
+    }
+    return 0;
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
@@ -3374,13 +3400,15 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( ctx->timing_slot_of_bank[ b ]!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) && !fd_banks_bank_query( ctx->banks, b ) ) ) timing_slot_release( ctx, b );
   }
 
-  int snap_incremental;
-  int snap_due = snapshot_due_for_root( ctx,
-                                        published_root_block_height,
-                                        advanceable_root_slot,
-                                        bank->f.block_height,
-                                        consensus_root_block_height,
-                                        &snap_incremental );
+  int   snap_incremental;
+  ulong snap_block_height;
+  int   snap_due = snapshot_due_for_root( ctx,
+                                          published_root_block_height,
+                                          advanceable_root_slot,
+                                          bank->f.block_height,
+                                          consensus_root_block_height,
+                                          &snap_incremental,
+                                          &snap_block_height );
 
   ctx->published_root_slot     = advanceable_root_slot;
   ctx->published_root_bank_idx = advanceable_root_idx;
@@ -3433,6 +3461,10 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
 
 static int
 try_prune_bank( fd_replay_tile_t * ctx ) {
+  /* Loading a fast boot stream keeps every bank until the snapin tiles
+     are done. */
+  if( FD_UNLIKELY( ctx->snapshots_loading ) ) return 0;
+
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
 
   int pruned = fd_banks_prune_one_bank( ctx->banks, cancel_info );
@@ -3462,6 +3494,35 @@ try_prune_bank( fd_replay_tile_t * ctx ) {
   }
 }
 
+/* finish_snapshot_load runs once the snapshots are done loading. */
+
+static void
+finish_snapshot_load( fd_replay_tile_t * ctx ) {
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  refresh_vote_account_staked( ctx, bank );
+
+  /* Report every stake delegation as it stands now that the load is
+     done. */
+  if( FD_UNLIKELY( ctx->report_runtime_diffs ) ) {
+    fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
+    fd_stake_delegations_iter_t iter_[1];
+    for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, root_delegations );
+         !fd_stake_delegations_iter_done( iter );
+         fd_stake_delegations_iter_next( iter ) ) {
+      fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+      ulong ae = d->activation_epoch  ==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->activation_epoch;
+      ulong de = d->deactivation_epoch==(ushort)USHORT_MAX ? ULONG_MAX : (ulong)d->deactivation_epoch;
+      fd_event_runtime_stake_delegation_bootup_emit( bank->f.slot, bank->f.epoch, d->stake_account.uc,
+                                                     d->vote_account.uc, d->stake, ae, de, d->credits_observed );
+    }
+  }
+
+  ctx->snapshots_loading   = 0;
+  ctx->epoch_boundary_hold = 0;
+  fd_sched_set_lthash_inband_only( ctx->sched, 0 );
+  FD_LOG_INFO(( "snapshots finished loading at root slot %lu", bank->f.slot ));
+}
+
 static void
 after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -3473,7 +3534,14 @@ after_credit( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( states->cnt ) ) publish_replay_out( ctx, stem, REPLAY_SIG_SLOT_STATES, sizeof(fd_replay_slot_states_t) );
 
   if( FD_UNLIKELY( ctx->halt_replay && !ctx->is_leader ) ) return;
-  if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
+  if( FD_UNLIKELY( !ctx->is_booted ) ) return;
+  if( FD_UNLIKELY( ctx->snapshots_loading && !fd_accdb_snapshot_still_loading( ctx->accdb ) ) ) {
+    finish_snapshot_load( ctx );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+  if( FD_UNLIKELY( !ctx->wfs_complete ) ) return;
 
   /* The overall priority for the replay tile in order is:
      1. Make sure replay has room to progress:
@@ -3560,6 +3628,11 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
   bank->refcnt--;
 
   switch( sig>>32 ) {
+    case FD_EXECRP_TT_TXN_DEFERRED: {
+      fd_cost_tracker_store_unpin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
+      FD_TEST( !fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_DEFERRED, msg->txn_deferred->txn_idx, exec_tile_idx, NULL ) );
+      break;
+    }
     case FD_EXECRP_TT_TXN_EXEC: {
       ulong txn_idx           = msg->txn_exec->txn_idx;
       ulong max_compute_units = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id )->block_cost_limit;
@@ -4002,13 +4075,20 @@ snapmk_start( fd_replay_tile_t *  ctx,
      pinned in memory until snapmk_done. */
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
 
+  /* strmk cannot open a new stream during the rewards distribution
+     period as the stream does not serve all stake accounts. */
+  fd_sysvar_epoch_rewards_t epoch_rewards[1];
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( ctx->accdb, bank->accdb_fork_id, epoch_rewards ) ) ) epoch_rewards->active = 0;
+  int should_open_stream = !epoch_rewards->active && ctx->caught_up;
+
   /* Send SNAP_START message to snapmk. */
   fd_replay_snap_start_t * msg = fd_chunk_to_laddr( ctx->snapmk_out->mem, ctx->snapmk_out->chunk );
   *msg = (fd_replay_snap_start_t) {
-    .bank_idx  = ctx->published_root_bank_idx,
-    .base_slot = incremental ? ctx->snapmk.base_slot : bank->f.slot,
-    .slot      = bank->f.slot,
-    .leader    = bank->leader
+    .bank_idx           = ctx->published_root_bank_idx,
+    .base_slot          = incremental ? ctx->snapmk.base_slot : bank->f.slot,
+    .slot               = bank->f.slot,
+    .leader             = bank->leader,
+    .should_open_stream = should_open_stream
   };
   ulong out_idx = ctx->snapmk_out->idx;
   ulong sig     = REPLAY_SIG_SNAP_START;
@@ -4027,8 +4107,28 @@ snapmk_start( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "FUTEX_WAKE(snap_sync,seq=%u) failed (%i-%s)", (uint)seq, errno, fd_io_strerror( errno ) ));
   }
 
+  /* The stream maker gets the same message on its own link, behind
+     the transactions it has to see first. */
+  if( FD_UNLIKELY( ctx->strmk_out->idx!=ULONG_MAX ) ) {
+    fd_replay_snap_start_t * strmk_msg = fd_chunk_to_laddr( ctx->strmk_out->mem, ctx->strmk_out->chunk );
+    *strmk_msg = *msg;
+    fd_stem_publish( stem, ctx->strmk_out->idx, sig, ctx->strmk_out->chunk, sz, 0UL, 0UL, tspub );
+    ctx->strmk_out->chunk = fd_dcache_compact_next( ctx->strmk_out->chunk, sz, ctx->strmk_out->chunk0, ctx->strmk_out->wmark );
+  }
+
   /* update internal state */
-  ctx->snapmk.active = 1;
+  ctx->snapmk.active  = 1;
+  ctx->strmk.stopping = 0;
+
+  /* A stream keeps the bank and its epoch credits too, for its
+     manifest. */
+  if( should_open_stream && ctx->strmk.supported ) {
+    FD_CHECK_CRIT( !ctx->strmk.active, "stream start while a stream is open" );
+    bank->refcnt++;
+    FD_TEST( fd_epoch_credits_view_init( ctx->strmk.epoch_credits_view, fd_bank_epoch_credits( bank ), bank->epoch_credits_fork_id ) );
+    ctx->strmk.active   = 1;
+    ctx->strmk.bank_idx = bank->idx;
+  }
 }
 
 /* snapmk_done reacts to the snapmk tile reporting completion. */
@@ -4063,6 +4163,19 @@ snapmk_done( fd_replay_tile_t *  ctx,
   fd_epoch_credits_view_fini( ctx->snapmk.epoch_credits_view );
   bank->refcnt--;
   ctx->snapmk.active = 0;
+}
+
+/* strmk_done reacts to the stream maker ending its stream: the bank
+   is released and the published root can move on. */
+
+static void
+strmk_done( fd_replay_tile_t * ctx ) {
+  FD_CHECK_CRIT( ctx->strmk.active, "spurious stream done msg (no stream open)" );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->strmk.bank_idx );
+  FD_CHECK_CRIT( bank && bank->refcnt>0UL, "invalid strmk.bank_idx" );
+  fd_epoch_credits_view_fini( ctx->strmk.epoch_credits_view );
+  bank->refcnt--;
+  ctx->strmk.active = 0;
 }
 
 static void
@@ -4158,6 +4271,25 @@ admin_snap_create( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->snapmk.active ) ) {
     FD_LOG_WARNING(( "admin requested snapshot creation, but currently busy creating another snapshot. ignoring ..." ));
     admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->snapshots_loading ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but the fast boot stream is still loading. ignoring ..." ));
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+    return;
+  }
+
+  /* A stream holds the published root; it ends for a scheduled snapshot. */
+  if( FD_UNLIKELY( ctx->strmk.active ) ) {
+    if( FD_UNLIKELY( ctx->snapmk.scheduled_at_slot!=ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "admin requested snapshot creation, but a snapshot is already scheduled at slot %lu. ignoring ...", ctx->snapmk.scheduled_at_slot ));
+      admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_SNAPSHOT_CREATE_RESULT_BUSY );
+      return;
+    }
+
+    ctx->snapmk.scheduled_at_slot = ctx->published_root_slot+1UL;
+    admin_respond( ctx, stem, FD_ADMINCTL_CMD_SNAP_CREATE, FD_ADMINCTL_RESULT_SUCCESS );
     return;
   }
 
@@ -4400,6 +4532,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_SNAPMK:
       msg_snapmk( ctx, stem, sig, in_idx, chunk );
+      break;
+    case IN_KIND_STRMK:
+      strmk_done( ctx );
       break;
     case IN_KIND_ADMIN:
       msg_admin( ctx, stem, fd_frag_meta_ctl_orig( ctl ), sig );
@@ -4680,7 +4815,9 @@ unprivileged_init( fd_topo_t const *      topo,
     ctx->block_dump_ctx = NULL;
   }
 
-  ctx->is_booted = 0;
+  ctx->is_booted           = 0;
+  ctx->snapshots_loading   = 0;
+  ctx->epoch_boundary_hold = 0;
 
   fd_clock_tile_init( ctx->clock );
 
@@ -4760,6 +4897,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->ns_per_slot           = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
+  ctx->strmk.supported = fd_topo_find_tile( topo, "strmk", 0UL )!=ULONG_MAX;
+  ctx->strmk.active    = 0;
 
   ctx->votor_final->slot       = ULONG_MAX;
   ctx->votor_parent_ready_slot = 0UL;
@@ -4824,6 +4963,7 @@ unprivileged_init( fd_topo_t const *      topo,
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_misc"   ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "snapmk_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
+    else if( !strcmp( link->name, "strmk_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_STRMK;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
     else if( !strcmp( link->name, "votor_out"     ) ) ctx->in_kind[ i ] = IN_KIND_VOTOR;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
@@ -4838,6 +4978,7 @@ unprivileged_init( fd_topo_t const *      topo,
   *ctx->slot_out   = out1( topo, tile, "replay_slot"  ); FD_TEST( ctx->slot_out->idx!=ULONG_MAX );
   *ctx->rotor_out  = out1( topo, tile, "replay_repair" );
   *ctx->snapmk_out = out1( topo, tile, "replay_snapmk" ); FD_TEST( ctx->snapmk.supported == (ctx->snapmk_out->idx!=ULONG_MAX) );
+  *ctx->strmk_out  = out1( topo, tile, "replay_strmk"  ); FD_TEST( ctx->strmk.supported  == (ctx->strmk_out->idx!=ULONG_MAX)  );
 
   ctx->exec_cnt = 0UL;
   for( ulong i=0UL; i<FD_SCHED_MAX_EXEC_TILE_CNT; i++ ) ctx->exec_out[ i ].idx = ULONG_MAX;

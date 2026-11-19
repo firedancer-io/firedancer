@@ -398,6 +398,7 @@
                 "b15": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "[100000000, inf) nanos" },
                 "sum": { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Sum of samples (nanos)" }
             }
-        }
+        },
+        "txn_returned_duration_nanos":   { "type": "UInt64",                     "compression": "DoubleDelta, ZSTD", "description": "Time spent on transactions returned to replay unexecuted because an account the fast boot stream had not delivered yet", "field_number": 491567295 }
     }
 }

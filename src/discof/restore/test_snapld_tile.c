@@ -8,11 +8,14 @@
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <linux/sockios.h>
+#include <errno.h>
+#include "../../ballet/base58/fd_base58.h"
 
 static ulong publish_cnt;
 static ulong publish_sig;
 static ulong init_cnt;
 static ulong rearm_cnt;
+static ulong init_slot; /* slot the forwarded INIT must carry */
 static uchar output[ 4UL*FD_SNAPSHOT_DATA_MTU ] __attribute__((aligned(FD_CHUNK_ALIGN)));
 
 static fd_stem_context_t test_stem[1]; /* no sleep object: the tile nanosleeps when idle */
@@ -31,7 +34,7 @@ test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
   if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL || sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
     FD_TEST( sz==sizeof(fd_ssctrl_init_t) );
     fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, chunk );
-    FD_TEST( init->slot==123UL );
+    FD_TEST( init->slot==init_slot );
   }
   return 0UL;
 }
@@ -44,9 +47,11 @@ test_sshttp_init( fd_sshttp_t * http,
                   char const *  path,
                   ulong         path_len,
                   ulong         hops,
-                  long          now ) {
+                  long          now,
+                  ulong         range_start,
+                  int           is_stream ) {
   init_cnt++;
-  return fd_sshttp_init( http, addr, hostname, is_https, path, path_len, hops, now );
+  return fd_sshttp_init( http, addr, hostname, is_https, path, path_len, hops, now, range_start, is_stream );
 }
 
 static void
@@ -108,6 +113,7 @@ test_start( int file,
   init->file    = file;
   init->slot    = 123UL;
   init->file_sz = file ? 8UL : 0UL;
+  init_slot   = init->slot;
   publish_cnt = init_cnt = 0UL;
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( publish_cnt==1UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
@@ -272,6 +278,473 @@ test_parked( void ) {
   FD_TEST( !close( listener ) );
 }
 
+/* serve_one_open accepts the tile's next connection, drives the tile
+   until its request has arrived, checks the request holds expect,
+   answers with resp and returns the open connection.  serve_one also
+   closes it. */
+static int
+serve_one_open( fd_snapld_tile_t * ctx,
+                int                server,
+                char const *       expect,
+                char const *       resp ) {
+  int   busy    = 0;
+  int   conn    = -1;
+  char  req[ 4096 ];
+  ulong req_len = 0UL;
+  for( ulong i=0UL; i<100000UL; i++ ) {
+    after_credit( ctx, test_stem, NULL, &busy );
+    if( conn==-1 ) {
+      conn = accept4( server, NULL, NULL, SOCK_NONBLOCK );
+      if( conn==-1 ) {
+        FD_TEST( errno==EAGAIN || errno==EWOULDBLOCK );
+        continue;
+      }
+    }
+    long n = recv( conn, req+req_len, sizeof(req)-1UL-req_len, 0 );
+    if( n>0L ) req_len += (ulong)n;
+    req[ req_len ] = '\0';
+    if( strstr( req, "\r\n\r\n" ) ) break;
+  }
+  FD_TEST( conn!=-1 && strstr( req, "\r\n\r\n" ) );
+  FD_TEST( strstr( req, expect ) );
+  FD_TEST( (long)strlen( resp )==send( conn, resp, strlen( resp ), 0 ) );
+  return conn;
+}
+
+static void
+serve_one( fd_snapld_tile_t * ctx,
+           int                server,
+           char const *       expect,
+           char const *       resp ) {
+  FD_TEST( !close( serve_one_open( ctx, server, expect, resp ) ) );
+}
+
+/* drive_until runs the tile until *var equals val. */
+static void
+drive_until( fd_snapld_tile_t * ctx,
+             ulong *            var,
+             ulong              val ) {
+  int busy = 0;
+  for( ulong i=0UL; i<100000UL && *var!=val; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( *var==val );
+}
+
+/* init_full_download sends INIT_FULL and START for a plain full
+   snapshot download from the test server. */
+static void
+init_full_download( fd_snapld_tile_t *   ctx,
+                    uchar *              input,
+                    struct sockaddr_in * sa ) {
+  fd_ssctrl_init_t * init = (fd_ssctrl_init_t *)input;
+  fd_memset( init, 0, sizeof(*init) );
+  init->slot = 123UL;
+  init_slot  = init->slot;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX );
+  fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)input;
+  fd_memset( start, 0, sizeof(*start) );
+  start->addr = (fd_ip4_port_t){ .addr = sa->sin_addr.s_addr, .port = sa->sin_port };
+  fd_cstr_ncpy( start->hostname, "localhost", sizeof(start->hostname) );
+  fd_cstr_ncpy( start->path, "/snapshot.tar.bz2", sizeof(start->path) );
+  start->path_len = strlen( start->path );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->pipeline_ready && ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+}
+
+/* init_stream_download sends INIT_FULL and START for the fast boot
+   stream at slot, at /name on the test server. */
+static void
+init_stream_download( fd_snapld_tile_t *   ctx,
+                      uchar *              input,
+                      struct sockaddr_in * sa,
+                      ulong                slot,
+                      char const *         name ) {
+  fd_ssctrl_init_t * init = (fd_ssctrl_init_t *)input;
+  fd_memset( init, 0, sizeof(*init) );
+  init->slot             = slot;
+  init->fast_boot_stream = 1;
+  init_slot = init->slot;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->fast_boot_stream.active && ctx->fast_boot_stream.slot==slot && ctx->fast_boot_stream.wait==LONG_MAX && !ctx->is_redirect );
+  fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)input;
+  fd_memset( start, 0, sizeof(*start) );
+  start->addr = (fd_ip4_port_t){ .addr = sa->sin_addr.s_addr, .port = sa->sin_port };
+  fd_cstr_ncpy( start->hostname, "localhost", sizeof(start->hostname) );
+  FD_TEST( fd_cstr_printf_check( start->path, sizeof(start->path), &start->path_len, "/%s", name ) );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->pipeline_ready && ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
+}
+
+/* A fast boot stream: the first response holds what the server has,
+   a 416 means nothing new yet (reported once as caught up), a 206
+   adds bytes, a 404 means it ended with nothing after it yet, and a
+   redirect sends the peer on to the next stream, which must be newer
+   than the one that ended.  Failed polls are asked again, only a
+   SHUTDOWN ends the load. */
+static void
+test_stream( void ) {
+  static fd_sshttp_t http[1];
+  static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  fd_snapld_tile_t ctx[1] = {0};
+  int busy = 0;
+  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
+  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  fd_clock_tile_init( ctx->clock );
+  ctx->in_rd.base    = input;
+  ctx->out_dc.mem    = (fd_wksp_t *)output;
+  ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
+  ctx->out_dc.wmark  = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
+  ctx->local_full_fd = -1;
+
+  int server = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  FD_TEST( server>=0 );
+  struct sockaddr_in sa = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
+  };
+  FD_TEST( !bind( server, fd_type_pun( &sa ), sizeof(sa) ) );
+  socklen_t sa_sz = sizeof(sa);
+  FD_TEST( !getsockname( server, fd_type_pun( &sa ), &sa_sz ) );
+  FD_TEST( !listen( server, 1 ) );
+
+  uchar hash[ 32 ];
+  fd_memset( hash, 0x5a, sizeof(hash) );
+  char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( hash, NULL, hash_b58 );
+  char name[ 128 ];
+  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "fast-boot-stream-123-%s.tar.zst", hash_b58 ) );
+  char get[ 160 ];
+  FD_TEST( fd_cstr_printf_check( get, sizeof(get), NULL, "GET /%s HTTP/1.1", name ) );
+
+  publish_cnt = init_cnt = 0UL;
+  init_stream_download( ctx, input, &sa, 123UL, name );
+  FD_TEST( init_cnt==1UL );
+  ulong meta_chunk = ctx->out_dc.chunk; /* META goes out next */
+
+  /* No stream at the server yet: ask again later. */
+  serve_one( ctx, server, get, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
+  drive_until( ctx, &init_cnt, 1UL );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->fast_boot_stream.wait!=LONG_MAX && publish_cnt==1UL );
+  ctx->fast_boot_stream.wait = 0L;
+
+  serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnapshot" );
+  drive_until( ctx, &ctx->fast_boot_stream.off, 8UL );
+  FD_TEST( ctx->sent_meta && ctx->fast_boot_stream.slot==123UL && publish_cnt==3UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
+  FD_TEST( http->location[ 0 ]=='/' && !strcmp( http->location+1, name ) );
+  fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( output, meta_chunk );
+  FD_TEST( meta->total_sz==8UL && meta->resolved_slot==ULONG_MAX && !meta->resolved_name[ 0 ] );
+
+  /* The server drops a poll before caught up: asked again from the
+     same offset. */
+  serve_one( ctx, server, "Range: bytes=8-\r\n", "" );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !ctx->fast_boot_stream.caught_up && publish_cnt==3UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
+
+  /* Nothing new yet: caught up, once. */
+  serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n" );
+  drive_until( ctx, &publish_cnt, 4UL );
+  FD_TEST( ctx->fast_boot_stream.caught_up && publish_sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP );
+  FD_TEST( ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
+  serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\n\r\n" );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( publish_cnt==4UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
+
+  /* The server drops a poll after caught up: asked again too. */
+  serve_one( ctx, server, "Range: bytes=8-\r\n", "" );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==4UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
+
+  /* A download speed window belongs to one request: an expired one
+     left by the last poll does not cancel the next. */
+  ctx->window_deadline = 1L;
+  ctx->bytes_in_window = 0UL;
+  after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->window_deadline==LONG_MAX && ctx->fast_boot_stream.wait==LONG_MAX && http->state!=FD_SSHTTP_STATE_INIT );
+
+  /* More bytes.  A stream only needs a byte per window. */
+  int conn = serve_one_open( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 8-11/12\r\nContent-Length: 4\r\n\r\n" );
+  for( int i=0; i<100 && http->state!=FD_SSHTTP_STATE_DL; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( http->state==FD_SSHTTP_STATE_DL );
+  ctx->window_deadline     = 1L;
+  ctx->bytes_in_window     = 1UL;
+  ctx->min_bytes_in_window = ULONG_MAX;
+  after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->window_deadline!=LONG_MAX && ctx->fast_boot_stream.wait==LONG_MAX );
+  FD_TEST( 4L==send( conn, "more", 4UL, 0 ) );
+  drive_until( ctx, &ctx->fast_boot_stream.off, 12UL );
+  FD_TEST( !close( conn ) );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && publish_cnt==5UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
+
+  /* The stream ended and nothing follows it yet: asked again later,
+     from the same offset. */
+  serve_one( ctx, server, "Range: bytes=12-\r\n", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
+  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->fast_boot_stream.off==12UL && publish_cnt==5UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
+
+  /* The server sends the peer on to the next stream, which is read
+     from its start, without a second META. */
+  FD_TEST( fd_cstr_printf_check( name, sizeof(name), NULL, "fast-boot-stream-124-%s.tar.zst", hash_b58 ) );
+  char redirect[ 256 ];
+  FD_TEST( fd_cstr_printf_check( redirect, sizeof(redirect), NULL, "HTTP/1.1 302 Found\r\nLocation: /%s\r\nContent-Length: 0\r\n\r\n", name ) );
+  FD_TEST( fd_cstr_printf_check( get, sizeof(get), NULL, "GET /%s HTTP/1.1", name ) );
+
+  static fd_wait_info_box_t box[ 1 ];
+  ctx->wait_info = fd_wait_info_box_join( fd_wait_info_box_new( box ) );
+  ctx->wait_info->info.reset_slot = 123UL;
+
+  /* Its connection drops after the headers, before any data: the
+     stream that ended is asked again, so the redirect is checked
+     again. */
+  serve_one( ctx, server, "Range: bytes=12-\r\n", redirect );
+  serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n" );
+  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->fast_boot_stream.slot==123UL && ctx->fast_boot_stream.off==12UL );
+  FD_TEST( ctx->fast_boot_stream.next_stream_slot==ULONG_MAX && publish_cnt==5UL && http->state==FD_SSHTTP_STATE_INIT );
+  ctx->fast_boot_stream.wait = 0L;
+
+  /* Replay is still below the next stream's start: not followed,
+     asked again later. */
+  serve_one( ctx, server, "Range: bytes=12-\r\n", redirect );
+  serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnext" );
+  drive_until( ctx, &ctx->fast_boot_stream.next_stream_slot, 124UL );
+  FD_TEST( ctx->fast_boot_stream.slot==123UL && ctx->fast_boot_stream.off==12UL );
+  FD_TEST( publish_cnt==5UL && ctx->fast_boot_stream.wait!=LONG_MAX && http->state==FD_SSHTTP_STATE_INIT );
+
+  /* Not even asked for until replay gets there. */
+  ctx->fast_boot_stream.wait = 0L;
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( http->state==FD_SSHTTP_STATE_INIT && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->wait_info->info.reset_slot = 124UL;
+  ctx->fast_boot_stream.wait = 0L;
+
+  serve_one( ctx, server, "Range: bytes=12-\r\n", redirect );
+  serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnext" );
+  drive_until( ctx, &ctx->fast_boot_stream.off, 4UL );
+  FD_TEST( init_cnt==1UL && ctx->fast_boot_stream.slot==124UL && ctx->fast_boot_stream.next_stream_slot==ULONG_MAX );
+  FD_TEST( !strcmp( ctx->fast_boot_stream.path+1, name ) && ctx->fast_boot_stream.path_len==strlen( name )+1UL );
+  FD_TEST( publish_cnt==6UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
+
+  /* A dropped poll on the new stream is asked again on it, from its
+     offset. */
+  serve_one( ctx, server, get, "" );
+  for( int i=0; i<100000 && ctx->fast_boot_stream.wait==LONG_MAX; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->fast_boot_stream.slot==124UL && ctx->fast_boot_stream.off==4UL && publish_cnt==6UL );
+  ctx->fast_boot_stream.wait = 0L;
+
+  /* Sent on to a stream that is not after the one that ended:
+     malformed. */
+  char name123[ 128 ];
+  char redirect123[ 256 ];
+  char get123[ 160 ];
+  FD_TEST( fd_cstr_printf_check( name123, sizeof(name123), NULL, "fast-boot-stream-123-%s.tar.zst", hash_b58 ) );
+  FD_TEST( fd_cstr_printf_check( redirect123, sizeof(redirect123), NULL, "HTTP/1.1 302 Found\r\nLocation: /%s\r\nContent-Length: 0\r\n\r\n", name123 ) );
+  FD_TEST( fd_cstr_printf_check( get123, sizeof(get123), NULL, "GET /%s HTTP/1.1", name123 ) );
+  serve_one( ctx, server, "Range: bytes=4-\r\n", redirect123 );
+  serve_one( ctx, server, get123, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nnext" );
+  drive_until( ctx, &publish_cnt, 7UL );
+  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR && http->state==FD_SSHTTP_STATE_INIT );
+
+  /* After FAIL the stream is asked for afresh.  A SHUTDOWN in the
+     middle of a request cancels it. */
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+  init_stream_download( ctx, input, &sa, 124UL, name );
+  FD_TEST( init_cnt==2UL && http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );
+
+  /* A stream that ends before replay caught up on it is complete as
+     of its start: caught up is reported once, then the server is
+     asked again. */
+  serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnapshot" );
+  drive_until( ctx, &ctx->fast_boot_stream.off, 8UL );
+  FD_TEST( !ctx->fast_boot_stream.caught_up );
+  ulong published = publish_cnt;
+  serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
+  drive_until( ctx, &publish_cnt, published+1UL );
+  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP && ctx->fast_boot_stream.caught_up );
+  FD_TEST( ctx->fast_boot_stream.off==8UL && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( publish_cnt==published+1UL && http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && publish_sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+  FD_TEST( http->state==FD_SSHTTP_STATE_INIT && http->sockfd==-1 );
+
+  fd_sshttp_cancel( http );
+  FD_TEST( !close( server ) );
+}
+
+/* A FAIL for a fast boot stream before the server answered resets the
+   load and is acked.  Once the stream answered the FAIL is late: the
+   stream is kept, with its poll in flight, and nothing is acked. */
+static void
+test_stream_fail( void ) {
+  static fd_sshttp_t http[1];
+  static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  fd_snapld_tile_t ctx[1] = {0};
+  int busy = 0;
+  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
+  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  fd_clock_tile_init( ctx->clock );
+  ctx->in_rd.base    = input;
+  ctx->out_dc.mem    = (fd_wksp_t *)output;
+  ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
+  ctx->out_dc.wmark  = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
+  ctx->local_full_fd = -1;
+
+  int server = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  FD_TEST( server>=0 );
+  struct sockaddr_in sa = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
+  };
+  FD_TEST( !bind( server, fd_type_pun( &sa ), sizeof(sa) ) );
+  socklen_t sa_sz = sizeof(sa);
+  FD_TEST( !getsockname( server, fd_type_pun( &sa ), &sa_sz ) );
+  FD_TEST( !listen( server, 1 ) );
+
+  fd_ssctrl_init_t *  init  = (fd_ssctrl_init_t *)input;
+  fd_ssctrl_start_t * start = (fd_ssctrl_start_t *)input;
+  fd_memset( init, 0, sizeof(*init) );
+  init->slot             = 123UL;
+  init->fast_boot_stream = 1;
+  init_slot   = init->slot;
+  publish_cnt = init_cnt = 0UL;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
+  fd_memset( start, 0, sizeof(*start) );
+  start->addr = (fd_ip4_port_t){ .addr = sa.sin_addr.s_addr, .port = sa.sin_port };
+  fd_cstr_ncpy( start->hostname, "localhost", sizeof(start->hostname) );
+  fd_cstr_ncpy( start->path, "/fast-boot-stream-123-x.tar.zst", sizeof(start->path) );
+  start->path_len = strlen( start->path );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->pipeline_ready && init_cnt==1UL && publish_cnt==1UL );
+
+  /* No answer yet: the FAIL resets the load and goes down the
+     pipeline. */
+  serve_one( ctx, server, "GET /fast-boot-stream-123-x.tar.zst HTTP/1.1", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !ctx->sent_meta && publish_cnt==1UL );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE && !ctx->pipeline_ready && publish_cnt==2UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( http->state==FD_SSHTTP_STATE_INIT && http->sockfd==-1 );
+
+  /* The stream answered: a FAIL is late and ignored. */
+  fd_memset( init, 0, sizeof(*init) );
+  init->slot             = 123UL;
+  init->fast_boot_stream = 1;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, sizeof(*init), 0UL, 0UL, 0UL, NULL ) );
+  fd_memset( start, 0, sizeof(*start) );
+  start->addr = (fd_ip4_port_t){ .addr = sa.sin_addr.s_addr, .port = sa.sin_port };
+  fd_cstr_ncpy( start->hostname, "localhost", sizeof(start->hostname) );
+  fd_cstr_ncpy( start->path, "/fast-boot-stream-123-x.tar.zst", sizeof(start->path) );
+  start->path_len = strlen( start->path );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->pipeline_ready && init_cnt==2UL );
+  publish_cnt = 0UL;
+  serve_one( ctx, server, "GET /fast-boot-stream-123-x.tar.zst HTTP/1.1", "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnapshot" );
+  drive_until( ctx, &ctx->fast_boot_stream.off, 8UL );
+  FD_TEST( ctx->sent_meta && publish_cnt==2UL && publish_sig==FD_SNAPSHOT_MSG_DATA );
+  for( int i=0; i<100 && http->state==FD_SSHTTP_STATE_INIT; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 && ctx->fast_boot_stream.wait==LONG_MAX );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->pipeline_ready && publish_cnt==2UL );
+  FD_TEST( http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 && ctx->fast_boot_stream.wait==LONG_MAX );
+
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && http->state==FD_SSHTTP_STATE_INIT && http->sockfd==-1 );
+
+  fd_sshttp_cancel( http );
+  FD_TEST( !close( server ) );
+}
+
+/* A snapshot request that fails before any of its response arrived
+   is sent again, FD_SNAPLD_REQUEST_RETRY_MAX times at most.  Once
+   part of the response went downstream a failure ends the load. */
+static void
+test_request_retry( void ) {
+  static fd_sshttp_t http[1];
+  static uchar      input[ sizeof(fd_ssctrl_start_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static ulong waker_fseq[ FD_FSEQ_FOOTPRINT/sizeof(ulong) ] __attribute__((aligned(FD_FSEQ_ALIGN)));
+  fd_snapld_tile_t ctx[1] = {0};
+  int busy = 0;
+  ctx->sshttp        = fd_sshttp_join( fd_sshttp_new( http, test_epoll_fd ) );
+  ctx->waker_fseq    = fd_fseq_join( fd_fseq_new( waker_fseq, 0UL ) );
+  fd_clock_tile_init( ctx->clock );
+  ctx->in_rd.base    = input;
+  ctx->out_dc.mem    = (fd_wksp_t *)output;
+  ctx->out_dc.mtu    = FD_SNAPSHOT_DATA_MTU;
+  ctx->out_dc.wmark  = 2UL*FD_SNAPSHOT_DATA_MTU/FD_CHUNK_SZ;
+  ctx->local_full_fd = -1;
+
+  int server = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  FD_TEST( server>=0 );
+  struct sockaddr_in sa = {
+    .sin_family = AF_INET,
+    .sin_addr   = { .s_addr = htonl( INADDR_LOOPBACK ) }
+  };
+  FD_TEST( !bind( server, fd_type_pun( &sa ), sizeof(sa) ) );
+  socklen_t sa_sz = sizeof(sa);
+  FD_TEST( !getsockname( server, fd_type_pun( &sa ), &sa_sz ) );
+  FD_TEST( !listen( server, 1 ) );
+
+  init_full_download( ctx, input, &sa );
+  publish_cnt = 0UL;
+
+  /* The server drops the request: sent again after a pause. */
+  serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "" );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !publish_cnt && ctx->fast_boot_stream.wait!=LONG_MAX );
+  FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U );
+  ctx->fast_boot_stream.wait = 0L;
+
+  /* The headers arrive but no body: the speed window fails the load
+     as before, a stall is not a failed request. */
+  int conn = serve_one_open( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n" );
+  for( int i=0; i<100; i++ ) after_credit( ctx, test_stem, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !publish_cnt && ctx->window_deadline!=LONG_MAX );
+  ctx->min_bytes_in_window = 1UL;
+  ctx->window_deadline     = 1L;
+  drive_until( ctx, &publish_cnt, 1UL );
+  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR );
+  FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U && http->state==FD_SSHTTP_STATE_INIT );
+  FD_TEST( !close( conn ) );
+
+  /* Part of the response arrives, then the connection drops: the
+     load fails, bytes went downstream already. */
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  init_full_download( ctx, input, &sa );
+  publish_cnt = 0UL;
+  serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnap" );
+  drive_until( ctx, &publish_cnt, 3UL );
+  FD_TEST( ctx->sent_meta && publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR );
+
+  /* After FAIL a new load has a fresh budget.  A request dropped
+     every time is given up after FD_SNAPLD_REQUEST_RETRY_MAX more
+     tries. */
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  init_full_download( ctx, input, &sa );
+  publish_cnt = 0UL;
+  for( uint i=0U; i<=FD_SNAPLD_REQUEST_RETRY_MAX; i++ ) {
+    serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "" );
+    for( int j=0; j<100; j++ ) after_credit( ctx, test_stem, NULL, &busy );
+    if( i<FD_SNAPLD_REQUEST_RETRY_MAX ) {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !publish_cnt && ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U-i );
+      ctx->fast_boot_stream.wait = 0L;
+    }
+  }
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR && publish_cnt==1UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && http->state==FD_SSHTTP_STATE_INIT );
+
+  fd_sshttp_cancel( http );
+  FD_TEST( !close( server ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -282,6 +755,9 @@ main( int     argc,
   test_start( 0, 1 );
   test_start( 1, 0 );
   test_parked();
+  test_stream();
+  test_stream_fail();
+  test_request_retry();
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
