@@ -336,7 +336,7 @@ test_body_tail_wakes( void ) {
   FD_TEST( epoll_fd!=-1 );
   fd_sshttp_t * http = fd_sshttp_join( fd_sshttp_new( test_http, epoll_fd ) );
   fd_ip4_port_t peer = { .addr = addr.sin_addr.s_addr, .port = addr.sin_port };
-  FD_TEST( !fd_sshttp_init( http, peer, "", 0, "/snapshot.tar.zst", 17UL, 4UL, 0L ) );
+  FD_TEST( !fd_sshttp_init( http, peer, "", 0, "/snapshot.tar.zst", 17UL, 4UL, 0L, 0UL, 0 ) );
   int server = accept( listener, NULL, NULL );
   FD_TEST( server!=-1 );
   FD_TEST( !fcntl( server, F_SETFL, fcntl( server, F_GETFL, 0 )|O_NONBLOCK ) );
@@ -434,11 +434,12 @@ run_request( fd_sshttp_t * http,
              ulong *       body_len,
              ulong *       last_len ) {
   uchar buf[ 4096 ];
+  struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
   *body_len = 0UL;
   for( ulong i=0UL; i<1024UL; i++ ) {
-    ulong data_len    = sizeof(buf);
+    ulong data_len    = 0UL;
     int   downloading = 0;
-    int   res = fd_sshttp_advance( http, &data_len, buf, &downloading, 0L );
+    int   res = fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L );
     *last_len = data_len;
     if( FD_LIKELY( res==FD_SSHTTP_ADVANCE_DATA ) ) {
       FD_TEST( *body_len+data_len<=body_max );
@@ -614,9 +615,10 @@ test_redirect_stream_name( void ) {
   ulong data_len = 0UL;
   int   downloading;
   uchar buf[ 16 ];
+  struct iovec iov = { .iov_base = buf, .iov_len = sizeof(buf) };
   for( ulong i=0UL; i<1024UL && http->hops==4UL; i++ ) {
-    data_len = sizeof(buf);
-    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &data_len, buf, &downloading, 0L ) );
+    data_len = 0UL;
+    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L ) );
   }
   FD_TEST( http->hops==3UL && http->range_start==0UL );
   char name[ 128 ];
@@ -637,8 +639,8 @@ test_redirect_stream_name( void ) {
   FD_TEST( fd_cstr_printf_check( http->location, sizeof(http->location), &http->location_len, "/%s", name ) );
   FD_TEST( (long)strlen( redirect )==send( server, redirect, strlen( redirect ), 0 ) );
   for( ulong i=0UL; i<1024UL && http->hops==4UL; i++ ) {
-    data_len = sizeof(buf);
-    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &data_len, buf, &downloading, 0L ) );
+    data_len = 0UL;
+    FD_TEST( FD_SSHTTP_ADVANCE_AGAIN==fd_sshttp_advance( http, &iov, 1UL, &data_len, &downloading, 0L ) );
   }
   FD_TEST( http->hops==3UL && http->range_start==4096UL );
   FD_TEST( 0==close( server ) );

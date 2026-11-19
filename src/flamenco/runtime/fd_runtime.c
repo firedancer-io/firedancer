@@ -1647,7 +1647,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
                                   0UL,
                                   stake_history, /* may be NULL */
                                   &bank->f.warmup_cooldown_rate_epoch,
-                                  FD_FEATURE_ACTIVE_BANK( bank, upgrade_bpf_stake_program_to_v5_1 ),
                                   FD_FEATURE_ACTIVE_BANK( bank, remove_inactive_stakes ) );
   }
 

@@ -530,7 +530,17 @@ void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
   FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &accdb->shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE,
                  "snapshot load started while snapshot production active" );
-  FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
+  FD_VOLATILE( accdb->shmem->snapshot_loading ) = FD_ACCDB_SNAPSHOT_LOAD_WRITING;
+}
+
+void
+fd_accdb_snapshot_load_mark_written( fd_accdb_t * accdb ) {
+  FD_VOLATILE( accdb->shmem->snapshot_loading ) = FD_ACCDB_SNAPSHOT_LOAD_WRITTEN;
+}
+
+int
+fd_accdb_snapshot_load_written( fd_accdb_t const * accdb ) {
+  return FD_VOLATILE_CONST( accdb->shmem->snapshot_loading )==FD_ACCDB_SNAPSHOT_LOAD_WRITTEN;
 }
 
 /* close_partition records where writing to the partition at offset
@@ -572,7 +582,7 @@ fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
     accdb->shmem->has_partition[ snap_whead ] = 0;
   }
 
-  FD_VOLATILE( accdb->shmem->snapshot_loading ) = 0;
+  FD_VOLATILE( accdb->shmem->snapshot_loading ) = FD_ACCDB_SNAPSHOT_LOAD_IDLE;
 
   /* Sweep all partitions written during the load — any that crossed
      the fragmentation threshold while enqueue was suppressed are
@@ -1849,7 +1859,7 @@ fd_accdb_requests_pending( fd_accdb_t const * accdb ) {
 
 int
 fd_accdb_snapshot_still_loading( fd_accdb_t const * accdb ) {
-  return FD_VOLATILE_CONST( accdb->shmem->snapshot_loading );
+  return FD_VOLATILE_CONST( accdb->shmem->snapshot_loading )!=FD_ACCDB_SNAPSHOT_LOAD_IDLE;
 }
 
 void
@@ -1887,6 +1897,12 @@ fd_accdb_advance_root( fd_accdb_t *       accdb,
 
   req.root_gen = fork->shmem->generation;
   publish_req( accdb, req );
+}
+
+fd_accdb_fork_id_t
+fd_accdb_fork_parent( fd_accdb_t const * accdb,
+                      fd_accdb_fork_id_t fork_id ) {
+  return accdb->fork_pool[ fork_id.val ].shmem->parent_id;
 }
 
 void
@@ -2342,7 +2358,7 @@ release_take_line( fd_accdb_t * accdb,
     meta.generation = accmeta->key.generation;
     fd_memcpy( meta.owner, line->owner, 32UL );
 
-    ulong file_off = allocate_next_write( accdb, entry_sz );
+    ulong file_off = allocate_next_write( accdb, 0UL, entry_sz );
     write_entry( accdb, file_off, &meta, line+1UL, data_sz );
     FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, entry_sz );
     fd_racesan_hook( "accdb_release_take:pre_publish" );
@@ -4749,63 +4765,6 @@ fork_is_ancestor( fd_accdb_t const * accdb,
   return 0;
 }
 
-/* evict_writeback writes to disk the account whose dirty cache line
-   was just taken for reuse, so its readers find it there.  The caller
-   holds the join's epoch from the eviction through this write. */
-
-static void
-evict_writeback( fd_accdb_t *            accdb,
-                 fd_accdb_cache_line_t * line,
-                 uint                    acc_idx ) {
-  fd_accdb_accmeta_t * accmeta  = &accdb->acc_pool[ acc_idx ];
-  uint                 data_sz  = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
-  ulong                entry_sz = sizeof(fd_accdb_disk_meta_t)+data_sz;
-
-  fd_accdb_disk_meta_t meta;
-  fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
-  meta.size       = data_sz;
-  meta.generation = accmeta->key.generation;
-  fd_memcpy( meta.owner, line->owner, 32UL );
-
-  ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
-  if( FD_UNLIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
-    fd_accdb_shmem_bytes_freed( accdb->shmem, old_offset, entry_sz );
-    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
-  }
-
-  ulong file_off = allocate_next_write( accdb, 0UL, entry_sz );
-  struct iovec iov[ 2 ] = {
-    { .iov_base = meta.b,               .iov_len = sizeof(meta) },
-    { .iov_base = (void *)( line+1UL ), .iov_len = data_sz      },
-  };
-  struct iovec * wp      = iov;
-  int            wp_cnt  = 2;
-  ulong          written = 0UL;
-  while( written<entry_sz ) {
-    long result = pwritev2( accdb->fd, wp, wp_cnt, (long)(file_off+written), 0 );
-    if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
-    else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-    written += (ulong)result;
-    accdb->metrics->bytes_written += (ulong)result;
-    accdb->metrics->write_ops++;
-    while( wp_cnt && (ulong)result>=wp[ 0 ].iov_len ) {
-      result -= (long)wp[ 0 ].iov_len;
-      wp++;
-      wp_cnt--;
-    }
-    if( FD_LIKELY( wp_cnt ) ) {
-      wp[ 0 ].iov_base = (uchar *)wp[ 0 ].iov_base+result;
-      wp[ 0 ].iov_len -= (ulong)result;
-    }
-  }
-  FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
-  accdb->metrics->accounts_evicted++;
-  accdb->metrics->accounts_evicted_per_class[ fd_accdb_cache_class( data_sz ) ]++;
-
-  FD_COMPILER_MFENCE();
-  accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_off, fd_accdb_acc_fork_id( accmeta ) );
-}
-
 int
 fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
                               fd_accdb_fork_id_t                 fork_id,
@@ -4884,9 +4843,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
     FD_HW_MFENCE();
     for( ulong i=0UL; i<cnt; i++ ) {
       fd_accdb_disk_meta_t const * record = cache_records[ i ];
-      uint evicted;
-      lines[ i ] = acquire_cache_line( accdb, fd_accdb_cache_class( data_lens[ i ] ), &evicted );
-      if( FD_UNLIKELY( evicted!=UINT_MAX ) ) evict_writeback( accdb, lines[ i ], evicted );
+      lines[ i ] = release_take_line( accdb, fd_accdb_cache_class( data_lens[ i ] ) );
       fd_memcpy( lines[ i ]->owner, record->owner, 32UL );
       fd_memcpy( lines[ i ]+1UL, record+1UL, data_lens[ i ] );
     }
@@ -4979,7 +4936,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
         fd_accdb_shmem_bytes_freed( accdb->shmem, file_offsets[ i ], entry_sz );
       } else {
         while( FD_UNLIKELY( FD_ATOMIC_CAS( &lines[ i ]->refcnt, 1U, FD_ACCDB_EVICT_SENTINEL )!=1U ) ) FD_SPIN_PAUSE();
-        cache_line_free( accdb, fd_accdb_cache_class( data_lens[ i ] ), lines[ i ] );
+        cache_line_free( accdb, accdb->join_idx, fd_accdb_cache_class( data_lens[ i ] ), lines[ i ] );
       }
 
       ignored_lamports  += lamports[ i ];

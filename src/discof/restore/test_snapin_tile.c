@@ -90,9 +90,10 @@ static ushort test_accdb_attach_parents[ 8UL ];     /* parent of each attach, in
 static ushort test_accdb_attach_seq;               /* when set, attach_child hands out these ids in turn */
 static ulong test_accdb_load_begin_cnt;
 static ulong test_accdb_load_end_cnt;
+static ulong test_accdb_load_written_cnt;
 static ulong test_stake_refresh_cnt;
 static ulong test_stake_refresh_epoch;
-static ulong test_stake_refresh_load_end_cnt; /* load_end calls seen when the refresh ran */
+static ulong test_stake_refresh_load_end_cnt; /* load_end and written marks seen when the refresh ran */
 static int   test_stake_refresh_has_history;
 static ulong test_accdb_flush_metrics_cnt;
 static ulong test_accdb_recover_delta_cnt;
@@ -176,6 +177,7 @@ test_stem_publish( fd_stem_context_t * stem,
 #define fd_accdb_advance_root                        mock_accdb_advance_root
 #define fd_accdb_snapshot_load_begin                 mock_accdb_snapshot_load_begin
 #define fd_accdb_snapshot_load_end                   mock_accdb_snapshot_load_end
+#define fd_accdb_snapshot_load_mark_written          mock_accdb_snapshot_load_mark_written
 #define fd_accdb_flush_metrics                       mock_accdb_flush_metrics
 #define fd_accdb_snapshot_recover_delta              mock_accdb_snapshot_recover_delta
 #define fd_accdb_snapshot_save_whead                 mock_accdb_snapshot_save_whead
@@ -229,6 +231,7 @@ test_padded_sz( ulong used ) {
 #undef fd_accdb_snapshot_save_whead
 #undef fd_accdb_snapshot_recover_delta
 #undef fd_accdb_flush_metrics
+#undef fd_accdb_snapshot_load_mark_written
 #undef fd_accdb_snapshot_load_end
 #undef fd_accdb_snapshot_load_begin
 #undef fd_accdb_advance_root
@@ -286,6 +289,7 @@ record_txncache_attach_child( fd_txncache_t *       txncache,
 
 void mock_accdb_reset                            ( fd_accdb_t * accdb ) { (void)accdb; test_file_off=0UL; test_accdb_reset_cnt++; }
 void mock_accdb_snapshot_load_end                ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_load_end_cnt++;      }
+void mock_accdb_snapshot_load_mark_written       ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_load_written_cnt++;  }
 void mock_accdb_flush_metrics                    ( fd_accdb_t * accdb ) { (void)accdb; test_accdb_flush_metrics_cnt++; }
 
 fd_accdb_fork_id_t
@@ -501,12 +505,11 @@ mock_stake_delegations_refresh( fd_stake_delegations_t *   sd,
                                 ulong                      epoch,
                                 fd_stake_history_t const * stake_history,
                                 ulong *                    warmup_cooldown_rate_epoch,
-                                int                        use_fixed_point_stake_math,
                                 int                        remove_inactive_stakes ) {
-  (void)sd; (void)warmup_cooldown_rate_epoch; (void)use_fixed_point_stake_math; (void)remove_inactive_stakes;
+  (void)sd; (void)warmup_cooldown_rate_epoch; (void)remove_inactive_stakes;
   test_stake_refresh_cnt++;
   test_stake_refresh_epoch        = epoch;
-  test_stake_refresh_load_end_cnt = test_accdb_load_end_cnt;
+  test_stake_refresh_load_end_cnt = test_accdb_load_end_cnt+test_accdb_load_written_cnt;
   test_stake_refresh_has_history  = !!stake_history;
 }
 
@@ -692,6 +695,7 @@ test_counters_reset( void ) {
   test_accdb_attach_seq         = 0U;
   test_accdb_load_begin_cnt     = 0UL;
   test_accdb_load_end_cnt       = 0UL;
+  test_accdb_load_written_cnt   = 0UL;
   test_stake_refresh_cnt        = 0UL;
   test_accdb_flush_metrics_cnt  = 0UL;
   test_accdb_recover_delta_cnt  = 0UL;
@@ -3220,8 +3224,8 @@ test_stream_mode( void ) {
 /* Behind a fast boot the full and incremental snapshots load on one
    fork under the stream fork, hidden from it.  Workers write the full,
    then the incremental, on that fork.  Once they are in and replay
-   runs on the stream, tile 0 roots that fork and the stream and has
-   the stream pipeline stopped. */
+   runs on the stream, tile 0 marks the load written, for replay to
+   root the two forks, and has the stream pipeline stopped. */
 static void
 test_background_snapshot( void ) {
   for( int order=0; order<2; order++ ) { /* 0 caught up before the snapshots are in, 1 after */
@@ -3298,15 +3302,15 @@ test_background_snapshot( void ) {
       FD_TEST( cl->ctx[ 0 ].lead.fast_boot.replay_started && test_feature_restore_cnt==1UL );
     }
 
-    /* The snapshots are in and replay runs: the snapshot fork then the
-       stream fork are rooted, load mode ends and snapct is told to stop
-       the stream. */
+    /* The snapshots are in and replay runs: the stake delegations are
+       refreshed, the load is marked written and snapct is told to stop
+       the stream.  Replay roots the forks and ends load mode. */
     ulong pub0 = test_pub_cnt;
     after_credit( &cl->ctx[ 0 ], (fd_stem_context_t *)1UL, NULL, &busy );
     FD_TEST( busy && cl->ctx[ 0 ].lead.fast_boot.snapshot_finished && cl->ctx[ 0 ].state==FD_SNAPSHOT_STATE_PROCESSING );
     FD_TEST( test_feature_restore_cnt==1UL && test_feature_restore_fork.val==22U );
-    FD_TEST( test_accdb_advance_root_cnt==2UL && test_accdb_advance_root_ids[ 0 ]==21U && test_accdb_advance_root_ids[ 1 ]==22U );
-    FD_TEST( test_accdb_load_end_cnt==1UL && test_accdb_read_one_cnt==1UL );
+    FD_TEST( !test_accdb_advance_root_cnt && !test_accdb_load_end_cnt );
+    FD_TEST( test_accdb_load_written_cnt==1UL && test_accdb_read_one_cnt==1UL );
     FD_TEST( test_stake_refresh_cnt==1UL && !test_stake_refresh_load_end_cnt );
     /* No stake history on the stream here; the read was on the stream fork. */
     FD_TEST( test_stake_refresh_epoch==cl->ctx[ 0 ].lead.epoch && !test_stake_refresh_has_history );
@@ -3315,9 +3319,9 @@ test_background_snapshot( void ) {
     FD_TEST( test_pub_sig[ test_pub_cnt-1UL ]==FD_SNAPSHOT_MSG_STREAM_STOP && test_pub_out_idx[ test_pub_cnt-1UL ]==cl->ctx[ 0 ].ct_out.idx );
 
     /* From here tile 0 only takes its SHUTDOWN.  A late caught up or
-       more stream data is skipped, the roots do not repeat. */
+       more stream data is skipped, the mark does not repeat. */
     after_credit( &cl->ctx[ 0 ], (fd_stem_context_t *)1UL, NULL, &busy );
-    FD_TEST( test_pub_cnt==pub0+1UL && test_accdb_advance_root_cnt==2UL );
+    FD_TEST( test_pub_cnt==pub0+1UL && test_accdb_load_written_cnt==1UL && !test_accdb_advance_root_cnt );
     FD_TEST( 1==before_frag( &cl->ctx[ 0 ], 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP ) );
     FD_TEST( 1==before_frag( &cl->ctx[ 0 ], 0UL, 0UL, fd_snapdc_data_sig( 0UL ) ) );
     FD_TEST(   !before_frag( &cl->ctx[ 0 ], 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN ) );
