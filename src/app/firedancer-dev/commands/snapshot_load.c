@@ -109,6 +109,7 @@ snapshot_load_layout( config_t *  config,
 static void
 snapshot_load_topo( config_t * config ) {
   config->firedancer.layout.resolv_tile_count = 0;
+  config->firedancer.snapshots.fast_boot.enabled = 0;
   fd_topo_t * topo = &config->topo;
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );

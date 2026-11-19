@@ -931,6 +931,7 @@ struct fd_gui_boot_progress {
     ulong insert_bytes_decompressed;
     char  insert_path[ PATH_MAX ];
     ulong insert_accounts_current;
+    ulong insert_bytes_written;
   } loading_snapshot[ FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT ];
 
   ulong wfs_total_stake;
@@ -941,6 +942,7 @@ struct fd_gui_boot_progress {
 
   long  catching_up_time_nanos;
   ulong catching_up_first_replay_slot;
+  ulong fast_boot_stream_tile_cnt;
 };
 
 typedef struct fd_gui_boot_progress fd_gui_boot_progress_t;

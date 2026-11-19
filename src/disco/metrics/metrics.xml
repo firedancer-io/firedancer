@@ -1099,7 +1099,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedBlockDemoted" summary="Blocks the replay scheduler demoted from a staging lane to unstaged" />
     <counter name="SchedTxnPromoted" summary="Transactions the replay scheduler moved into a staging lane when it promoted their block" />
     <counter name="SchedBlockDeactivated" enum="SchedDeactivateReason" summary="Times the replay scheduler stopped dispatching a block, by reason" />
-    <counter name="SchedBlockInbandPicked" summary="Blocks that fell back to in-band lthash because every demotion reservation was in use" />
+    <counter name="SchedBlockInbandPicked" summary="Blocks that hash lthash in band because every demotion reservation was in use or the snapshots were still loading" />
     <counter name="SchedLaneSwitched" summary="Times the replay scheduler activated a block on a different fork than the previously active block" />
     <counter name="SchedLanePromoted" summary="Times the replay scheduler promoted a block onto a staging lane" />
     <counter name="SchedLaneDemoted" summary="Times the replay scheduler demoted a block from a staging lane" />
@@ -1113,6 +1113,12 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="SchedTxnIdleDurationNanos" source="ticks" summary="Time the replay scheduler had no transaction in flight" />
     <counter name="SchedTxnParsed" summary="Transactions the replay pipeline has parsed" />
     <counter name="SchedTxnExecuted" summary="Transactions the replay pipeline has executed" />
+    <counter name="SchedTxnReturned" summary="Transactions an exec tile returned unexecuted because an account the fast boot stream had not delivered yet; each is dispatched again" />
+    <counter name="SchedTxnDeferred" summary="Distinct transactions returned at least once" />
+    <counter name="SchedTxnDeferredExecuted" summary="Returned transactions that have since executed" />
+    <counter name="SchedTxnDeferredAbandoned" summary="Returned transactions whose block was abandoned before they executed" />
+    <counter name="SchedTxnDeferredDurationNanos" source="ticks" summary="Time from the first return of a transaction to its execution, summed over SchedTxnDeferredExecuted" />
+    <gauge name="SchedHighestTxnDeferredDurationNanos" summary="Longest time from the first return of a transaction to its execution" />
     <counter name="SchedTxnSignatureVerified" summary="Transactions the replay pipeline has sigverified" />
     <counter name="SchedTxnPohMixed" summary="Transactions the replay pipeline has performed PoH mixin on" />
     <counter name="SchedTxnDone" summary="Transactions that were fully replayed" />
@@ -1581,6 +1587,8 @@ deliberate exception with lint-allow="<rule id>")
     <int value="19" name="FlushingIncrementalHttpDone" label="Incremental download loaded, draining downstream" />
     <int value="20" name="FlushingIncrementalHttpReset" label="Incremental download aborted, resetting downstream" />
     <int value="21" name="Shutdown" label="Snapshot load complete" />
+    <int value="22" name="ReadingStream" label="Downloading fast boot stream" />
+    <int value="23" name="FlushingStreamReset" label="Fast boot stream not opened, asking for a newer one" />
 </enum>
 
 <tile name="snapct">
@@ -1876,6 +1884,7 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="BankSwitched" summary="Cache invalidations due to transaction execution from a different block" />
 
     <counter name="TxnRegimeDurationNanos" enum="TxnRegime" source="ticks" summary="Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases" />
+    <counter name="TxnReturnedDurationNanos" source="ticks" summary="Time spent on transactions returned to replay unexecuted because an account the fast boot stream had not delivered yet" />
     <counter name="VmRegimeDurationNanos" enum="VmRegime" source="ticks" summary="Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute" />
 
     <counter name="CuConsumed" summary="Compute units consumed by executed transactions" />
@@ -2212,12 +2221,27 @@ deliberate exception with lint-allow="<rule id>")
     <gauge name="ConnOpen" summary="Open HTTP connections to the snapshot service" />
     <counter name="HttpRxBytes" summary="Bytes received in requests to the snapshot service" />
     <counter name="HttpTxBytes" summary="Bytes sent in responses from the snapshot service" />
+    <gauge name="FastBootStreamAvailable" summary="Fast boot stream files currently available for download" />
+    <counter name="FastBootRequestServed" summary="HTTP requests for fast boot streams served" />
+    <counter name="FastBootTxBytes" summary="Bytes sent in fast boot stream responses" />
 </tile>
 
 <tile name="motor">
 </tile>
 
 <tile name="solcap" telemetry="false">
+</tile>
+
+<tile name="strmk">
+    <counter name="KeyReceived" summary="Account keys found in the transactions replay sent" />
+    <counter name="KeyStored" summary="Account keys stored, the first time a block touched them since the last stream start" />
+    <counter name="KeyDropped" summary="Account keys not stored because the key pool was full" />
+    <counter name="KeySkipped" summary="Account keys not written because the stream already sent them" />
+    <counter name="AppendvecWritten" summary="Appendvec entries written to the stream, one per transaction" />
+    <counter name="AccountWritten" summary="Account records written to the stream" />
+    <counter name="AccountDiskRead" summary="Account records read from disk rather than the cache" />
+    <counter name="TombstoneWritten" summary="Records written for accounts that do not exist" />
+    <gauge name="KeyCount" summary="Account keys stored" />
 </tile>
 
 </metrics>

@@ -125,7 +125,10 @@
 #define FD_SNAPSHOT_MSG_CTRL_FINI             (10UL) /* Current snapshot has been fully loaded, finish processing */
 
 /* snapld -> snapct (via snapld_dc) */
-#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (11UL) /* snapld finished reading/downloading all data */
+#define FD_SNAPSHOT_MSG_STREAM_INIT           (11UL) /* snapct -> snapct: the fast boot stream being read, a fd_ssctrl_stream_init_t */
+#define FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP      (12UL) /* snapld read the fast boot stream up to the server's current end */
+#define FD_SNAPSHOT_MSG_STREAM_STOP           (13UL) /* snapin -> snapct: the snapshots behind the fast boot stream are done loading, shut the stream pipeline down */
+#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (14UL) /* snapld finished reading/downloading all data */
 
 /* Sigs passed from snapdc to snapin contain the frame index of the
    frag so snapin knows how to order frames as they arrive. */
@@ -154,8 +157,9 @@ typedef struct fd_ssctrl_init {
   int           zstd;
   ulong         slot; /* slot advertised by the snapshot peer */
   uchar         snapshot_hash[ FD_HASH_FOOTPRINT ]; /* advertised snapshot hash from snapshot file name */
-  int           is_redirect; /* 1 if using well-known redirect path */
-  ulong         file_sz;     /* file size in bytes (file loads only, 0 for HTTP) */
+  int           is_redirect;      /* 1 if using well-known redirect path */
+  ulong         file_sz;          /* file size in bytes (file loads only, 0 for HTTP) */
+  int           fast_boot_stream; /* 1 for a fast boot stream, which grows while it is read */
 } fd_ssctrl_init_t;
 
 /* Fetch target sent only from snapct to snapld after all INIT acks.
@@ -183,6 +187,15 @@ typedef struct fd_ssctrl_meta {
   uchar resolved_hash[ FD_HASH_FOOTPRINT ];
   char  resolved_name[ PATH_MAX ];
 } fd_ssctrl_meta_t;
+
+/* Sent by the snapct reading a fast boot stream to the snapct loading
+   the snapshots behind it: the stream's slot and the full it is on. */
+typedef struct fd_ssctrl_stream_init {
+  ulong stream_slot;
+  uchar stream_hash[ FD_HASH_FOOTPRINT ];
+  ulong full_slot;
+  uchar full_hash[ FD_HASH_FOOTPRINT ];
+} fd_ssctrl_stream_init_t;
 
 struct fd_snapshot_account_hdr {
   uchar   pubkey[ FD_PUBKEY_FOOTPRINT ];
@@ -235,6 +248,9 @@ fd_ssctrl_msg_ctrl_str( ulong sig ) {
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:         return "shutdown";
     case FD_SNAPSHOT_MSG_CTRL_ERROR:            return "error";
     case FD_SNAPSHOT_MSG_CTRL_FINI:             return "fini";
+    case FD_SNAPSHOT_MSG_STREAM_INIT:           return "stream_init";
+    case FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP:      return "stream_caught_up";
+    case FD_SNAPSHOT_MSG_STREAM_STOP:           return "stream_stop";
     case FD_SNAPSHOT_MSG_LOAD_COMPLETE:         return "load_complete";
     default:                                    return "unknown";
   }

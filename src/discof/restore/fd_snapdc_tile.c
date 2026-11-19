@@ -120,17 +120,25 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
                      ulong               sz ) {
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) return;
 
+  /* snapld has caught up to the streaming server, but there are still
+     more bytes to read.  Forward an empty message to snapin. */
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP ) ) {
+    if( FD_LIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) fd_stem_publish( stem, 0UL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+    return;
+  }
+
   /* All control messages except META reset the decompression stream */
   if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_META ) ) {
     ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
     if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
   }
 
-  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL && sig!=FD_SNAPSHOT_MSG_CTRL_SHUTDOWN ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
-       valid messages.  Only a fail message can revert this. */
+       valid messages.  Only a fail message can revert this, and a
+       shutdown applies in any state. */
     return;
   };
 
@@ -206,7 +214,6 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
     }
@@ -458,7 +465,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
   ctx->tile_idx = tile->kind_id;
 
-  fd_topo_obj_t const * ticket_obj = fd_topo_find_obj( topo, "fseq", "frame_ticket", ULONG_MAX );
+  char const * ticket_label = tile->snapdc.fast_boot_stream ? "str_ticket" : "frame_ticket";
+  fd_topo_obj_t const * ticket_obj = fd_topo_find_obj( topo, "fseq", ticket_label, ULONG_MAX );
   FD_TEST( ticket_obj );
   ctx->next_frame_ticket = fd_fseq_join( fd_topo_obj_laddr( topo, ticket_obj->id ) );
   FD_TEST( ctx->next_frame_ticket );

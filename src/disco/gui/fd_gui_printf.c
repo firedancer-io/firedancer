@@ -2811,6 +2811,7 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
 
       jsonp_string( gui->http, "accounts_database_path", gui->summary.accounts_database_path );
       jsonp_string( gui->http, "gui_database_path", gui->summary.gui_database_path );
+      jsonp_ulong( gui->http, "fast_boot_stream_tile_count", gui->summary.boot_progress.fast_boot_stream_tile_cnt );
 
       jsonp_double( gui->http, "joining_gossip_elapsed_seconds", (double)(gui->summary.boot_progress.joining_gossip_time_nanos - gui->summary.startup_time_nanos) / 1e9 );
 
@@ -2827,6 +2828,7 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
         jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_bytes_compressed",      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_bytes_compressed                          ); \
         jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes_decompressed",        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes_decompressed                            ); \
         jsonp_ulong       ( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts",                  gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current                              ); \
+        jsonp_ulong_as_str( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes_written",             gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes_written                                 ); \
       } else { \
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_elapsed_seconds"                  ); \
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_reset_count"                      ); \
@@ -2838,6 +2840,7 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_decompress_bytes_compressed"      ); \
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes_decompressed"        ); \
         jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_accounts"                  ); \
+        jsonp_null( gui->http, "loading_" FD_STRINGIFY(snapshot_type) "_snapshot_insert_bytes_written"             ); \
       } \
     }
 
@@ -2878,8 +2881,7 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
     if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP ) ) jsonp_double( gui->http, "catching_up_elapsed_seconds",     (double)(gui->summary.boot_progress.catching_up_time_nanos - gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos) / 1e9 );
     else                                                                                       jsonp_null  ( gui->http, "catching_up_elapsed_seconds" );
 
-    if( FD_LIKELY( gui->summary.boot_progress.phase>=FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP
-                && gui->summary.boot_progress.catching_up_first_replay_slot!=ULONG_MAX ) ) {
+    if( FD_LIKELY( gui->summary.boot_progress.catching_up_first_replay_slot!=ULONG_MAX ) ) {
       jsonp_ulong( gui->http, "catching_up_first_replay_slot", gui->summary.boot_progress.catching_up_first_replay_slot );
     } else {
       jsonp_null( gui->http, "catching_up_first_replay_slot" );

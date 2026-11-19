@@ -184,7 +184,7 @@ static int
 setup_redirect_tls( fd_sshttp_t * http,
                     long          now ) {
   fd_sshttp_cancel( http );
-  if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, ULONG_MAX, now ) ) ) {
+  if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, ULONG_MAX, now, http->range_start, http->is_stream ) ) ) {
     return FD_SSHTTP_ADVANCE_ERROR;
   }
   return FD_SSHTTP_ADVANCE_AGAIN;
@@ -239,6 +239,8 @@ fd_sshttp_new( void * shmem,
   sshttp->content_len = 0UL;
   sshttp->rx_lowat    = 0UL;
   sshttp->rx_parked   = 0;
+  sshttp->range_start = 0UL;
+  sshttp->is_stream   = 0;
   fd_cstr_fini( sshttp->snapshot_name );
   sshttp->resolved_slot = 0UL;
   fd_memset( sshttp->resolved_hash, 0, FD_HASH_FOOTPRINT );
@@ -282,6 +284,36 @@ fd_sshttp_join( void * shhttp ) {
 
 /* http_init_ssl removed — replaced by http_init_tls (native fd_tls) */
 
+/* http_format_request writes the GET request for path into the request
+   buffer, resuming at range_start if nonzero.  Returns 1 on success
+   and 0 if the request does not fit. */
+
+static int
+http_format_request( fd_sshttp_t * http,
+                     fd_ip4_port_t addr,
+                     char const *  path,
+                     ulong         path_len,
+                     ulong         range_start ) {
+  char range[ 48 ]; /* "Range: bytes=" + 20 digits + "-\r\n" + NUL */
+  range[ 0 ] = '\0';
+  if( FD_UNLIKELY( range_start ) ) {
+    FD_TEST( fd_cstr_printf_check( range, sizeof(range), NULL, "Range: bytes=%lu-\r\n", range_start ) );
+  }
+
+  char host[ FD_FQDN_BUF_MAX ];
+  if( FD_LIKELY( http->hostname[0] ) ) fd_cstr_ncpy( host, http->hostname, sizeof(host) );
+  else FD_TEST( fd_cstr_printf_check( host, sizeof(host), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( addr.addr ) ) );
+
+  return fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
+    "GET %.*s HTTP/1.1\r\n"
+    "User-Agent: Firedancer\r\n"
+    "Accept: */*\r\n"
+    "Accept-Encoding: identity\r\n"
+    "%s"
+    "Host: %s\r\n\r\n",
+    (int)path_len, path, range, host );
+}
+
 int
 fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,
@@ -290,7 +322,9 @@ fd_sshttp_init( fd_sshttp_t * http,
                 char const *  path,
                 ulong         path_len,
                 ulong         hops,
-                long          now ) {
+                long          now,
+                ulong         range_start,
+                int           is_stream ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
   ulong hostname_len = strnlen( hostname, sizeof(http->hostname) );
@@ -298,9 +332,17 @@ fd_sshttp_init( fd_sshttp_t * http,
     FD_LOG_WARNING(( "snapshot hostname too long" ));
     return -1;
   }
-  /* Redirects reinitialize using our own hostname buffer. */
+  /* Redirects and resumes reinitialize using our own buffers. */
   memmove( http->hostname, hostname, hostname_len+1UL );
   http->is_https = is_https;
+  if( FD_UNLIKELY( path_len>=sizeof(http->location) ) ) {
+    FD_LOG_WARNING(( "snapshot path too long" ));
+    return -1;
+  }
+  memmove( http->location, path, path_len );
+  http->location[ path_len ] = '\0';
+  http->location_len = path_len;
+  path = http->location;
 
   if( FD_LIKELY( is_https ) ) {
     if( FD_UNLIKELY( !http->ca_store_loaded ) ) {
@@ -312,30 +354,18 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   if( hops!=ULONG_MAX ) {
     http->hops = hops;
+    if( !range_start ) {
+      memmove( http->path, http->location, path_len+1UL );
+      http->path_len = path_len;
+    }
     fd_cstr_fini( http->snapshot_name );
     http->resolved_slot = 0UL;
     fd_memset( http->resolved_hash, 0, FD_HASH_FOOTPRINT );
   }
   http->request_sent = 0UL;
-  int fmt_ok;
-  if( FD_LIKELY( hostname[0] ) ) {
-    fmt_ok = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
-      "GET %.*s HTTP/1.1\r\n"
-      "User-Agent: Firedancer\r\n"
-      "Accept: */*\r\n"
-      "Accept-Encoding: identity\r\n"
-      "Host: %s:%u\r\n\r\n",
-      (int)path_len, path, hostname, fd_ushort_bswap( addr.port ) );
-  } else {
-    fmt_ok = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
-      "GET %.*s HTTP/1.1\r\n"
-      "User-Agent: Firedancer\r\n"
-      "Accept: */*\r\n"
-      "Accept-Encoding: identity\r\n"
-      "Host: " FD_IP4_ADDR_FMT ":%u\r\n\r\n",
-      (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) );
-  }
-  if( FD_UNLIKELY( !fmt_ok ) ) {
+  http->range_start  = range_start;
+  http->is_stream    = is_stream;
+  if( FD_UNLIKELY( !http_format_request( http, addr, path, path_len, range_start ) ) ) {
     FD_LOG_WARNING(( "HTTP request too long for %.*s", (int)path_len, path ));
     return -1;
   }
@@ -403,6 +433,26 @@ fd_sshttp_deadline( fd_sshttp_t const * http ) {
       return LONG_MAX;
     default:                       return http->deadline;
   }
+}
+
+int
+fd_sshttp_request( fd_sshttp_t * http,
+                   long          now,
+                   char const *  path,
+                   ulong         path_len,
+                   ulong         range_start ) {
+  if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, path, path_len, 4UL, now, range_start, http->is_stream ) ) ) return -1;
+  memmove( http->path, http->location, http->location_len+1UL );
+  http->path_len = http->location_len;
+  return 0;
+}
+
+int
+fd_sshttp_resume( fd_sshttp_t * http,
+                  long          now,
+                  ulong         range_start ) {
+  if( FD_UNLIKELY( !range_start ) ) return fd_sshttp_request( http, now, http->path, http->path_len, 0UL );
+  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, 4UL, now, range_start, http->is_stream );
 }
 
 void
@@ -576,6 +626,11 @@ follow_redirect( fd_sshttp_t *        http,
       fd_memcpy( snapshot_name, file, file_len );
       snapshot_name[ file_len ] = '\0';
 
+      if( FD_UNLIKELY( !fd_ssarchive_parse_fast_boot_filename( snapshot_name, &http->resolved_slot, http->resolved_hash ) ) ) {
+        fd_cstr_ncpy( http->snapshot_name, snapshot_name, PATH_MAX );
+        break;
+      }
+
       int is_zstd;
       ulong full_entry_slot, incremental_entry_slot;
       uchar decoded_hash[ FD_HASH_FOOTPRINT ];
@@ -615,24 +670,9 @@ follow_redirect( fd_sshttp_t *        http,
      buffer.  The request is rebuilt from scratch by fd_sshttp_init
      during the redirect, but the format must match so that a path
      accepted here will not overflow in fd_sshttp_init. */
-  int pre_check;
-  if( FD_LIKELY( http->hostname[0] ) ) {
-    pre_check = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
-      "GET %.*s HTTP/1.1\r\n"
-      "User-Agent: Firedancer\r\n"
-      "Accept: */*\r\n"
-      "Accept-Encoding: identity\r\n"
-      "Host: %s:%u\r\n\r\n",
-      (int)location_len, location, http->hostname, port );
-  } else {
-    pre_check = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
-      "GET %.*s HTTP/1.1\r\n"
-      "User-Agent: Firedancer\r\n"
-      "Accept: */*\r\n"
-      "Accept-Encoding: identity\r\n"
-      "Host: " FD_IP4_ADDR_FMT ":%u\r\n\r\n",
-      (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), port );
-  }
+  if( location_len!=http->location_len || memcmp( location, http->location, location_len ) ) http->range_start = 0UL;
+
+  int pre_check = http_format_request( http, http->addr, location, location_len, http->range_start );
   if( FD_UNLIKELY( !pre_check ) ) {
     FD_LOG_WARNING(( "redirect request too long `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)location_len, location,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
@@ -654,7 +694,7 @@ follow_redirect( fd_sshttp_t *        http,
   } else {
     if( FD_LIKELY( !fd_sshttp_fuzz ) ) {
       fd_sshttp_cancel( http );
-      if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, ULONG_MAX, now ) ) ) {
+      if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, ULONG_MAX, now, http->range_start, http->is_stream ) ) ) {
         return FD_SSHTTP_ADVANCE_ERROR;
       }
     } else {
@@ -739,7 +779,33 @@ read_response( fd_sshttp_t *        http,
     return follow_redirect( http, headers, header_cnt, now );
   }
 
-  if( FD_UNLIKELY( status!=200 ) ) {
+  if( http->is_stream ) {
+    /* Code 416 means no new stream data has arrived past the requested
+       offset yet. */
+    if( FD_UNLIKELY( status==416 && http->range_start ) ) {
+      fd_sshttp_cancel( http );
+      *data_len = 0UL;
+      return FD_SSHTTP_ADVANCE_STREAM_IDLE;
+    }
+
+    /* Code 404 to a ranged request means the stream ended and nothing
+       follows it yet.  The first request for a stream has no offset,
+       and a 404 to it means the stream is not served. */
+    if( FD_UNLIKELY( status==404 ) ) {
+      fd_sshttp_cancel( http );
+      *data_len = 0UL;
+      return http->range_start ? FD_SSHTTP_ADVANCE_STREAM_ENDED : FD_SSHTTP_ADVANCE_STREAM_ABSENT;
+    }
+  } else if( FD_UNLIKELY( status==404 ) ) {
+    /* The file does not exist. */
+    fd_sshttp_cancel( http );
+    *data_len = 0UL;
+    return FD_SSHTTP_ADVANCE_NOT_FOUND;
+  }
+
+  /* A 200 to a ranged request means the server ignored the range and
+     is about to resend the whole body. */
+  if( FD_UNLIKELY( status!=(http->range_start ? 206 : 200) ) ) {
     FD_LOG_WARNING(( "unexpected response status %d %.*s from " FD_IP4_ADDR_FMT ":%hu", status, (int)message_len, message,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
@@ -767,6 +833,26 @@ read_response( fd_sshttp_t *        http,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
+  }
+
+  /* A ranged reply must resume where the request asked. */
+  if( FD_UNLIKELY( http->range_start ) ) {
+    char  expected[ 48 ];
+    ulong expected_len;
+    FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), &expected_len, "bytes %lu-", http->range_start ) );
+    int resumes = 0;
+    for( ulong i=0UL; i<header_cnt; i++ ) {
+      if( FD_LIKELY( headers[i].name_len!=13UL ) ) continue;
+      if( FD_LIKELY( strncasecmp( headers[i].name, "content-range", 13UL ) ) ) continue;
+      resumes = (ulong)headers[i].value_len>=expected_len && !strncmp( headers[i].value, expected, expected_len );
+      break;
+    }
+    if( FD_UNLIKELY( !resumes ) ) {
+      FD_LOG_WARNING(( "response from " FD_IP4_ADDR_FMT ":%hu does not resume at byte %lu",
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ), http->range_start ));
+      fd_sshttp_cancel( http );
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
   }
 
   http->state     = FD_SSHTTP_STATE_DL;
@@ -807,7 +893,7 @@ read_body( fd_sshttp_t *        http,
     } else {
       fd_sshttp_cancel( http );
       http->state = FD_SSHTTP_STATE_INIT;
-      return FD_SSHTTP_ADVANCE_DONE;
+      return http->is_stream ? FD_SSHTTP_ADVANCE_STREAM_CHUNK : FD_SSHTTP_ADVANCE_DONE;
     }
   }
 
@@ -882,7 +968,7 @@ fd_sshttp_advance( fd_sshttp_t *        http,
     case FD_SSHTTP_STATE_DONE:
       fd_sshttp_cancel( http );
       http->state = FD_SSHTTP_STATE_INIT;
-      return FD_SSHTTP_ADVANCE_DONE;
+      return http->is_stream ? FD_SSHTTP_ADVANCE_STREAM_CHUNK : FD_SSHTTP_ADVANCE_DONE;
     default:                       return FD_SSHTTP_ADVANCE_ERROR;
   }
 

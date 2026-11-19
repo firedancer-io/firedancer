@@ -33,6 +33,9 @@ struct fd_sshttp_private {
   char  location[ PATH_MAX ];
   ulong location_len;
 
+  char  path[ PATH_MAX ]; /* the path the request was created with, location follows redirects */
+  ulong path_len;
+
   fd_ip4_port_t addr;
   char          hostname[ FD_FQDN_BUF_MAX ];
   int           is_https;
@@ -41,6 +44,8 @@ struct fd_sshttp_private {
   char  request[ 4096UL ];
   ulong request_len;
   ulong request_sent;
+  ulong range_start; /* byte offset the request resumes at, 0 for the whole body */
+  int   is_stream;   /* a fast boot stream, see fd_sshttp_init */
 
   ulong response_len;
   char  response[ USHORT_MAX ];

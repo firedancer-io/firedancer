@@ -7,7 +7,7 @@
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
-#define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
+#define FD_SSMSG_REPLAY_READY         (2) /* The accounts replay needs are loaded, replay can start */
 #define FD_SSMSG_EXPECTED_SLOT        (3) /* Expected rooted slot from incremental snapshot */
 
 FD_FN_CONST static inline ulong

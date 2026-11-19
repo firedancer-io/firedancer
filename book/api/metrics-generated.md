@@ -97,7 +97,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapct_&#8203;load_&#8203;state</span> | gauge | Snapshot load controller state: 0=init (Initializing), 1=waiting_for_peers, 2=waiting_for_peers_incremental (Waiting for peers (incremental)), 3=collecting_peers, 4=collecting_peers_incremental (Collecting peers (incremental)), 5=reading_full_file (Reading full snapshot file), 6=flushing_full_file_fini (Full file read, draining downstream), 7=flushing_full_file_done (Full file loaded, draining downstream), 8=flushing_full_file_reset (Full file load aborted, resetting downstream), 9=reading_incremental_file (Reading incremental snapshot file), 10=flushing_incremental_file_fini (Incremental file read, draining downstream), 11=flushing_incremental_file_done (Incremental file loaded, draining downstream), 12=flushing_incremental_file_reset (Incremental file load aborted, resetting downstream), 13=reading_full_http (Downloading full snapshot), 14=flushing_full_http_fini (Full download read, draining downstream), 15=flushing_full_http_done (Full download loaded, draining downstream), 16=flushing_full_http_reset (Full download aborted, resetting downstream), 17=reading_incremental_http (Downloading incremental snapshot), 18=flushing_incremental_http_fini (Incremental download read, draining downstream), 19=flushing_incremental_http_done (Incremental download loaded, draining downstream), 20=flushing_incremental_http_reset (Incremental download aborted, resetting downstream), 21=shutdown (Snapshot load complete) |
+| <span class="metrics-name">snapct_&#8203;load_&#8203;state</span> | gauge | Snapshot load controller state: 0=init (Initializing), 1=waiting_for_peers, 2=waiting_for_peers_incremental (Waiting for peers (incremental)), 3=collecting_peers, 4=collecting_peers_incremental (Collecting peers (incremental)), 5=reading_full_file (Reading full snapshot file), 6=flushing_full_file_fini (Full file read, draining downstream), 7=flushing_full_file_done (Full file loaded, draining downstream), 8=flushing_full_file_reset (Full file load aborted, resetting downstream), 9=reading_incremental_file (Reading incremental snapshot file), 10=flushing_incremental_file_fini (Incremental file read, draining downstream), 11=flushing_incremental_file_done (Incremental file loaded, draining downstream), 12=flushing_incremental_file_reset (Incremental file load aborted, resetting downstream), 13=reading_full_http (Downloading full snapshot), 14=flushing_full_http_fini (Full download read, draining downstream), 15=flushing_full_http_done (Full download loaded, draining downstream), 16=flushing_full_http_reset (Full download aborted, resetting downstream), 17=reading_incremental_http (Downloading incremental snapshot), 18=flushing_incremental_http_fini (Incremental download read, draining downstream), 19=flushing_incremental_http_done (Incremental download loaded, draining downstream), 20=flushing_incremental_http_reset (Incremental download aborted, resetting downstream), 21=shutdown (Snapshot load complete), 22=reading_stream (Downloading fast boot stream), 23=flushing_stream_reset (Fast boot stream not opened, asking for a newer one) |
 | <span class="metrics-name">snapct_&#8203;read_&#8203;progress_&#8203;bytes</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Snapshot file bytes read (download or local file) in the current attempt, by type; resets on retry (Full snapshot) |
 | <span class="metrics-name">snapct_&#8203;read_&#8203;progress_&#8203;bytes</span><br/>{snap_&#8203;type="<span class="metrics-enum">incremental</span>"} | gauge | Snapshot file bytes read (download or local file) in the current attempt, by type; resets on retry (Incremental snapshot) |
 | <span class="metrics-name">snapct_&#8203;read_&#8203;expected_&#8203;bytes</span><br/>{snap_&#8203;type="<span class="metrics-enum">full</span>"} | gauge | Size of each snapshot file being loaded; may change if the load restarts (Full snapshot) |
@@ -1188,7 +1188,7 @@
 | <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;deactivated</span><br/>{sched_&#8203;deactivate_&#8203;reason="<span class="metrics-enum">minority_&#8203;fork</span>"} | counter | Times the replay scheduler stopped dispatching a block, by reason (A block was pruned for being on a minority fork (not also counted as Abandoned)) |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;deactivated</span><br/>{sched_&#8203;deactivate_&#8203;reason="<span class="metrics-enum">spec_&#8203;yield</span>"} | counter | Times the replay scheduler stopped dispatching a block, by reason (A block that could only speculate on out-of-band lthash additions gave way to another lane head's real work) |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;deactivated</span><br/>{sched_&#8203;deactivate_&#8203;reason="<span class="metrics-enum">spec_&#8203;pool_&#8203;full</span>"} | counter | Times the replay scheduler stopped dispatching a block, by reason (A partially replayed block owing out-of-band lthash additions had nothing to dispatch because the speculation pool had no free entry) |
-| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;inband_&#8203;picked</span> | counter | Blocks that fell back to in-band lthash because every demotion reservation was in use |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;inband_&#8203;picked</span> | counter | Blocks that hash lthash in band because every demotion reservation was in use or the snapshots were still loading |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;lane_&#8203;switched</span> | counter | Times the replay scheduler activated a block on a different fork than the previously active block |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;lane_&#8203;promoted</span> | counter | Times the replay scheduler promoted a block onto a staging lane |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;lane_&#8203;demoted</span> | counter | Times the replay scheduler demoted a block from a staging lane |
@@ -1203,6 +1203,12 @@
 | <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;idle_&#8203;duration_&#8203;nanos</span> | counter | Time the replay scheduler had no transaction in flight |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;parsed</span> | counter | Transactions the replay pipeline has parsed |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;executed</span> | counter | Transactions the replay pipeline has executed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;returned</span> | counter | Transactions an exec tile returned unexecuted because an account the fast boot stream had not delivered yet; each is dispatched again |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;deferred</span> | counter | Distinct transactions returned at least once |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;deferred_&#8203;executed</span> | counter | Returned transactions that have since executed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;deferred_&#8203;abandoned</span> | counter | Returned transactions whose block was abandoned before they executed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;deferred_&#8203;duration_&#8203;nanos</span> | counter | Time from the first return of a transaction to its execution, summed over SchedTxnDeferredExecuted |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;highest_&#8203;txn_&#8203;deferred_&#8203;duration_&#8203;nanos</span> | gauge | Longest time from the first return of a transaction to its execution |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;signature_&#8203;verified</span> | counter | Transactions the replay pipeline has sigverified |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;poh_&#8203;mixed</span> | counter | Transactions the replay pipeline has performed PoH mixin on |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;done</span> | counter | Transactions that were fully replayed |
@@ -1377,6 +1383,7 @@
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">load</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction checks and account loading) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">execute</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction execution, including VM setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Time per transaction, by phase; a phase counts only once the next phase starts, so dropped, fees-only and no-op transactions lose their trailing phases (Transaction result commit) |
+| <span class="metrics-name">execrp_&#8203;txn_&#8203;returned_&#8203;duration_&#8203;nanos</span> | counter | Time spent on transactions returned to replay unexecuted because an account the fast boot stream had not delivered yet |
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute (VM setup) |
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute (VM commit) |
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Time in top-level BPF invocations, by phase, with CPI setup and commit split out; nested programs, including native CPIs, count as Interpreter; subset of TxnRegime Execute (VM setup (CPI)) |
@@ -2153,6 +2160,27 @@
 | <span class="metrics-name">snapsv_&#8203;conn_&#8203;open</span> | gauge | Open HTTP connections to the snapshot service |
 | <span class="metrics-name">snapsv_&#8203;http_&#8203;rx_&#8203;bytes</span> | counter | Bytes received in requests to the snapshot service |
 | <span class="metrics-name">snapsv_&#8203;http_&#8203;tx_&#8203;bytes</span> | counter | Bytes sent in responses from the snapshot service |
+| <span class="metrics-name">snapsv_&#8203;fast_&#8203;boot_&#8203;stream_&#8203;available</span> | gauge | Fast boot stream files currently available for download |
+| <span class="metrics-name">snapsv_&#8203;fast_&#8203;boot_&#8203;request_&#8203;served</span> | counter | HTTP requests for fast boot streams served |
+| <span class="metrics-name">snapsv_&#8203;fast_&#8203;boot_&#8203;tx_&#8203;bytes</span> | counter | Bytes sent in fast boot stream responses |
+
+</div>
+
+## Strmk Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">strmk_&#8203;key_&#8203;received</span> | counter | Account keys found in the transactions replay sent |
+| <span class="metrics-name">strmk_&#8203;key_&#8203;stored</span> | counter | Account keys stored, the first time a block touched them since the last stream start |
+| <span class="metrics-name">strmk_&#8203;key_&#8203;dropped</span> | counter | Account keys not stored because the key pool was full |
+| <span class="metrics-name">strmk_&#8203;key_&#8203;skipped</span> | counter | Account keys not written because the stream already sent them |
+| <span class="metrics-name">strmk_&#8203;appendvec_&#8203;written</span> | counter | Appendvec entries written to the stream, one per transaction |
+| <span class="metrics-name">strmk_&#8203;account_&#8203;written</span> | counter | Account records written to the stream |
+| <span class="metrics-name">strmk_&#8203;account_&#8203;disk_&#8203;read</span> | counter | Account records read from disk rather than the cache |
+| <span class="metrics-name">strmk_&#8203;tombstone_&#8203;written</span> | counter | Records written for accounts that do not exist |
+| <span class="metrics-name">strmk_&#8203;key_&#8203;count</span> | gauge | Account keys stored |
 
 </div>
 

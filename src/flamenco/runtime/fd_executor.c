@@ -890,6 +890,17 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
        needed here for loaded account data size on the ALT.  ALT size
        accounting is stateless. */
     FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
+
+    if( FD_UNLIKELY( fd_accdb_snapshot_still_loading( runtime->accdb ) ) ) {
+      fd_txn_acct_addr_lut_t const * luts = fd_txn_get_address_tables_const( TXN( txn_in->txn ) );
+      for( ulong i=0UL; i<TXN( txn_in->txn )->addr_table_lookup_cnt; i++ ) {
+        if( FD_UNLIKELY( !fd_accdb_has_record( runtime->accdb, bank->parent_accdb_fork_id, txn_in->txn->payload+luts[ i ].addr_off ) ) ) {
+          txn_out->err.is_deferred = 1;
+          return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+        }
+      }
+    }
+
     fd_acct_addr_t * accts_alt = fd_type_pun( &txn_out->accounts.keys[txn_out->accounts.cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
@@ -1341,6 +1352,16 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   err = fd_executor_validate_account_locks( txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
+  int loading = fd_accdb_snapshot_still_loading( runtime->accdb );
+  if( FD_UNLIKELY( loading ) ) {
+    for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+      if( FD_UNLIKELY( !fd_accdb_has_record( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.keys[ i ].uc ) ) ) {
+        txn_out->err.is_deferred = 1;
+        return FD_RUNTIME_EXECUTE_SUCCESS;
+      }
+    }
+  }
+
   /* If the transaction will fail, only acquire the fee payer and the
      potential nonce account (first account of the first instruction). */
   fd_txn_t const * txn       = TXN( txn_in->txn );
@@ -1422,6 +1443,12 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( fd_runtime_find_index_of_account( txn_out, programdata_key )!=ULONG_MAX ) ) continue;
 
     FD_TEST( bank->parent_accdb_fork_id.val!=USHORT_MAX );
+
+    if( FD_UNLIKELY( loading && !fd_accdb_has_record( runtime->accdb, bank->accdb_fork_id, programdata_key->uc ) ) ) {
+      txn_out->err.is_deferred = 1;
+      continue;
+    }
+
     if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->parent_accdb_fork_id, programdata_key->uc ) ) ) {
       int   skip_pd  = 0;
       ulong skip_len = 0UL;

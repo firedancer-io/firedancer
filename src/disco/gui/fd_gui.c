@@ -1476,7 +1476,10 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
 
 static void
 fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
-  fd_topo_tile_t const * snapct = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", 0UL ) ];
+  fd_topo_tile_t const * stream = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", 0UL ) ];
+  ulong stream_tile_cnt = (ulong)!!stream->snapct.fast_boot_stream;
+  gui->summary.boot_progress.fast_boot_stream_tile_cnt = stream_tile_cnt;
+  fd_topo_tile_t const * snapct = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", stream_tile_cnt ) ];
   volatile ulong * snapct_metrics = fd_metrics_tile( snapct->metrics );
 
   ulong snapdc_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "snapdc" );
@@ -1510,8 +1513,10 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
     fd_http_server_ws_broadcast( gui->http );
   }
 
-  /* state transitions */
-  if( FD_UNLIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
+  /* state transitions.  A fast boot replays live while the snapshots
+     load, so replay can be caught up before they are done. */
+  if( FD_UNLIKELY( gui->summary.slot_caught_up!=ULONG_MAX && snapshot_phase==FD_SNAPCT_STATE_SHUTDOWN ) ) {
+    if( FD_UNLIKELY( !gui->summary.boot_progress.catching_up_time_nanos ) ) gui->summary.boot_progress.catching_up_time_nanos = now;
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
     for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
       fd_gui_ema_init( &gui->summary.accdb->tier_fill_bps_ema[ k ], now, FD_GUI_ACCDB_EMA_HALF_LIFE_NS );
@@ -1550,6 +1555,13 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
                      || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI
                      || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT;
+  } else if( FD_UNLIKELY( stream_tile_cnt
+                       && gui->summary.boot_progress.phase==FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP
+                       && fd_metrics_tile( stream->metrics )[ MIDX( GAUGE, SNAPCT, LOAD_STATE ) ]==FD_SNAPCT_STATE_READING_STREAM ) ) {
+    /* A fast boot replays from the stream while the snapshot loader
+       waits for replay to catch up.  Show the snapshot screen, with
+       the catch up under it, instead of the gossip screen. */
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT;
   }
 
   /* It's possible for the incremental snapshot phase to be skipped, or
@@ -1578,19 +1590,30 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
 
       ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_EXPECTED_BYTES_FULL ) ],        snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_EXPECTED_BYTES_INCREMENTAL ) ]                );
       ulong _read_bytes                    = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_PROGRESS_BYTES_FULL ) ],        snapct_metrics[ MIDX( GAUGE, SNAPCT, READ_PROGRESS_BYTES_INCREMENTAL ) ]                 );
-      ulong _decompress_decompressed_bytes = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapdc", snapdc_tile_cnt, fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_FULL ), MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_INCREMENTAL ) ) );
-      ulong _decompress_compressed_bytes   = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapdc", snapdc_tile_cnt, fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPDC, COMPRESSED_PROGRESS_BYTES_FULL ),   MIDX( GAUGE, SNAPDC, COMPRESSED_PROGRESS_BYTES_INCREMENTAL )   ) );
+      ulong _decompress_decompressed_bytes = 0UL;
+      ulong _decompress_compressed_bytes   = 0UL;
+      for( ulong i=stream_tile_cnt; i<snapdc_tile_cnt; i++ ) {
+        fd_topo_tile_t const * snapdc = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapdc", i ) ];
+        volatile ulong const * snapdc_metrics = fd_metrics_tile( snapdc->metrics );
+        _decompress_decompressed_bytes += snapdc_metrics[ fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_FULL ), MIDX( GAUGE, SNAPDC, DECOMPRESSED_PROGRESS_BYTES_INCREMENTAL ) ) ];
+        _decompress_compressed_bytes   += snapdc_metrics[ fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPDC, COMPRESSED_PROGRESS_BYTES_FULL ),   MIDX( GAUGE, SNAPDC, COMPRESSED_PROGRESS_BYTES_INCREMENTAL )   ) ];
+      }
       ulong _insert_metric                 = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, MIDX( GAUGE, SNAPIN, PARSE_PROGRESS_BYTES_FULL ), MIDX( GAUGE, SNAPIN, PARSE_PROGRESS_BYTES_INCREMENTAL ) );
       ulong _insert_bytes                  = ULONG_MAX;
-      for( ulong i=0UL; i<snapin_tile_cnt; i++ ) {
+      ulong _insert_accounts_total         = 0UL;
+      ulong _insert_bytes_written_total    = 0UL;
+      for( ulong i=stream_tile_cnt; i<snapin_tile_cnt; i++ ) {
         fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", i ) ];
         volatile ulong const * snapin_metrics = fd_metrics_tile( snapin->metrics );
-        _insert_bytes = fd_ulong_min( _insert_bytes, snapin_metrics[ _insert_metric ] );
+        _insert_bytes           = fd_ulong_min( _insert_bytes, snapin_metrics[ _insert_metric ] );
+        _insert_accounts_total += snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNT_PROGRESS_NEW ) ];
+        _insert_bytes_written_total += snapin_metrics[ MIDX( COUNTER, SNAPIN, DISK_WRITTEN_BYTES ) ];
       }
 
-      ulong _insert_accounts_total         = fd_gui_metrics_sum_tiles_counter( gui->topo, "snapin", snapin_tile_cnt, MIDX( GAUGE, SNAPIN, ACCOUNT_PROGRESS_NEW ) );
       ulong _insert_accounts_baseline      = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].insert_accounts_current );
       ulong _insert_accounts               = fd_ulong_sat_sub( _insert_accounts_total, _insert_accounts_baseline );
+      ulong _insert_bytes_written_baseline = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, 0UL, gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].insert_bytes_written );
+      ulong _insert_bytes_written          = fd_ulong_sat_sub( _insert_bytes_written_total, _insert_bytes_written_baseline );
 
       /* metadata */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes_compressed = _total_bytes;
@@ -1606,6 +1629,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       /* insert stage */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes_decompressed = _insert_bytes;
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current   = _insert_accounts;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes_written      = _insert_bytes_written;
 
       break;
     }

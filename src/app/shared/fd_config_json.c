@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24464608UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24466664UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -422,6 +422,12 @@ fd_config_to_json( fd_config_t const * config,
       jw_ulong( &w, "idle_timeout_millis",  f->snapshots.server.idle_timeout_millis );
       jw_ulong( &w, "send_timeout_millis",  f->snapshots.server.send_timeout_millis );
       jw_ulong( &w, "send_buffer_size_kib", f->snapshots.server.send_buffer_size_kib );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "fast_boot" );
+      jw_bool( &w, "enabled", f->snapshots.fast_boot.enabled );
+      jw_obj_open( &w, "serve" );
+        jw_bool( &w, "enabled", f->snapshots.fast_boot.serve.enabled );
+      jw_obj_close( &w );
     jw_obj_close( &w );
   jw_obj_close( &w );
 

@@ -129,9 +129,10 @@ fd_accdb_join_readonly( void *             ljoin,
                         int                fd_ro );
 
 /* fd_accdb_snapshot_load_{begin,end} suspend compaction while snapshot
-   writers build the index.  New layer-0 partitions are tagged Cold;
-   load_end opens a fresh Hot partition for runtime writes.  Call begin
-   before any writer starts and end after all writers stop. */
+   writers build the index.  The writers fill Cold partitions through
+   their own write head; load_end hands the last partition to the cold
+   write head, or closes it when that head is taken.  Call begin before
+   any writer starts and end after all writers stop. */
 
 void
 fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
@@ -152,13 +153,14 @@ int
 fd_accdb_snapshot_recover_delta( fd_accdb_t *       accdb,
                                  fd_accdb_fork_id_t fork_id );
 
-/* fd_accdb_snapshot_recovery_t captures layer-0 write head metadata.
-   Used by fd_accdb_snapshot_{save,revert}_whead to save and restore
-   accdb state across an incremental snapshot attempt. */
+/* fd_accdb_snapshot_recovery_t captures the snapshot loader's write
+   head metadata.  Used by fd_accdb_snapshot_{save,revert}_whead to
+   save and restore accdb state across an incremental snapshot
+   attempt. */
 
 struct fd_accdb_snapshot_recovery {
-  ulong whead_val;             /* whead[0].val */
-  int   has_partition;         /* has_partition[0] */
+  ulong whead_val;             /* whead[FD_ACCDB_SNAPSHOT_WHEAD].val */
+  int   has_partition;         /* has_partition[FD_ACCDB_SNAPSHOT_WHEAD] */
   ulong partition_max;         /* partition_max */
   ulong disk_current_bytes;    /* disk_current_bytes metric */
   ulong savepoint_bytes_freed; /* bytes_freed of the save-point partition */
@@ -166,8 +168,8 @@ struct fd_accdb_snapshot_recovery {
 
 typedef struct fd_accdb_snapshot_recovery fd_accdb_snapshot_recovery_t;
 
-/* fd_accdb_snapshot_save_whead captures the current layer-0 write head,
-   partition state, and disk_current_bytes metric into the provided
+/* fd_accdb_snapshot_save_whead captures the snapshot loader's write
+   head, partition state, and disk_current_bytes metric into the provided
    recovery struct.  Also captures the save-point partition's
    bytes_freed. */
 
@@ -175,8 +177,8 @@ void
 fd_accdb_snapshot_save_whead( fd_accdb_t *                   accdb,
                               fd_accdb_snapshot_recovery_t * out );
 
-/* fd_accdb_snapshot_revert_whead restores the layer-0 write head to a
-   previously saved position.
+/* fd_accdb_snapshot_revert_whead restores the snapshot loader's write
+   head to a previously saved position.
 
    It waits for the accdb tile to apply pending root / purge requests
    (including the purge of the incremental fork) and release what they
@@ -258,6 +260,12 @@ fd_accdb_advance_root( fd_accdb_t *       accdb,
 
 int
 fd_accdb_requests_pending( fd_accdb_t const * accdb );
+
+/* fd_accdb_snapshot_still_loading returns 1 while a snapshot or fast
+   boot stream is being loaded, 0 otherwise. */
+
+int
+fd_accdb_snapshot_still_loading( fd_accdb_t const * accdb );
 
 /* fd_accdb_purge removes the provided fork and all of its descendants
    from the accounts database.
@@ -435,6 +443,14 @@ fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
                  uchar const *      pubkey );
 
+/* fd_accdb_has_record is like fd_accdb_exists but also counts
+   tombstone records (loaded from a fast boot stream with 0 lamports). */
+
+int
+fd_accdb_has_record( fd_accdb_t *       accdb,
+                     fd_accdb_fork_id_t fork_id,
+                     uchar const *      pubkey );
+
 /* fd_accdb_probe_pd_this_fork checks whether the newest version of
    pubkey visible on fork_id was committed on fork_id itself.  If so,
    returns 1 and sets *out_pd_write to that version's pd_write flag,
@@ -551,20 +567,33 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
 void
 fd_accdb_reset( fd_accdb_t * accdb );
 
-/* Reserves one contiguous range of sz bytes in the layer-0 account
-   log.  The last dead_tail_sz bytes are padding with no live record
-   and are counted as freed. */
+/* Reserves one contiguous range of sz bytes in the snapshot loader's
+   partition of the account log.  Only the snapin tiles write there.
+   The last dead_tail_sz bytes are padding with no live record and are
+   counted as freed. */
 
 ulong
 fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
                                  ulong        sz,
                                  ulong        dead_tail_sz );
 
-/* fd_accdb_snapshot_write_batch processes up to 8 accounts at once,
+/* fd_accdb_restore_hide_ancestor is for the snapshot loader only.  It
+   makes reads on fork_id, and on the forks created under it
+   afterwards, skip the records of ancestor_id until ancestor_id is
+   rooted: behind a fast boot stream, account lookups must not reach
+   past the stream fork into the snapshots still loading under it. */
+
+void
+fd_accdb_restore_hide_ancestor( fd_accdb_t *       accdb,
+                                fd_accdb_fork_id_t fork_id,
+                                fd_accdb_fork_id_t ancestor_id );
+
+/* fd_accdb_restore_write_batch processes up to 8 accounts at once,
    using software prefetching to overlap hash chain memory latency with
    useful work.  It is thread safe across distinct joins and locks each
-   pubkey's hash chain across lookup and commit.  Snapshot loading
-   excludes non-snapshot accdb operations while these locks are held.
+   pubkey's hash chain across lookup and commit.  Live writes and reads
+   may run alongside, but nothing may unlink chain nodes (advance_root,
+   purge) while restore writers are in flight.
    Each pubkey[i] points to a 32-byte public key.
    *out_replaced_lamports is set to the sum of the lamports of all
    accounts replaced by this batch (i.e. the previous lamports value
@@ -584,42 +613,71 @@ fd_accdb_snapshot_reserve_write( fd_accdb_t * accdb,
 
    file_offsets[i] is the pre-reserved on-disk location for pubkeys[i].
 
-   results receives one FD_ACCDB_SNAPSHOT_WRITE_* code per account.
+   results receives one FD_ACCDB_RESTORE_WRITE_* code per account.
    Not meaningful when -1 is returned.
 
-   fork_id controls recovery behavior:
+   fork_id is the fork the versions are written on.  mode says what
+   kind of load this is:
 
-     USHORT_MAX, full-snapshot mode.  Existing entries with the same
-                 pubkey are replaced in-place.  No txn entries are
-                 created.
+     FD_ACCDB_RESTORE_MODE_FULL
+        A full snapshot, or both snapshots behind a fast boot stream,
+        which share one fork.  A same-pubkey version on fork_id is
+        replaced in place.  No txn entries are created, so the load
+        can only be undone by fd_accdb_reset.
 
-     other,      incremental-snapshot mode.  Cross-snapshot overrides
-                 insert a new acc_pool entry alongside the old one and
-                 create a txn record on fork_id, so fd_accdb_purge can
-                 revert the incremental writes on failure.  Intra-fork
-                 duplicates are replaced in-place. */
+     FD_ACCDB_RESTORE_MODE_INCREMENTAL
+        An incremental on top of a full that lives on the parent fork.
+        A version from another fork is shadowed by a new acc_pool entry
+        with a txn record on fork_id, so fd_accdb_purge can revert the
+        load and rooting fork_id drops the older copies.  A same-fork
+        version is replaced in place.
 
-#define FD_ACCDB_SNAPSHOT_WRITE_IGNORED        (0) /* a newer version existed, write dropped */
-#define FD_ACCDB_SNAPSHOT_WRITE_LOADED         (1) /* no prior funded version */
-#define FD_ACCDB_SNAPSHOT_WRITE_REPLACED       (2) /* superseded a funded version from this load */
-#define FD_ACCDB_SNAPSHOT_WRITE_REPLACED_CROSS (3) /* superseded a funded version from an earlier snapshot */
+     FD_ACCDB_RESTORE_MODE_STREAM
+        A fast boot stream.  Like INCREMENTAL, but a repeat of a version
+        already written is ignored whatever its slot, never a
+        corrupt-snapshot error.
+
+   A version written while the load runs on a fork the loader's fork
+   cannot see is a live write.  The snapshot copy is linked behind it,
+   so that fork keeps reading its own write.
+
+   cache_records, NULL unless a stream keeps its records in the cache,
+   points at each account's record: the disk header, then the data.
+   The records are kept in the cache instead of being read from
+   file_offsets, and reach the disk only when the cache evicts them.
+
+   replaced_slots[i] receives the slot of the account version that
+   account i superseded, ULONG_MAX if there was none.  Not meaningful
+   when -1 is returned. */
+
+#define FD_ACCDB_RESTORE_WRITE_IGNORED        (0) /* a newer version existed, write dropped */
+#define FD_ACCDB_RESTORE_WRITE_LOADED         (1) /* no prior funded version */
+#define FD_ACCDB_RESTORE_WRITE_REPLACED       (2) /* superseded a funded version on the same fork */
+#define FD_ACCDB_RESTORE_WRITE_REPLACED_CROSS (3) /* superseded a funded version on another fork */
+
+#define FD_ACCDB_RESTORE_MODE_FULL        (0)
+#define FD_ACCDB_RESTORE_MODE_INCREMENTAL (1)
+#define FD_ACCDB_RESTORE_MODE_STREAM      (2)
 
 int
-fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
-                               fd_accdb_fork_id_t  fork_id,
-                               ulong               cnt,
-                               uchar const * const pubkeys[],
-                               ulong  const        slots[],
-                               ulong  const        lamports[],
-                               ulong  const        data_lens[],
-                               int    const        executables[],
-                               ulong const         file_offsets[],
-                               ulong *             accounts_ignored,
-                               ulong *             accounts_replaced,
-                               ulong *             accounts_loaded,
-                               ulong *             out_replaced_lamports,
-                               ulong *             out_ignored_lamports,
-                               uchar *             results );
+fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
+                              fd_accdb_fork_id_t                 fork_id,
+                              int                                mode,
+                              ulong                              cnt,
+                              uchar const * const                pubkeys[],
+                              ulong const                        slots[],
+                              ulong const                        lamports[],
+                              ulong const                        data_lens[],
+                              int const                          executables[],
+                              ulong const                        file_offsets[],
+                              fd_accdb_disk_meta_t const * const cache_records[],
+                              ulong *                            accounts_ignored,
+                              ulong *                            accounts_replaced,
+                              ulong *                            accounts_loaded,
+                              ulong *                            out_replaced_lamports,
+                              ulong *                            out_ignored_lamports,
+                              ulong *                            replaced_slots,
+                              uchar *                            results );
 
 /* fd_accdb_background performs one unit of background work.
 
@@ -659,6 +717,11 @@ void
 fd_accdb_background( fd_accdb_t * accdb,
                      int *        charge_busy );
 
+/* fd_accdb_root_fork_id returns the current root fork. */
+
+fd_accdb_fork_id_t
+fd_accdb_root_fork_id( fd_accdb_t * accdb );
+
 /* fd_accdb_shmetrics returns a pointer to the shared metrics counters
    for the given accdb instance.  The returned pointer remains valid
    for the lifetime of the underlying shmem. */
@@ -673,8 +736,8 @@ fd_accdb_shmetrics( fd_accdb_t * accdb );
 fd_accdb_metrics_t const *
 fd_accdb_metrics( fd_accdb_t * accdb );
 
-/* fd_accdb_flush_metrics publishes this joiner's pending layer-0 write
-   metrics.  Normal layer-0 writes defer these metrics by default.
+/* fd_accdb_flush_metrics publishes this joiner's pending write
+   metrics.  Normal writes defer these metrics by default.
 
    NOTE: A flush delayed past partition reuse can credit old counters
    to the new partition.  The impact on metrics accuracy is expected

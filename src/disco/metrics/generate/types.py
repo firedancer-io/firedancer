@@ -52,6 +52,7 @@ class Tile(Enum):
     SNAPZP = 51
     SNAPRD = 52
     SNAPSV = 53
+    STRMK = 54
 
     BACKT = 105
     BENCHS = 106

@@ -17,6 +17,8 @@
 #include "../../disco/events/fd_event_report.h"
 #include "../../disco/waker/fd_waker.h"
 #include "../../disco/fd_clock_tile.h"
+#include "../../disco/wait_info/fd_wait_info.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/resolv/fd_adns.h"
@@ -58,6 +60,8 @@ FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI==FD_METRICS_ENU
 FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_INCREMENTAL_HTTP_DONE_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_INCREMENTAL_HTTP_RESET_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_SNAPCT_STATE_SHUTDOWN==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_SHUTDOWN_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPCT_STATE_READING_STREAM==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_READING_STREAM_IDX, metrics_state );
+FD_STATIC_ASSERT( FD_SNAPCT_STATE_FLUSHING_STREAM_RESET==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_FLUSHING_STREAM_RESET_IDX, metrics_state );
 
 #define NAME "snapct"
 
@@ -70,6 +74,7 @@ FD_STATIC_ASSERT( FD_SNAPCT_STATE_SHUTDOWN==FD_METRICS_ENUM_SNAPCT_LOAD_STATE_V_
 #define IN_KIND_ACK    (0)
 #define IN_KIND_SNAPLD (1)
 #define IN_KIND_GOSSIP (2)
+#define IN_KIND_STREAM (3)
 
 struct fd_snapct_out_link {
   ulong       idx;
@@ -82,6 +87,7 @@ struct fd_snapct_out_link {
 typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 
 #define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT (90L*1000L*1000L*1000L) /* 1.5 minutes */
+#define FD_SNAPCT_STREAM_ABSENT_NS         (10L*1000L*1000L*1000L) /* 10 seconds */
 
 struct gossip_ci_entry {
   fd_pubkey_t   pubkey;
@@ -137,6 +143,13 @@ struct fd_snapct_tile {
   int                        download_enabled;
   int                        wfs_is_configured;
   int                        load_incremental;
+
+  struct {
+    ulong stream_slot;
+    uchar stream_hash[ FD_HASH_FOOTPRINT ];
+    ulong full_slot;  /* the full snapshot the stream is on */
+    uchar full_hash[ FD_HASH_FOOTPRINT ];
+  } fast_boot;
 
   fd_netdb_fds_t netdb_fds[1];
 
@@ -204,6 +217,7 @@ struct fd_snapct_tile {
 
   void const * gossip_in_mem;
   void const * snapld_in_mem;
+  void const * stream_in_mem;
   uchar        in_kind[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   struct {
@@ -257,6 +271,9 @@ struct fd_snapct_tile {
   fd_snapct_out_link_t out_ld;
   fd_snapct_out_link_t out_gui;
   fd_snapct_out_link_t out_rp;
+  fd_snapct_out_link_t out_ct;
+
+  fd_wait_info_box_t * wait_info;
 };
 typedef struct fd_snapct_tile fd_snapct_tile_t;
 
@@ -443,7 +460,7 @@ best_incremental_peer( fd_snapct_tile_t * ctx ) {
 
 static int
 full_only( fd_snapct_tile_t * ctx ) {
-  if( !ctx->load_incremental || ctx->gossip_enabled ) return 0;
+  if( !ctx->load_incremental || ctx->gossip_enabled || ctx->config.fast_boot ) return 0;
   if( wfs_short_of_target( ctx, ctx->predicted_incremental.full_slot ) ) return 0;
   if( ctx->local_in.full_snapshot_slot==ctx->predicted_incremental.full_slot &&
       ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) return 0;
@@ -730,13 +747,17 @@ init_load( fd_snapct_tile_t *  ctx,
     out->slot = full ? ctx->local_in.full_snapshot_slot : ctx->local_in.incremental_snapshot_slot;
     if( full ) fd_memcpy( out->snapshot_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT );
     else       fd_memcpy( out->snapshot_hash, ctx->local_in.incremental_snapshot_hash, FD_HASH_FOOTPRINT );
+  } else if( ctx->config.fast_boot ) {
+    out->slot = full ? ctx->fast_boot.full_slot : ctx->fast_boot.stream_slot;
+    fd_memcpy( out->snapshot_hash, full ? ctx->fast_boot.full_hash : ctx->fast_boot.stream_hash, FD_HASH_FOOTPRINT );
   } else {
     out->slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
     if( full ) fd_memcpy( out->snapshot_hash, ctx->peer.full_hash, FD_HASH_FOOTPRINT );
     else       fd_memcpy( out->snapshot_hash, ctx->peer.incr_hash, FD_HASH_FOOTPRINT );
   }
 
-  out->is_redirect = !file && full;
+  out->is_redirect = !file && full && !ctx->config.fast_boot;
+  out->fast_boot_stream = 0;
 
   if( file ) out->file_sz = full ? ctx->local_in.full_snapshot_size : ctx->local_in.incremental_snapshot_size;
   else       out->file_sz = 0UL;
@@ -769,7 +790,9 @@ log_download( fd_snapct_tile_t * ctx,
               int                is_https ) {
   fd_sspeer_t const * peer = &ctx->peer;
   char const *        what = full ? "full" : "incremental";
-  ulong               slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
+  ulong               slot;
+  if( ctx->config.fast_boot ) slot = full ? ctx->fast_boot.full_slot             : ctx->fast_boot.stream_slot;
+  else                        slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
 
   if( peer->key.is_url ) {
     char const * scheme = is_https ? "https" : "http";
@@ -933,10 +956,180 @@ next_deadline( fd_snapct_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS             ||
                    ctx->state==FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL ||
                    ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS              ||
-                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL ) ) next = fd_long_min( next, ctx->deadline_nanos );
+                   ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL  ||
+                   ctx->state==FD_SNAPCT_STATE_INIT                          ||
+                   ctx->state==FD_SNAPCT_STATE_READING_STREAM ) ) next = fd_long_min( next, ctx->deadline_nanos );
   if( FD_UNLIKELY( next==LONG_MAX ) ) return LONG_MAX;
   if( FD_UNLIKELY( next<=0L ) ) return 0L;
   return fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
+}
+
+/* fast_boot_server points ctx->peer at the first server in the config
+   and returns 1, or 0 while that server has not resolved yet. */
+
+static int
+fast_boot_server( fd_snapct_tile_t * ctx ) {
+  ulong i = 0UL;
+  while( i<ctx->resolved_servers_cnt && strcmp( ctx->resolved_servers[ i ].hostname, ctx->dns_servers[ 0 ].hostname ) ) i++;
+  if( FD_UNLIKELY( i==ctx->resolved_servers_cnt ) ) return 0;
+  if( FD_UNLIKELY( !ctx->peer.key.is_url || ctx->peer.addr.l!=ctx->resolved_servers[ i ].addr.l ) ) {
+    ctx->peer.addr = ctx->resolved_servers[ i ].addr;
+    memset( &ctx->peer.key.url, 0, sizeof(ctx->peer.key.url) );
+    strncpy( ctx->peer.key.url.hostname, ctx->resolved_servers[ i ].hostname, sizeof(ctx->peer.key.url.hostname)-1UL );
+    ctx->peer.key.url.resolved_addr = ctx->peer.addr;
+    ctx->peer.key.is_url            = 1;
+  }
+  return 1;
+}
+
+/* stream_init_load asks snapld for the fast boot stream by name. */
+
+static void
+stream_init_load( fd_snapct_tile_t *  ctx,
+                  fd_stem_context_t * stem ) {
+  ctx->snapshot_start_timestamp_ns = fd_clock_tile_now( ctx->clock );
+  fd_ssctrl_init_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
+  out->file             = 0;
+  out->fast_boot_stream = 1;
+  out->zstd             = 1;
+  out->slot             = ctx->fast_boot.stream_slot;
+  out->is_redirect      = 0;
+  out->file_sz          = 0UL;
+  fd_memcpy( out->snapshot_hash, ctx->fast_boot.stream_hash, FD_HASH_FOOTPRINT );
+  fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), 0UL, 0UL, 0UL );
+  ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
+  ctx->flush_ack  = 0;
+  ctx->start_sent = 0;
+
+  FD_BASE58_ENCODE_32_BYTES( ctx->fast_boot.stream_hash, hash_b58 );
+  FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "fast-boot-stream-%lu-%s.tar.zst", ctx->fast_boot.stream_slot, hash_b58 ) );
+}
+
+/* stream_start sends snapld the stream's path on the configured
+   server. */
+
+static void
+stream_start( fd_snapct_tile_t *  ctx,
+              fd_stem_context_t * stem ) {
+  fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
+  out->addr     = ctx->peer.addr;
+  out->is_https = ctx->dns_servers[ 0 ].is_https;
+  fd_cstr_ncpy( out->hostname, ctx->dns_servers[ 0 ].hostname, sizeof(out->hostname) );
+  FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", ctx->http_full_snapshot_name ) );
+  FD_LOG_NOTICE(( "downloading the fast boot stream from %s://" FD_IP4_ADDR_FMT ":%hu", out->is_https ? "https" : "http",
+                  FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+  fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sizeof(fd_ssctrl_start_t), 0UL, 0UL, 0UL );
+  ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_start_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
+  ctx->start_sent   = 1;
+}
+
+/* stream_meta handles the META snapld sends once the stream request
+   got a response: the stream exists.  It cancels any pending re-pick
+   and sends STREAM_INIT to the snapct that loads the snapshots. */
+
+static void
+stream_meta( fd_snapct_tile_t *       ctx,
+             fd_stem_context_t *      stem,
+             fd_ssctrl_meta_t const * meta ) {
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPCT_STATE_READING_STREAM &&
+                   ctx->state!=FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
+    FD_LOG_ERR(( "invalid meta frag in state %s", fd_snapct_state_str( ctx->state ) ));
+  }
+
+  if( FD_UNLIKELY( !meta->total_sz ) ) FD_LOG_ERR(( "the fast boot stream at slot %lu is empty", ctx->fast_boot.stream_slot ));
+  ctx->metrics.full.bytes_total = meta->total_sz;
+  ctx->deadline_nanos           = LONG_MAX;
+
+  if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
+    FD_LOG_NOTICE(( "the server opened the fast boot stream at slot %lu after all, keeping it", ctx->fast_boot.stream_slot ));
+    set_state( ctx, FD_SNAPCT_STATE_READING_STREAM );
+  }
+
+  if( FD_LIKELY( !!ctx->out_ct.mem ) ) {
+    fd_ssctrl_stream_init_t * out = fd_chunk_to_laddr( ctx->out_ct.mem, ctx->out_ct.chunk );
+    out->stream_slot = ctx->fast_boot.stream_slot;
+    out->full_slot   = ctx->fast_boot.full_slot;
+    fd_memcpy( out->stream_hash, ctx->fast_boot.stream_hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( out->full_hash,   ctx->fast_boot.full_hash,   FD_HASH_FOOTPRINT );
+    fd_stem_publish( stem, ctx->out_ct.idx, FD_SNAPSHOT_MSG_STREAM_INIT, ctx->out_ct.chunk, sizeof(fd_ssctrl_stream_init_t), 0UL, 0UL, 0UL );
+    ctx->out_ct.chunk = fd_dcache_compact_next( ctx->out_ct.chunk, sizeof(fd_ssctrl_stream_init_t), ctx->out_ct.chunk0, ctx->out_ct.wmark );
+  }
+}
+
+/* stream_after_credit runs the snapct instance that reads the fast
+   boot stream: it asks the configured server for the stream at its
+   newest snapshot and follows it until snapin says the snapshots
+   behind it are done loading. */
+
+static void
+stream_after_credit( fd_snapct_tile_t *  ctx,
+                     fd_stem_context_t * stem,
+                     long                now ) {
+  switch( ctx->state ) {
+    case FD_SNAPCT_STATE_INIT: {
+      if( FD_UNLIKELY( !fast_boot_server( ctx ) ) ) {
+        if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) {
+          FD_LOG_ERR(( "timed out resolving [snapshots.sources.servers] for fast boot." ));
+        }
+        break;
+      }
+
+      fd_sspeer_t server = fd_sspeer_selector_query( ctx->selector, &ctx->peer.key );
+      if( FD_UNLIKELY( !server.addr.l ) ) {
+        if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) {
+          FD_LOG_NOTICE(( "the server in [snapshots.sources.servers] offers no snapshot "
+                          "for the fast boot yet, waiting" ));
+          ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
+        }
+        break;
+      }
+      int has_incremental = server.incr_slot!=FD_SSPEER_SLOT_UNKNOWN;
+      ctx->fast_boot.stream_slot = has_incremental ? server.incr_slot : server.full_slot;
+      ctx->fast_boot.full_slot   = server.full_slot;
+      fd_memcpy( ctx->fast_boot.stream_hash, has_incremental ? server.incr_hash : server.full_hash, FD_HASH_FOOTPRINT );
+      fd_memcpy( ctx->fast_boot.full_hash,   server.full_hash, FD_HASH_FOOTPRINT );
+      ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
+      set_state( ctx, FD_SNAPCT_STATE_READING_STREAM );
+      stream_init_load( ctx, stem );
+      break;
+    }
+
+    case FD_SNAPCT_STATE_READING_STREAM: {
+      if( FD_UNLIKELY( !ctx->start_sent && ctx->flush_ack==ctx->flush_ack_cnt ) ) stream_start( ctx, stem );
+
+      if( FD_LIKELY( now<=ctx->deadline_nanos ) ) break;
+
+      fd_sspeer_t   server          = fd_sspeer_selector_query( ctx->selector, &ctx->peer.key );
+      int           has_incremental = server.incr_slot!=FD_SSPEER_SLOT_UNKNOWN;
+      ulong         stream_slot     = has_incremental ? server.incr_slot : server.full_slot;
+      uchar const * stream_hash     = has_incremental ? server.incr_hash : server.full_hash;
+      if( FD_LIKELY( !server.addr.l ||
+                     (stream_slot==ctx->fast_boot.stream_slot &&
+                      !memcmp( stream_hash, ctx->fast_boot.stream_hash, FD_HASH_FOOTPRINT )) ) ) {
+        FD_LOG_NOTICE(( "the server has not opened the fast boot stream at slot %lu yet", ctx->fast_boot.stream_slot ));
+        ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
+        break;
+      }
+
+      FD_LOG_NOTICE(( "the server has no fast boot stream at slot %lu, asking for the one at slot %lu",
+                      ctx->fast_boot.stream_slot, stream_slot ));
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->flush_ack = 0;
+      set_state( ctx, FD_SNAPCT_STATE_FLUSHING_STREAM_RESET );
+      break;
+    }
+
+    case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET:
+      if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
+      ctx->deadline_nanos = now+ctx->config.wait_for_peers_timeout_nanos;
+      set_state( ctx, FD_SNAPCT_STATE_INIT );
+      break;
+
+    case FD_SNAPCT_STATE_SHUTDOWN:
+      break;
+
+    default: FD_LOG_ERR(( "unexpected state %s", fd_snapct_state_str( ctx->state ) ));
+  }
 }
 
 static void
@@ -961,6 +1154,16 @@ after_credit( fd_snapct_tile_t *  ctx,
      No-op when the dirty flag is not set internally. */
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
 
+  /* Fast boot errors are unrecoverable. */
+  if( FD_UNLIKELY( ctx->config.fast_boot && ctx->malformed ) ) {
+    FD_LOG_ERR(( "the fast boot failed loading %s", ctx->http_incr_snapshot_name[ 0 ] ? ctx->http_incr_snapshot_name : ctx->http_full_snapshot_name ));
+  }
+
+  if( FD_UNLIKELY( ctx->config.fast_boot_stream ) ) {
+    stream_after_credit( ctx, stem, now );
+    return;
+  }
+
   /* send an expected slot message as the predicted incremental
      could have changed as a result of the pinger, resolver, or from
      processing gossip frags in gossip_frag. */
@@ -982,7 +1185,12 @@ after_credit( fd_snapct_tile_t *  ctx,
     if( !file ) {
       fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
       out->addr = ctx->peer.addr;
-      if( full ) {
+      if( ctx->config.fast_boot ) {
+        FD_BASE58_ENCODE_32_BYTES( full ? ctx->fast_boot.full_hash : ctx->fast_boot.stream_hash, hash_b58 );
+        if( full ) FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", ctx->fast_boot.full_slot, hash_b58 ) );
+        else       FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->fast_boot.full_slot, ctx->fast_boot.stream_slot, hash_b58 ) );
+        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ) );
+      } else if( full ) {
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
       } else {
         char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
@@ -1019,6 +1227,36 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_INIT: {
+      if( FD_UNLIKELY( ctx->config.fast_boot ) ) {
+        if( FD_UNLIKELY( !fast_boot_server( ctx ) ) ) {
+          if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out resolving [snapshots.sources.servers] for fast boot." ));
+          break;
+        }
+
+        /* The snapshots wait until replay has caught up on the
+           stream, or holds at an epoch boundary, to reduce disk
+           write contention. */
+        fd_wait_info_t wait_info;
+        if( FD_UNLIKELY( !fd_wait_info_try_read( &wait_info, ctx->wait_info ) ) ) break;
+        if( FD_UNLIKELY( !wait_info.caught_up && !wait_info.epoch_boundary_hold ) ) break;
+
+        if( FD_UNLIKELY( ctx->fast_boot.stream_slot==ULONG_MAX ) ) break;
+
+        /* The snapct behind the stream reads the full from disk when
+           it is the one the stream is on. */
+        if( FD_UNLIKELY( ctx->fast_boot.full_slot==ctx->local_in.full_snapshot_slot &&
+                         !memcmp( ctx->fast_boot.full_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT ) ) ) {
+          FD_LOG_NOTICE(( "reading full snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.full_snapshot_path, fd_log_style_normal() ));
+          set_state( ctx, FD_SNAPCT_STATE_READING_FULL_FILE );
+          init_load( ctx, stem, 1, 1 );
+          break;
+        }
+
+        set_state( ctx, FD_SNAPCT_STATE_READING_FULL_HTTP );
+        init_load( ctx, stem, 1, 0 );
+        break;
+      }
+
       if( FD_UNLIKELY( !ctx->download_enabled ) ) {
         /* Download is disabled, so the incremental on disk is the only
            thing that can lift a full short of the target. */
@@ -1449,6 +1687,12 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
+      if( FD_UNLIKELY( ctx->config.fast_boot ) ) {
+        set_state( ctx, FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP );
+        init_load( ctx, stem, 0, 0 );
+        break;
+      }
+
       /* Weigh the local incremental against the best downloadable one
          that pairs with the full we just loaded.  With download
          disabled there is no alternative to weigh it against. */
@@ -1526,6 +1770,12 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( !ctx->load_incremental ) ) {
         set_state( ctx, FD_SNAPCT_STATE_SHUTDOWN );
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+        break;
+      }
+
+      if( FD_UNLIKELY( ctx->config.fast_boot ) ) {
+        set_state( ctx, FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP );
+        init_load( ctx, stem, 0, 0 );
         break;
       }
 
@@ -1878,6 +2128,95 @@ gossip_frag( fd_snapct_tile_t *  ctx,
   }
 }
 
+/* stream_ctrl_frag takes a control frag for the fast boot stream, from
+   snapld or from snapin. */
+
+static void
+stream_ctrl_frag( fd_snapct_tile_t * ctx,
+                  ulong              sig ) {
+  switch( sig ) {
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
+      if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) return;
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPCT_STATE_READING_STREAM ) ) break;
+      ctx->flush_ack++;
+      FD_TEST( ctx->flush_ack<=ctx->flush_ack_cnt );
+      return;
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL:
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) break;
+      ctx->flush_ack++;
+      FD_TEST( ctx->flush_ack<=ctx->flush_ack_cnt );
+      return;
+
+    case FD_SNAPSHOT_MSG_CTRL_ERROR:
+      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_STREAM ) ) {
+        FD_LOG_WARNING(( "received error for the fast boot stream" ));
+        ctx->malformed = 1;
+      }
+      return;
+
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+      return;
+
+    default:
+      break;
+  }
+  FD_LOG_ERR(( "unexpected control frag %lu (%s) in state %d (%s)", sig, fd_ssctrl_msg_ctrl_str( sig ), ctx->state, fd_snapct_state_str( ctx->state ) ));
+}
+
+/* stream_snapld_frag takes snapld's frags for the fast boot stream.
+   The stream grows while it is read, so its bytes are only counted. */
+
+static void
+stream_snapld_frag( fd_snapct_tile_t *  ctx,
+                    ulong               sig,
+                    ulong               sz,
+                    ulong               chunk,
+                    fd_stem_context_t * stem ) {
+  switch( sig ) {
+    case FD_SNAPSHOT_MSG_META:
+      FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
+      stream_meta( ctx, stem, fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk ) );
+      return;
+
+    case FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP:
+      FD_LOG_NOTICE(( "caught up with the fast boot stream" ));
+      return;
+
+    case FD_SNAPSHOT_MSG_DATA:
+      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_STREAM ) ) {
+        ctx->metrics.full.bytes_read += sz;
+      } else if( FD_UNLIKELY( ctx->state!=FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
+        FD_LOG_ERR(( "invalid data frag in state %s", fd_snapct_state_str( ctx->state ) ));
+      }
+      return;
+
+    default:
+      stream_ctrl_frag( ctx, sig );
+      return;
+  }
+}
+
+/* stream_ack_frag takes snapin's frags for the fast boot stream.  A
+   STREAM_STOP says the snapshots behind the stream are done loading
+   and ends the stream. */
+
+static void
+stream_ack_frag( fd_snapct_tile_t *  ctx,
+                 ulong               sig,
+                 fd_stem_context_t * stem ) {
+  if( FD_LIKELY( sig!=FD_SNAPSHOT_MSG_STREAM_STOP ) ) {
+    stream_ctrl_frag( ctx, sig );
+    return;
+  }
+
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
+  double elapsed = (double)(fd_clock_tile_now( ctx->clock ) - ctx->snapshot_start_timestamp_ns) / 1e9;
+  FD_LOG_INFO(( "fast boot stream followed for %.3f seconds, the snapshots behind it are done loading", elapsed ));
+  set_state( ctx, FD_SNAPCT_STATE_SHUTDOWN );
+  fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
 /* Validate and handle a pipeline control ack for INIT_{FULL,INCR},
    NEXT, DONE, and FINI.  Returns 0 on success, and -1 if the sig was
    unrecognized or the state was unexpected. */
@@ -1963,6 +2302,11 @@ snapld_frag( fd_snapct_tile_t *  ctx,
              ulong               sz,
              ulong               chunk,
              fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->config.fast_boot_stream ) ) {
+    stream_snapld_frag( ctx, sig, sz, chunk, stem );
+    return;
+  }
+
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) {
     /* Before snapld starts sending down data fragments, it first sends
        a metadata message containing the total size of the snapshot.
@@ -2005,7 +2349,7 @@ snapld_frag( fd_snapct_tile_t *  ctx,
         snapshot_path_gui_publish( ctx, stem, full ? ctx->local_in.full_snapshot_path : ctx->local_in.incremental_snapshot_path, full );
       }
     } else {
-      if( full ) fd_cstr_ncpy( ctx->http_full_snapshot_name, meta->resolved_name, PATH_MAX );
+      if( full && meta->resolved_name[ 0 ] ) fd_cstr_ncpy( ctx->http_full_snapshot_name, meta->resolved_name, PATH_MAX );
 
       /* The server sent a newer full than the one we picked.  The
          incremental has to be built on the full we actually load. */
@@ -2234,7 +2578,17 @@ returnable_frag( fd_snapct_tile_t *  ctx,
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLD ) {
     snapld_frag( ctx, sig, sz, chunk, stem );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
-    ctrl_ack_frag( ctx, sig );
+    if( FD_UNLIKELY( ctx->config.fast_boot_stream ) ) stream_ack_frag( ctx, sig, stem );
+    else                                              ctrl_ack_frag( ctx, sig );
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_STREAM ) {
+    FD_TEST( sig==FD_SNAPSHOT_MSG_STREAM_INIT && sz==sizeof(fd_ssctrl_stream_init_t) );
+    FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && ctx->fast_boot.stream_slot==ULONG_MAX );
+    fd_ssctrl_stream_init_t const * stream = fd_chunk_to_laddr_const( ctx->stream_in_mem, chunk );
+    ctx->fast_boot.stream_slot = stream->stream_slot;
+    ctx->fast_boot.full_slot   = stream->full_slot;
+    fd_memcpy( ctx->fast_boot.stream_hash, stream->stream_hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( ctx->fast_boot.full_hash,   stream->full_hash,   FD_HASH_FOOTPRINT );
+    ctx->load_incremental = ctx->fast_boot.stream_slot!=ctx->fast_boot.full_slot;
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));
   return 0;
 }
@@ -2529,6 +2883,9 @@ unprivileged_init( fd_topo_t const *      topo,
     } else if( 0==strcmp( in_link->name, "snapin_ct" ) ) {
       ctx->in_kind[ i ] = IN_KIND_ACK;
       ack_cnt++;
+    } else if( 0==strcmp( in_link->name, "snapct_ct" ) ) {
+      ctx->in_kind[ i ]  = IN_KIND_STREAM;
+      ctx->stream_in_mem = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
     }
   }
   FD_TEST( has_snapld_dc && ack_cnt>0 );
@@ -2540,6 +2897,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->predicted_incremental.pending   = 0;
   ctx->predicted_incremental.committed = 0;
   fd_memset( &ctx->predicted_incremental.peer, 0, sizeof(fd_sspeer_t) );
+  ctx->fast_boot.stream_slot           = ULONG_MAX;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
@@ -2549,13 +2907,23 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->gossip.allowed_cnt          = 0UL;
   ctx->gossip.saturated            = !ctx->gossip_enabled;
 
-  if( FD_UNLIKELY( tile->out_cnt<2UL || tile->out_cnt>3UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2-3", tile->out_cnt ));
+  if( FD_UNLIKELY( tile->out_cnt<2UL || tile->out_cnt>4UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2-4", tile->out_cnt ));
   ctx->out_ld  = out1( topo, tile, "snapct_ld"   );
   ctx->out_gui = out1( topo, tile, "snapct_gui"  );
   ctx->out_rp  = out1( topo, tile, "snapct_repr" );
+  ctx->out_ct  = out1( topo, tile, "snapct_ct"   );
+
+  if( FD_UNLIKELY( ctx->config.fast_boot && !ctx->config.fast_boot_stream ) ) {
+    ulong wait_info_obj_id = fd_pod_query_ulong( topo->props, "wait_info", ULONG_MAX );
+    FD_TEST( wait_info_obj_id!=ULONG_MAX );
+    ctx->wait_info = fd_wait_info_box_join( fd_topo_obj_laddr( topo, wait_info_obj_id ) );
+    FD_TEST( ctx->wait_info );
+  }
 }
 
-#define STEM_BURST 6UL
+/* after_credit can result in as many as 5 stem publishes in some code
+   paths, and returnable_frag can result in 2. */
+#define STEM_BURST 7UL
 
 #define STEM_LAZY  (128L*3000L)
 

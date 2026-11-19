@@ -250,6 +250,7 @@ struct fd_txn_out {
     int  is_committable;
     int  is_fees_only;
     int  is_noop;
+    int  is_deferred; /* (fast boot only) an account has not been loaded in yet, try again later */
     int  txn_err;
     /* These are error fields produced by instruction execution
        when txn_err == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR (-9). */

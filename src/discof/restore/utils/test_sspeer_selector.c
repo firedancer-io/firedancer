@@ -1593,6 +1593,41 @@ test_best_empty_selector( fd_sspeer_selector_t * selector,
 }
 
 static void
+test_query( fd_sspeer_selector_t * selector,
+            fd_rng_t *             rng ) {
+  FD_LOG_NOTICE(( "testing query" ));
+
+  fd_sspeer_key_t key[1]; FD_TEST( generate_rand_sspeer_key( key, rng, 1/*is_url*/ ) );
+  fd_ip4_port_t addr = { .addr = FD_IP4_ADDR( 35, 123, 172, 227 ), .port = fd_ushort_bswap( 8899 ) };
+
+  /* An unknown key, then a peer without a full yet: a zero addr. */
+  fd_sspeer_t peer = fd_sspeer_selector_query( selector, key );
+  FD_TEST( peer.addr.l==0UL && peer.full_slot==FD_SSPEER_SLOT_UNKNOWN && peer.score==FD_SSPEER_SCORE_INVALID );
+  FD_TEST( add_peer( selector, key, addr, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_LATENCY_UNKNOWN )!=FD_SSPEER_SCORE_INVALID );
+  peer = fd_sspeer_selector_query( selector, key );
+  FD_TEST( peer.addr.l==0UL );
+
+  /* The peer's own snapshots, whatever another peer offers. */
+  uchar full_hash[ FD_HASH_FOOTPRINT ]; memset( full_hash, 0x22, FD_HASH_FOOTPRINT );
+  uchar incr_hash[ FD_HASH_FOOTPRINT ]; memset( incr_hash, 0x11, FD_HASH_FOOTPRINT );
+  FD_TEST( fd_sspeer_selector_add( selector, key, addr, 5000UL, 1000UL, 1500UL, full_hash, incr_hash )!=FD_SSPEER_SCORE_INVALID );
+  fd_sspeer_key_t key2[1]; FD_TEST( generate_rand_sspeer_key( key2, rng, 0/*is_url*/ ) );
+  fd_ip4_port_t addr2 = { .addr = FD_IP4_ADDR( 35, 123, 172, 228 ), .port = fd_ushort_bswap( 8899 ) };
+  FD_TEST( add_peer( selector, key2, addr2, 2000UL, 2500UL, 1000UL )!=FD_SSPEER_SCORE_INVALID );
+  fd_sspeer_selector_process_cluster_slot( selector );
+  peer = fd_sspeer_selector_query( selector, key );
+  FD_TEST( peer.addr.l==addr.l && fd_sspeer_key_eq( &peer.key, key ) );
+  FD_TEST( peer.full_slot==1000UL && peer.incr_slot==1500UL && peer.full_hash[ 0 ]==0x22 && peer.incr_hash[ 0 ]==0x11 );
+
+  /* Gone once removed. */
+  fd_sspeer_selector_remove( selector, key );
+  peer = fd_sspeer_selector_query( selector, key );
+  FD_TEST( peer.addr.l==0UL );
+
+  FD_LOG_NOTICE(( "... pass" ));
+}
+
+static void
 test_ping_preserves_cleared_incremental( fd_sspeer_selector_t * selector,
                                          fd_rng_t *             rng ) {
   FD_LOG_NOTICE(( "testing ping preserves cleared incremental" ));
@@ -2756,6 +2791,9 @@ main( int     argc,
 
   test_wksp_reinit( &t_wksp_base );
   test_invalid_clear_and_best_sentinel( t_wksp_base.selector, rng );
+
+  test_wksp_reinit( &t_wksp_base );
+  test_query( t_wksp_base.selector, rng );
 
   test_wksp_reinit( &t_wksp_base );
   test_ping_preserves_cleared_incremental( t_wksp_base.selector, rng );

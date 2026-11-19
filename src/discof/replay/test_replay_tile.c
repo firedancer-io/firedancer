@@ -18,6 +18,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h" /* IWYU pragma: keep */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h" /* IWYU pragma: keep */
 #include "../../flamenco/rewards/fd_rewards.h" /* IWYU pragma: keep */
@@ -278,6 +279,8 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_txncache_attach_child             mock_txncache_attach_child_fn
 #define fd_progcache_attach_child            mock_progcache_attach_child_fn
 #define fd_accdb_attach_child                mock_accdb_attach_child_fn
+static int   mock_accdb_still_loading;
+#define fd_accdb_snapshot_still_loading(a)   ( (a) ? (fd_accdb_snapshot_still_loading)(a) : mock_accdb_still_loading )
 #define fd_txncache_cancel_fork(tc,f)        ((void)(tc),(void)(f))
 #define fd_progcache_cancel_fork(c,f)        ((void)(c),(void)(f))
 #define fd_accdb_purge(a,f)                  ((void)(a),(void)(f))
@@ -285,6 +288,7 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_txncache_metrics_snap(t,o)        do { if( t ) (fd_txncache_metrics_snap)(t,o); else memset( (o), 0, sizeof(*(o)) ); } while(0)
 #define fd_accdb_metrics(a)                  ( (a) ? (fd_accdb_metrics)(a) : &mock_accdb_metrics )
 #define fd_progcache_cache_class_occupancy(c,u,m) do { if( (c)->shmem ) (fd_progcache_cache_class_occupancy)(c,u,m); else { memset( u, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); memset( m, 0, FD_PROGCACHE_CACHE_CLASS_CNT*sizeof(ulong) ); } } while(0)
+#define fd_sched_set_lthash_inband_only(s,v) do { if( (s) ) (fd_sched_set_lthash_inband_only)(s,v); } while(0)
 #define fd_sched_fec_waits_for_lane(s,p,f)  ( (s) ? (fd_sched_fec_waits_for_lane)(s,p,f) : mock_sched_lane_wait )
 #define fd_sched_block_start_writes(s,b,a,c) do { if( (s) ) (fd_sched_block_start_writes)(s,b,a,c); } while(0)
 /* Bypass unrelated boot dependencies while exercising snapshot DONE to completion. */
@@ -297,10 +301,18 @@ mock_runtime_block_execute_prepare_fn( fd_banks_t *         banks FD_PARAM_UNUSE
 #define fd_multi_epoch_leaders_epoch_msg_fini(m)     do { if( !mock_snapshot_boot ) (fd_multi_epoch_leaders_epoch_msg_fini)(m); } while(0)
 #define fd_progcache_reset(cache)                    do { if( !mock_snapshot_boot ) (fd_progcache_reset)(cache); } while(0)
 #define fd_sysvar_stake_history_read(a,f,d,v) (mock_snapshot_boot ? NULL : (fd_sysvar_stake_history_read)(a,f,d,v))
-#define fd_stake_delegations_refresh(d,e,h,w,r)       do { if( !mock_snapshot_boot ) (fd_stake_delegations_refresh)(d,e,h,w,r); } while(0)
 #define fd_vote_stakes_refresh(v,f,a,i)              do { if( !mock_snapshot_boot ) (fd_vote_stakes_refresh)(v,f,a,i); } while(0)
 #define fd_rewards_recalculate_partitioned_rewards(k,a,s,c) do { if( !mock_snapshot_boot ) (fd_rewards_recalculate_partitioned_rewards)(k,a,s,c); } while(0)
 #define fd_accdb_lamports(a,i,p) (mock_snapshot_boot ? 0UL : (fd_accdb_lamports)(a,i,p))
+/* The epoch rewards sysvar says whether a payout is running. */
+static int mock_epoch_rewards_active;
+static fd_sysvar_epoch_rewards_t *
+mock_epoch_rewards_read_fn( fd_sysvar_epoch_rewards_t * out ) {
+  if( !mock_epoch_rewards_active ) return NULL;
+  out->active = 1;
+  return out;
+}
+#define fd_sysvar_epoch_rewards_read(a,f,o) ( (a) ? (fd_sysvar_epoch_rewards_read)(a,f,o) : mock_epoch_rewards_read_fn(o) )
 static ulong mock_migration_slot = ULONG_MAX;
 #define fd_alpenglow_migration_slot(b,a) (mock_snapshot_boot || mock_footer_finalize ? mock_migration_slot : (fd_alpenglow_migration_slot)(b,a))
 #define fd_runtime_block_execute_prepare     mock_runtime_block_execute_prepare_fn
@@ -411,6 +423,7 @@ setup_stem( fd_replay_tile_t * ctx, fd_wksp_t * wksp ) {
     else if( i==3UL ) *ctx->slot_out   = out;
     else              *ctx->rotor_out  = out;
   }
+  ctx->strmk_out->idx = ULONG_MAX; /* no stream maker unless a test gives it a link */
 
   *test_stem_min_cr_avail = ULONG_MAX;
   *test_stem = (fd_stem_context_t) {
@@ -753,6 +766,28 @@ test_txn_completion_publish( fd_wksp_t * wksp ) {
   FD_TEST( out->priority_fee==msg->txn_exec->priority_fee );
   FD_TEST( out->tips==msg->txn_exec->tips );
 
+  /* A transaction the exec tile hands back goes to the scheduler as
+     deferred: the bank reference and the cost tracker pin come back,
+     nothing is published, the block is not ruled dead. */
+  bank->refcnt = 1UL;
+  fd_cost_tracker_store_pin( cost_tracker_store, bank->cost_tracker_fork_id );
+  mock_sched_task_done_cnt      = 0UL;
+  mock_sched_task_done_exec_idx = ULONG_MAX;
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->bank_idx              = bank->idx;
+  msg->txn_deferred->txn_idx = mock_sched_txn_idx;
+  sig = (FD_EXECRP_TT_TXN_DEFERRED<<32) | 7UL;
+  FD_TEST( !returnable_frag( ctx, TEST_EXECRP_IN_IDX, 1UL, sig, in_chunk,
+                             sizeof(*msg), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( bank->refcnt==0UL );
+  FD_TEST( mock_sched_task_done_cnt==1UL );
+  FD_TEST( mock_sched_task_done_type==FD_SCHED_TT_TXN_DEFERRED );
+  FD_TEST( mock_sched_task_done_txn_idx==mock_sched_txn_idx );
+  FD_TEST( mock_sched_task_done_exec_idx==7UL );
+  FD_TEST( mock_sched_abandon_cnt==0UL );
+  FD_TEST( bank->state!=FD_BANK_STATE_DEAD );
+  FD_TEST( test_stem_seqs[ out_idx ]==1UL );
+
   fd_cost_tracker_store_release( cost_tracker_store, bank->cost_tracker_fork_id );
   bank->cost_tracker_fork_id = USHORT_MAX;
 
@@ -991,29 +1026,45 @@ test_snapshot_intervals_use_block_height( void ) {
   ctx->snapmk.next_incremental_block_height  = ULONG_MAX;
   ctx->snapmk.base_slot                      = ULONG_MAX;
 
-  int incremental = -1;
-  FD_TEST( !snapshot_due_for_root( ctx, 99998UL, 250000UL, 99999UL, 99999UL, &incremental ) );
+  int   incremental = -1;
+  ulong height      = 0UL;
+  FD_TEST( !snapshot_due_for_root( ctx, 99998UL, 250000UL, 99999UL, 99999UL, &incremental, &height ) );
   FD_TEST( !incremental );
   FD_TEST( ctx->snapmk.next_full_block_height==100000UL );
 
-  FD_TEST( snapshot_due_for_root( ctx, 99999UL, 250001UL, 100000UL, 100000UL, &incremental ) );
-  FD_TEST( !incremental );
+  FD_TEST( snapshot_due_for_root( ctx, 99999UL, 250001UL, 100000UL, 100000UL, &incremental, &height ) );
+  FD_TEST( !incremental && height==100000UL );
 
   ctx->snapmk.next_full_block_height        = 200000UL;
   ctx->snapmk.incremental_interval_blocks   = 200UL;
   ctx->snapmk.next_incremental_block_height = ULONG_MAX;
   ctx->snapmk.base_slot                     = 100UL;
-  FD_TEST( !snapshot_due_for_root( ctx, 398UL, 250002UL, 399UL, 399UL, &incremental ) );
+  FD_TEST( !snapshot_due_for_root( ctx, 398UL, 250002UL, 399UL, 399UL, &incremental, &height ) );
   FD_TEST( !incremental );
   FD_TEST( ctx->snapmk.next_incremental_block_height==400UL );
 
-  FD_TEST( snapshot_due_for_root( ctx, 399UL, 250003UL, 400UL, 400UL, &incremental ) );
-  FD_TEST( incremental );
+  FD_TEST( snapshot_due_for_root( ctx, 399UL, 250003UL, 400UL, 400UL, &incremental, &height ) );
+  FD_TEST( incremental && height==400UL );
 
   ctx->snapmk.next_full_block_height        = 200000UL;
   ctx->snapmk.next_incremental_block_height = 200000UL;
-  FD_TEST( snapshot_due_for_root( ctx, 199999UL, 400UL, 200000UL, 200000UL, &incremental ) );
+  FD_TEST( snapshot_due_for_root( ctx, 199999UL, 400UL, 200000UL, 200000UL, &incremental, &height ) );
   FD_TEST( !incremental );
+
+  /* Once a stream closed for a snapshot, that snapshot's block height
+     holds while the root walks there, however far the consensus root
+     has moved on.  A manual snapshot request still takes over. */
+  ctx->strmk.stopping          = 1;
+  ctx->strmk.snap_incremental  = 1;
+  ctx->strmk.snap_block_height = 400UL;
+  FD_TEST( !snapshot_due_for_root( ctx, 398UL, 250002UL, 399UL, 200000UL, &incremental, &height ) );
+  FD_TEST(  snapshot_due_for_root( ctx, 399UL, 250003UL, 400UL, 200000UL, &incremental, &height ) );
+  FD_TEST( incremental && height==400UL );
+  ctx->snapmk.scheduled_at_slot = 250003UL;
+  FD_TEST(  snapshot_due_for_root( ctx, 398UL, 250003UL, 399UL, 200000UL, &incremental, &height ) );
+  FD_TEST( !incremental );
+  ctx->snapmk.scheduled_at_slot = ULONG_MAX;
+  ctx->strmk.stopping           = 0;
 
   FD_LOG_NOTICE(( "pass: test_snapshot_intervals_use_block_height" ));
 }
@@ -1059,6 +1110,57 @@ test_snapmk_start_leader_after_epoch_rollover( fd_wksp_t * wksp ) {
   FD_TEST( ctx->snapmk.active );
 
   FD_LOG_NOTICE(( "pass: test_snapmk_start_leader_after_epoch_rollover" ));
+}
+
+/* A snapshot, full or incremental, opens a stream once replay has
+   caught up and outside a rewards payout. */
+
+static void
+test_snapmk_start_opens_stream( fd_wksp_t * wksp,
+                                int         incremental ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  FD_TEST( bank );
+  bank->f.slot                 = 127UL;
+  ctx->published_root_bank_idx = bank->idx;
+  ctx->snapmk.supported        = 1;
+  ctx->snapmk.base_slot        = incremental ? 100UL : ULONG_MAX;
+  ctx->strmk.supported         = 1;
+  ctx->strmk.stopping          = 1;
+  *ctx->snapmk_out = *ctx->slot_out;
+  ulong refcnt = bank->refcnt;
+
+  /* Not before replay has caught up. */
+  mock_epoch_rewards_active = 0;
+  ulong chunk = ctx->snapmk_out->chunk;
+  snapmk_start( ctx, test_stem, incremental );
+  fd_replay_snap_start_t const * msg = fd_chunk_to_laddr_const( ctx->snapmk_out->mem, chunk );
+  FD_TEST( !msg->should_open_stream && !ctx->strmk.active );
+  snapmk_done( ctx, test_stem, 1 );
+
+  /* Nor during a rewards payout. */
+  ctx->caught_up            = 1;
+  mock_epoch_rewards_active = 1;
+  chunk = ctx->snapmk_out->chunk;
+  snapmk_start( ctx, test_stem, incremental );
+  msg = fd_chunk_to_laddr_const( ctx->snapmk_out->mem, chunk );
+  FD_TEST( !msg->should_open_stream && !ctx->strmk.active );
+  snapmk_done( ctx, test_stem, 1 );
+
+  mock_epoch_rewards_active = 0;
+  chunk = ctx->snapmk_out->chunk;
+  snapmk_start( ctx, test_stem, incremental );
+  msg = fd_chunk_to_laddr_const( ctx->snapmk_out->mem, chunk );
+  FD_TEST( msg->should_open_stream && msg->slot==127UL && msg->base_slot==(incremental ? 100UL : 127UL) );
+  FD_TEST( ctx->strmk.active && ctx->strmk.bank_idx==bank->idx && bank->refcnt==refcnt+2UL );
+  FD_TEST( !ctx->strmk.stopping );
+  snapmk_done( ctx, test_stem, 1 );
+  strmk_done( ctx );
+  FD_TEST( bank->refcnt==refcnt );
+
+  FD_LOG_NOTICE(( "pass: test_snapmk_start_opens_stream incremental=%d", incremental ));
 }
 
 static void
@@ -1508,7 +1610,7 @@ test_consensus_root_notification_handoff( fd_wksp_t * wksp ) {
   ulong seq0    = test_stem_seqs[ out_idx ];
   ulong slot_seq0 = test_stem_seqs[ ctx->slot_out->idx ];
   mock_snapshot_boot = 1;
-  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
+  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) );
   mock_snapshot_boot = 0;
   fd_metrics_tl = saved_metrics_tl;
   FD_TEST( root->accdb_fork_id.val==37U );
@@ -2239,6 +2341,72 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer_finalize = 0;
 
   FD_LOG_NOTICE(( "pass: test_root_from_footer" ));
+}
+
+/* The root does not advance while the snapshots behind a fast boot
+   stream are still loading.  Serving a stream returns right after the
+   identity vote check, before the accdb root moves. */
+
+static void
+test_root_waits_for_snapshots( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
+  ctx->consensus_root      = id1;
+  ctx->consensus_root_slot = 1UL;
+  ctx->strmk.active        = 1;
+  ctx->strmk.stopping      = 1;
+  ctx->identity_vote_rooted = 0;
+  b1->f.identity_vote_idx   = ctx->identity_idx;
+
+  ctx->snapshots_loading = 1;
+  FD_TEST( !try_advance_published_root( ctx, test_stem ) && !ctx->identity_vote_rooted );
+  ctx->snapshots_loading = 0;
+  FD_TEST( !try_advance_published_root( ctx, test_stem ) && ctx->identity_vote_rooted );
+
+  FD_LOG_NOTICE(( "pass: test_root_waits_for_snapshots" ));
+}
+
+/* When the next snapshot is due behind a stream, replay sends stop on
+   the stream maker's link, settles the snapshot's block height and
+   keeps the root until the stream maker is done. */
+
+static void
+test_root_stop_settles_snapshot( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 100UL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_bank_t * root = setup_rooting_ctx( ctx, wksp, &root_id );
+  fd_bank_t * b1   = add_block( ctx, root, 1UL, &id1 );
+  ctx->consensus_root      = id1;
+  ctx->consensus_root_slot = 1UL;
+  ctx->caught_up           = 1;
+  ctx->strmk.supported     = 1;
+  ctx->strmk.active        = 1;
+  ctx->snapmk.supported    = 1;
+  ctx->snapmk.scheduled_at_slot             = ULONG_MAX;
+  ctx->snapmk.next_full_block_height        = ULONG_MAX;
+  ctx->snapmk.next_incremental_block_height = ULONG_MAX;
+  ctx->snapmk.incremental_interval_blocks   = 1UL;
+  ctx->snapmk.base_slot                     = 0UL;
+  *ctx->strmk_out = *ctx->slot_out;
+  ulong out_idx = ctx->strmk_out->idx;
+  ulong seq     = test_stem_seqs[ out_idx ];
+
+  FD_TEST( try_advance_published_root( ctx, test_stem ) );
+  FD_TEST( ctx->strmk.stopping && ctx->strmk.snap_incremental && ctx->strmk.snap_block_height==b1->f.block_height );
+  FD_TEST( ctx->published_root_slot==0UL );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq+1UL );
+  fd_frag_meta_t const * line = test_stem_mcaches[ out_idx ]+fd_mcache_line_idx( seq, test_stem_depths[ out_idx ] );
+  FD_TEST( line->sig==REPLAY_SIG_STREAM_STOP );
+
+  /* nothing more until the stream maker answers */
+  FD_TEST( !try_advance_published_root( ctx, test_stem ) );
+  FD_TEST( test_stem_seqs[ out_idx ]==seq+1UL );
+
+  FD_LOG_NOTICE(( "pass: test_root_stop_settles_snapshot" ));
 }
 
 /* test_footer_cert_tasks drives replay_block_finalize with real signed
@@ -3588,6 +3756,53 @@ test_rotor_fec_merged_copies( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_rotor_fec_merged_copies" ));
 }
 
+/* A fast boot replays while the snapshots behind the stream load.  A
+   block that starts a new epoch waits for them to finish, a block in
+   the same epoch does not, and the hold is published so the load can
+   start. */
+
+static void
+test_rotor_fec_holds_at_epoch_boundary( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t   ctx[ 1 ];
+  static fd_wait_info_box_t box[ 1 ];
+  fd_wait_info_t info;
+  setup_ctx( ctx, wksp );
+  fd_hash_t parent_bid = { .ul = { 0xBEEFUL } };
+  setup_ag_root( ctx, &parent_bid );
+  ctx->wait_info = fd_wait_info_box_join( fd_wait_info_box_new( box ) );
+  FD_TEST( ctx->wait_info );
+  ctx->snapshots_loading = 1;
+  ctx->epoch_end_slot    = 127UL;
+
+  /* Slot 5 stays in epoch 0: not held.  Its bank is never started. */
+  ulong     ing0 = mock_sched_fec_ingest_cnt;
+  fd_hash_t B    = { .ul = { 0xB5UL } };
+  fd_hash_t mr5  = { .ul = { 501 } };
+  FD_TEST( deliver_rotor_fec_bid( ctx, 5UL, 0U, 0UL, &parent_bid, &B, &mr5, 1, 0 )==0 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL && !ctx->epoch_boundary_hold );
+
+  /* Slot 128 starts epoch 1 on the unstarted parent: held. */
+  fd_hash_t mr128 = { .ul = { 601 } };
+  FD_TEST( deliver_rotor_fec( ctx, 128UL, 0U, 5UL, &B, &mr128, 0, 0 )==1 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL && ctx->epoch_boundary_hold );
+  publish( ctx, &info );
+  FD_TEST( info.epoch_boundary_hold && !info.caught_up );
+
+  /* A block whose leader handed over starts at its UpdateParent FEC,
+     not at FEC 0: held the same way. */
+  fd_hash_t mr129 = { .ul = { 602 } };
+  FD_TEST( deliver_rotor_fec_up( ctx, 129UL, 32U, 32U, 5UL, &B, &mr129, 0, 0 )==1 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+1UL && ctx->epoch_boundary_hold );
+
+  /* The snapshots are done loading: the block goes through. */
+  finish_snapshot_load( ctx );
+  FD_TEST( !ctx->snapshots_loading && !ctx->epoch_boundary_hold );
+  FD_TEST( deliver_rotor_fec( ctx, 128UL, 0U, 5UL, &B, &mr128, 0, 0 )==0 );
+  FD_TEST( mock_sched_fec_ingest_cnt==ing0+2UL );
+
+  FD_LOG_NOTICE(( "pass: test_rotor_fec_holds_at_epoch_boundary" ));
+}
+
 /* test_dead_block_children_drop: what replay does around a block it
    ruled dead, as observed live with a block whose footer cert failed
    verification.  mark_bank_dead publishes SLOT_DEAD; the dead bank is
@@ -4314,7 +4529,7 @@ snapshot_done( fd_replay_tile_t * ctx ) {
   volatile ulong * saved = fd_metrics_tl;
   fd_metrics_tl      = wfs_metrics;
   mock_snapshot_boot = 1;
-  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ) );
+  on_snapshot_message( ctx, test_stem, 0UL, 0UL, fd_ssmsg_sig( FD_SSMSG_REPLAY_READY ) );
   mock_snapshot_boot = 0;
   fd_metrics_tl      = saved;
 }
@@ -4331,6 +4546,24 @@ test_snapshot_boot_bank_migration_slot( fd_wksp_t * wksp ) {
   FD_TEST( root->f.alpenglow_migration_slot==64UL );
 
   FD_LOG_NOTICE(( "pass: test_snapshot_boot_bank_migration_slot" ));
+}
+
+/* Booting from a snapshot marks the snapshots as loading; the finish
+   step clears it. */
+
+static void
+test_finish_snapshot_load( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t   ctx[1];
+  static fd_runtime_stack_t stack[1];
+
+  memset( ctx, 0, sizeof(*ctx) );
+  setup_snapshot_test_ctx( ctx, wksp, stack, 100UL );
+  snapshot_done( ctx );
+  FD_TEST( ctx->snapshots_loading );
+  finish_snapshot_load( ctx );
+  FD_TEST( !ctx->snapshots_loading );
+
+  FD_LOG_NOTICE(( "pass: test_finish_snapshot_load" ));
 }
 
 static void
@@ -4632,12 +4865,18 @@ test_wfs_leader_gate( fd_wksp_t * wksp ) {
   FD_TEST( !ctx->wfs_complete );
   FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL )==0 );
 
-  /* after_credit returns immediately when wfs_complete==0.  If the
+  /* after_credit only finishes the snapshot load when wfs_complete==0,
+     and only once the accounts database says the load is done.  If the
      gate didn't fire, it would crash on our minimal ctx. */
   ctx->is_booted = 1;
   int opt_poll_in = 1;
   int charge_busy = 0;
+  mock_accdb_still_loading = 1;
   after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( ctx->snapshots_loading && !charge_busy );
+  mock_accdb_still_loading = 0;
+  after_credit( ctx, test_stem, &opt_poll_in, &charge_busy );
+  FD_TEST( !ctx->snapshots_loading && charge_busy && !opt_poll_in );
 
   FD_LOG_NOTICE(( "pass: test_wfs_leader_gate" ));
 }
@@ -4734,6 +4973,7 @@ main( int     argc,
   test_wait_info_produced_incr_cnt( wksp );         fd_wksp_reset( wksp, 42U );
   test_wfs_auto_override( wksp );                   fd_wksp_reset( wksp, 42U );
   test_snapshot_boot_bank_migration_slot( wksp );   fd_wksp_reset( wksp, 42U );
+  test_finish_snapshot_load( wksp );                fd_wksp_reset( wksp, 42U );
   test_wfs_error_aborts( wksp );                    fd_wksp_reset( wksp, 42U );
   test_wfs_bank_hash_mismatch( wksp );              fd_wksp_reset( wksp, 42U );
   test_wfs_done_idempotency( wksp );                fd_wksp_reset( wksp, 42U );
@@ -4751,6 +4991,8 @@ main( int     argc,
   test_root_lagging_replay( wksp );                 fd_wksp_reset( wksp, 42U );
   test_root_newer_first( wksp );                    fd_wksp_reset( wksp, 42U );
   test_root_from_footer( wksp );                    fd_wksp_reset( wksp, 42U );
+  test_root_waits_for_snapshots( wksp );            fd_wksp_reset( wksp, 42U );
+  test_root_stop_settles_snapshot( wksp );          fd_wksp_reset( wksp, 42U );
   test_footer_cert_tasks( wksp );                   fd_wksp_reset( wksp, 42U );
   test_slot_completed_keeps_leader_sentinel( wksp ); fd_wksp_reset( wksp, 42U );
   test_drain_rotor_fecs( wksp );                    fd_wksp_reset( wksp, 42U );
@@ -4766,6 +5008,7 @@ main( int     argc,
   test_rotor_fec_rooted_past( wksp );               fd_wksp_reset( wksp, 42U );
   test_rotor_fec_merged_copies( wksp );             fd_wksp_reset( wksp, 42U );
   test_rotor_fec_redelivered_final( wksp );         fd_wksp_reset( wksp, 42U );
+  test_rotor_fec_holds_at_epoch_boundary( wksp );   fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 1 );      fd_wksp_reset( wksp, 42U );
   test_ag_set_identity_leader_slot( wksp, 0 );      fd_wksp_reset( wksp, 42U );
   test_dead_block_children_drop( wksp );
@@ -4777,6 +5020,8 @@ main( int     argc,
   test_ag_leader_fec_not_gated( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );
+  test_snapmk_start_opens_stream( wksp, 0 );
+  test_snapmk_start_opens_stream( wksp, 1 );
 
   FD_TEST( mock_store_view_success_cnt==mock_store_view_release_cnt );
 

@@ -142,6 +142,12 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          ulong                  base_slot,
                          ulong                  min_reachable_slot );
 
+/* Look up the peer with the given key.  Returns it when it is tracked
+   and offers a full snapshot, else a peer with a zero addr. */
+fd_sspeer_t
+fd_sspeer_selector_query( fd_sspeer_selector_t const * selector,
+                          fd_sspeer_key_t const *      key );
+
 /* Recompute the selector's internal cluster slot from the max of
    all tracked peers' slots.  If the max changes, all peers are
    rescored.  add() and remove() only mark the selector dirty;

@@ -47,6 +47,22 @@ test_ssarchive_parse_filename( void ) {
 }
 
 static void
+test_ssarchive_parse_fast_boot_filename( void ) {
+  ulong slot;
+  uchar hash[ FD_HASH_FOOTPRINT ];
+  FD_TEST( fd_ssarchive_parse_fast_boot_filename( "fast-boot-stream-457390553-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", &slot, hash )==0 );
+  FD_TEST( slot==457390553UL );
+  char enc[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( hash, NULL, enc );
+  FD_TEST( strcmp( enc, "AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM" )==0 );
+  FD_TEST( fd_ssarchive_parse_fast_boot_filename( "fast-boot-stream-+5-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst", &slot, hash )==-1 );
+  FD_TEST( fd_ssarchive_parse_fast_boot_filename( "fast-boot-stream-5-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar",     &slot, hash )==-1 );
+  FD_TEST( fd_ssarchive_parse_fast_boot_filename( "fast-boot-stream-5-.tar.zst",                                              &slot, hash )==-1 );
+  FD_TEST( fd_ssarchive_parse_fast_boot_filename( "fast-boot-stream-5.tar.zst",                                               &slot, hash )==-1 );
+  FD_TEST( fd_ssarchive_parse_fast_boot_filename( "snapshot-5-AGoNxxXQK4kCjeK4y8eJDaEfobS4QjMmCQm5zbEGq9kM.tar.zst",          &slot, hash )==-1 );
+}
+
+static void
 test_ssarchive_init(fd_test_ssarchive_env_t * env) {
   char tmp_path_template[] = "/tmp/test_ssarchive.XXXXXX";
   char * tmp_path          = mkdtemp(tmp_path_template);
@@ -459,6 +475,7 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
   test_ssarchive_parse_filename();
+  test_ssarchive_parse_fast_boot_filename();
   test_ssarchive_latest_pair_basic();
   test_ssarchive_latest_pair_dangling_incr();
   test_ssarchive_latest_pair_no_incr();

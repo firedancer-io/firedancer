@@ -35,6 +35,7 @@ test_stem_publish( fd_stem_context_t * stem FD_PARAM_UNUSED,
 #undef fd_stem_publish
 #include <stdlib.h>
 #include <sys/epoll.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -318,6 +319,524 @@ test_block_list_contact_info_insert( void ) {
   FD_TEST( ctx->gossip.allowed_cnt==0UL );
   FD_TEST( ULONG_MAX==gossip_ci_map_idx_query_const( ctx->gossip.ci_map, &peer, ULONG_MAX, ctx->gossip.ci_table ) );
 
+  free( scratch );
+}
+
+/* A fast boot stream has no size of its own: data beyond the size it
+   was first served at is fine, caught up is just noted, and it ends
+   when snapin says the snapshots behind it are in, never by a
+   LOAD_COMPLETE from snapld. */
+static void
+test_stream_signals( void ) {
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  test_ctx_wake_init( ctx );
+
+  ctx->config.fast_boot_stream  = 1;
+  ctx->state                    = FD_SNAPCT_STATE_READING_STREAM;
+  ctx->metrics.full.bytes_total = 100UL;
+  ctx->metrics.full.bytes_read  = 100UL;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_DATA, 50UL, 0UL, NULL );
+  FD_TEST( !ctx->malformed && ctx->metrics.full.bytes_read==150UL );
+
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP, 0UL, 0UL, NULL );
+  FD_TEST( !ctx->malformed && !ctx->load_complete );
+
+  pid_t pid = fork();
+  FD_TEST( pid>=0 );
+  if( !pid ) { snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL ); _exit( 0 ); }
+  int status;
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+
+  /* STOP from snapin ends the stream load and shuts snapld down. */
+  ctx->in_kind[ 0 ] = IN_KIND_ACK;
+  test_publish_cnt  = 0UL;
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_STOP, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_SHUTDOWN && test_publish_cnt==1UL && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+}
+
+/* The snapct behind a fast boot loads the full the stream is on, then
+   the incremental made at the stream's start, both by their exact
+   names. */
+static void
+test_background_snapshot_instance( void ) {
+  /* The output files sit at the fd numbers the snapshot pool uses. */
+  struct rlimit nofile; FD_TEST( !getrlimit( RLIMIT_NOFILE, &nofile ) );
+  if( FD_UNLIKELY( nofile.rlim_max<(rlim_t)FD_SNAP_FD( 2U ) ) ) { FD_LOG_WARNING(( "RLIMIT_NOFILE hard limit %lu below %d, skipping", (ulong)nofile.rlim_max, FD_SNAP_FD( 2U ) )); return; }
+  if( nofile.rlim_cur<(rlim_t)FD_SNAP_FD( 2U ) ) { nofile.rlim_cur = (rlim_t)FD_SNAP_FD( 2U ); FD_TEST( !setrlimit( RLIMIT_NOFILE, &nofile ) ); }
+
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx = scratch;
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar input [ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->selector                          = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->state                             = FD_SNAPCT_STATE_INIT;
+  ctx->config.fast_boot                  = 1;
+  ctx->config.incremental_snapshots      = 1;
+  ctx->fast_boot.stream_slot             = ULONG_MAX;
+  ctx->load_incremental                  = 1;
+  ctx->resolved_servers_cnt              = 1UL;
+  ctx->out_ld.mem                        = (fd_wksp_t *)output;
+  ctx->out_ld.wmark                      = 128UL;
+  ctx->snapld_in_mem                     = input;
+  test_output                            = output;
+
+  /* Downloads land in real files: a partial file per snapshot in a
+     scratch directory, at the fd numbers the pool expects. */
+  char dir[] = "/tmp/test_snapct_XXXXXX"; FD_TEST( mkdtemp( dir ) );
+  ctx->local_out.dir_fd = open( dir, O_RDONLY|O_DIRECTORY ); FD_TEST( ctx->local_out.dir_fd!=-1 );
+  fd_snap_pool_partial_name( ctx->local_out.full_snapshot_name,        0U );
+  fd_snap_pool_partial_name( ctx->local_out.incremental_snapshot_name, 1U );
+  int full_fd = openat( ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name,        O_CREAT|O_RDWR, 0600 ); FD_TEST( full_fd!=-1 );
+  int incr_fd = openat( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name, O_CREAT|O_RDWR, 0600 ); FD_TEST( incr_fd!=-1 );
+  FD_TEST( dup2( full_fd, FD_SNAP_FD( 0U ) )==FD_SNAP_FD( 0U ) ); close( full_fd );
+  FD_TEST( dup2( incr_fd, FD_SNAP_FD( 1U ) )==FD_SNAP_FD( 1U ) ); close( incr_fd );
+  ctx->local_out.full_snapshot_fd        = FD_SNAP_FD( 0U );
+  ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( 1U );
+
+  /* Nothing moves until replay has caught up on the stream. */
+  static fd_wait_info_box_t box[ 1 ];
+  ctx->wait_info = fd_wait_info_box_join( fd_wait_info_box_new( box ) );
+  int busy = 0;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT );
+
+  /* Replay holds at an epoch boundary, but nothing moves until the
+     stream's snapct names the stream it follows: start slot and
+     hash, and the full it is on, arrive on the snapct_ct link. */
+  fd_wait_info_write_begin( ctx->wait_info );
+  ctx->wait_info->info.epoch_boundary_hold = 1;
+  fd_wait_info_write_end( ctx->wait_info );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT );
+
+  fd_ssctrl_stream_init_t * stream = (fd_ssctrl_stream_init_t *)input;
+  ctx->in_kind[ 0 ]  = IN_KIND_STREAM;
+  ctx->stream_in_mem = input;
+  stream->stream_slot = 150UL;
+  stream->full_slot   = 100UL;
+  memset( stream->stream_hash, 0x11, FD_HASH_FOOTPRINT );
+  memset( stream->full_hash,   0x22, FD_HASH_FOOTPRINT );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->fast_boot.stream_hash[ 31 ]==0x11 );
+  FD_TEST( ctx->fast_boot.full_slot==100UL && ctx->fast_boot.full_hash[ 0 ]==0x22 && ctx->fast_boot.full_hash[ 31 ]==0x22 );
+  FD_TEST( ctx->load_incremental );
+
+  /* The stream is named once, before its full. */
+  pid_t pid; int status;
+  pid = fork(); FD_TEST( pid>=0 );
+  if( !pid ) { returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ); _exit( 0 ); }
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+
+  /* The full is asked for by its exact name, no redirect, with its
+     slot and hash. */
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP );
+  fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->slot==100UL && init->snapshot_hash[ 0 ]==0x22 && !init->fast_boot_stream && !init->is_redirect );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START && !strcmp( test_start.path, "/snapshot-100-3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3.tar.zst" ) );
+  FD_TEST( !strcmp( ctx->http_full_snapshot_name, "snapshot-100-3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3.tar.zst" ) );
+
+  /* Its META carries no resolved name: the request name is kept. */
+  fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)input;
+  memset( meta, 0, sizeof(*meta) );
+  meta->total_sz      = 1000UL;
+  meta->resolved_slot = ULONG_MAX;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( !strcmp( ctx->http_full_snapshot_name, "snapshot-100-3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3.tar.zst" ) );
+
+  /* Then the incremental is asked for by its exact name: the full,
+     the stream's slot, the stream's hash.  No redirect. */
+  ctx->state     = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE;
+  ctx->flush_ack = ctx->flush_ack_cnt;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP );
+  init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR && init->slot==150UL && init->snapshot_hash[ 0 ]==0x11 && !init->fast_boot_stream && !init->is_redirect );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START && !strcmp( test_start.path, "/incremental-snapshot-100-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
+  FD_TEST( !strcmp( ctx->http_incr_snapshot_name, "incremental-snapshot-100-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
+
+  /* Its META carries no resolved name; the request name is kept. */
+  meta->resolved_slot = ULONG_MAX;
+  meta->resolved_name[ 0 ] = '\0';
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( !strcmp( ctx->http_incr_snapshot_name, "incremental-snapshot-100-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
+
+  /* A stream starting at its full: the full alone, by name, then
+     done without an incremental. */
+  ctx->state                 = FD_SNAPCT_STATE_INIT;
+  ctx->fast_boot.stream_slot = ULONG_MAX;
+  stream->stream_slot = 200UL;
+  stream->full_slot   = 200UL;
+  memset( stream->stream_hash, 0x33, FD_HASH_FOOTPRINT );
+  memset( stream->full_hash,   0x33, FD_HASH_FOOTPRINT );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( !ctx->load_incremental );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP );
+  init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->slot==200UL && init->snapshot_hash[ 0 ]==0x33 && !init->is_redirect );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START && !strcmp( test_start.path, "/snapshot-200-4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4.tar.zst" ) );
+  memset( meta, 0, sizeof(*meta) );
+  meta->total_sz      = 1000UL;
+  meta->resolved_slot = ULONG_MAX;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  ctx->state     = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI;
+  ctx->flush_ack = ctx->flush_ack_cnt;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_DONE );
+  ctx->flush_ack = ctx->flush_ack_cnt;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_SHUTDOWN && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+
+  /* Any malformed load is fatal. */
+  pid = fork(); FD_TEST( pid>=0 );
+  if( !pid ) { ctx->malformed = 1; after_credit( ctx, NULL, NULL, &busy ); _exit( 0 ); }
+  FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+
+  close( FD_SNAP_FD( 0U ) );
+  close( FD_SNAP_FD( 1U ) );
+  unlinkat( ctx->local_out.dir_fd, ctx->http_full_snapshot_name,            0 );
+  unlinkat( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name, 0 );
+  close( ctx->local_out.dir_fd );
+  rmdir( dir );
+  free( sel );
+  free( scratch );
+}
+
+
+/* The full behind a stream that is already on disk is read from
+   there: the stream's META names the full it is on, and the file load
+   starts with the file's slot.  A stream starting at its full has no
+   incremental behind it. */
+static void
+test_background_snapshot_full_on_disk( void ) {
+  struct rlimit nofile; FD_TEST( !getrlimit( RLIMIT_NOFILE, &nofile ) );
+  if( FD_UNLIKELY( nofile.rlim_max<(rlim_t)FD_SNAP_FD( 2U ) ) ) { FD_LOG_WARNING(( "RLIMIT_NOFILE hard limit %lu below %d, skipping", (ulong)nofile.rlim_max, FD_SNAP_FD( 2U ) )); return; }
+  if( nofile.rlim_cur<(rlim_t)FD_SNAP_FD( 2U ) ) { nofile.rlim_cur = (rlim_t)FD_SNAP_FD( 2U ); FD_TEST( !setrlimit( RLIMIT_NOFILE, &nofile ) ); }
+
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx = scratch;
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar input [ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->selector                     = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->state                        = FD_SNAPCT_STATE_INIT;
+  ctx->config.fast_boot             = 1;
+  ctx->config.incremental_snapshots = 1;
+  ctx->fast_boot.stream_slot        = ULONG_MAX;
+  ctx->load_incremental             = 1;
+  ctx->resolved_servers_cnt         = 1UL;
+  ctx->out_ld.mem                   = (fd_wksp_t *)output;
+  ctx->out_ld.wmark                 = 128UL;
+  ctx->snapld_in_mem                = input;
+  test_output                       = output;
+  ctx->local_in.full_snapshot_slot  = 100UL;
+  ctx->local_in.full_snapshot_size  = 1000UL;
+  ctx->local_in.full_snapshot_zstd  = 1;
+  memset( ctx->local_in.full_snapshot_hash, 0x22, FD_HASH_FOOTPRINT );
+  strcpy( ctx->local_in.full_snapshot_path, "/tmp/snapshot-100-x.tar.zst" );
+
+  /* A download's partial file sits at the pool's fd number. */
+  char dir[] = "/tmp/test_snapct_XXXXXX"; FD_TEST( mkdtemp( dir ) );
+  ctx->local_out.dir_fd = open( dir, O_RDONLY|O_DIRECTORY ); FD_TEST( ctx->local_out.dir_fd!=-1 );
+  fd_snap_pool_partial_name( ctx->local_out.full_snapshot_name,        0U );
+  fd_snap_pool_partial_name( ctx->local_out.incremental_snapshot_name, 1U );
+  int full_fd = openat( ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name,        O_CREAT|O_RDWR, 0600 ); FD_TEST( full_fd!=-1 );
+  int incr_fd = openat( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name, O_CREAT|O_RDWR, 0600 ); FD_TEST( incr_fd!=-1 );
+  FD_TEST( dup2( full_fd, FD_SNAP_FD( 0U ) )==FD_SNAP_FD( 0U ) ); close( full_fd );
+  FD_TEST( dup2( incr_fd, FD_SNAP_FD( 1U ) )==FD_SNAP_FD( 1U ) ); close( incr_fd );
+  ctx->local_out.full_snapshot_fd        = FD_SNAP_FD( 0U );
+  ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( 1U );
+
+  static fd_wait_info_box_t box[ 1 ];
+  ctx->wait_info = fd_wait_info_box_join( fd_wait_info_box_new( box ) );
+  fd_wait_info_write_begin( ctx->wait_info );
+  ctx->wait_info->info.caught_up = 1;
+  fd_wait_info_write_end( ctx->wait_info );
+
+  /* No stream yet: wait, however long. */
+  int busy = 0;
+  ctx->deadline_nanos = 0L;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT );
+
+  /* A stream on another full: download it by name. */
+  ctx->fast_boot.stream_slot = 150UL;
+  ctx->fast_boot.full_slot   = 90UL;
+  memset( ctx->fast_boot.stream_hash, 0x11, FD_HASH_FOOTPRINT );
+  memset( ctx->fast_boot.full_hash,   0x22, FD_HASH_FOOTPRINT );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START && !strcmp( test_start.path, "/snapshot-90-3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3.tar.zst" ) );
+
+  /* The same slot with another hash: download. */
+  ctx->state = FD_SNAPCT_STATE_INIT;
+  ctx->fast_boot.full_slot = 100UL;
+  memset( ctx->fast_boot.full_hash, 0x33, FD_HASH_FOOTPRINT );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP );
+
+  /* The same full: read it from disk, with its slot. */
+  ctx->state = FD_SNAPCT_STATE_INIT;
+  memset( ctx->fast_boot.full_hash,   0x22, FD_HASH_FOOTPRINT );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE );
+  fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->file && init->slot==100UL && init->file_sz==1000UL && init->zstd );
+
+  /* Done with the file: the incremental by name. */
+  ctx->state     = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE;
+  ctx->flush_ack = ctx->flush_ack_cnt;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START && !strcmp( test_start.path, "/incremental-snapshot-100-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
+
+  /* A stream starting at the full on disk: the full alone, then
+     done. */
+  ctx->state                 = FD_SNAPCT_STATE_INIT;
+  ctx->fast_boot.stream_slot = ULONG_MAX;
+  fd_ssctrl_stream_init_t * stream = (fd_ssctrl_stream_init_t *)input;
+  ctx->in_kind[ 0 ]  = IN_KIND_STREAM;
+  ctx->stream_in_mem = input;
+  stream->stream_slot = 100UL;
+  stream->full_slot   = 100UL;
+  memset( stream->stream_hash, 0x22, FD_HASH_FOOTPRINT );
+  memset( stream->full_hash,   0x22, FD_HASH_FOOTPRINT );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
+  FD_TEST( !ctx->load_incremental );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE );
+  ctx->state     = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI;
+  ctx->flush_ack = ctx->flush_ack_cnt;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_DONE );
+  ctx->flush_ack = ctx->flush_ack_cnt;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_SHUTDOWN && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
+
+  close( FD_SNAP_FD( 0U ) ); close( FD_SNAP_FD( 1U ) );
+  unlinkat( ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name, 0 ); unlinkat( ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name, 0 );
+  close( ctx->local_out.dir_fd ); rmdir( dir );
+  free( sel ); free( scratch );
+}
+
+/* The snapct reading the stream picks the configured server's full
+   and incremental snapshots, asks for the stream at the incremental
+   by its exact name with its slot and hash, and names both snapshots
+   to the snapct behind the stream.  A server without an incremental
+   on its full streams from the full.  A stream the server has not
+   opened after a while is picked again at its newest snapshots. */
+static void
+test_stream_instance_init( void ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_snapct_tile_t * ctx = scratch;
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar ct_out[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar input [ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->selector                     = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->state                        = FD_SNAPCT_STATE_INIT;
+  ctx->config.fast_boot             = 1;
+  ctx->config.fast_boot_stream      = 1;
+  ctx->config.incremental_snapshots = 1;
+  ctx->fast_boot.stream_slot        = ULONG_MAX;
+  ctx->load_incremental             = 1;
+  ctx->deadline_nanos               = LONG_MAX;
+  ctx->flush_ack_cnt                = 1;
+  ctx->resolved_servers_cnt         = 1UL;
+  ctx->resolved_servers[ 0 ].addr   = test_addr( 0x0A000001U, 8899 );
+  strcpy( ctx->resolved_servers[ 0 ].hostname, "server" );
+  strcpy( ctx->dns_servers[ 0 ].hostname,      "server" );
+  ctx->out_ld.mem                   = (fd_wksp_t *)output;
+  ctx->out_ld.wmark                 = 128UL;
+  ctx->out_ct.mem                   = (fd_wksp_t *)ct_out;
+  ctx->out_ct.wmark                 = 128UL;
+  ctx->snapld_in_mem                = input;
+  test_output                       = output;
+
+  /* Nothing moves until the server has said what it has.  Only the
+     server not resolving in time is fatal. */
+  int   busy      = 0;
+  ulong published = test_publish_cnt;
+  ctx->resolved_servers_cnt = 0UL;
+  ctx->deadline_nanos       = 0L;
+  pid_t pid = fork(); FD_TEST( pid>=0 );
+  if( !pid ) { after_credit( ctx, NULL, NULL, &busy ); _exit( 0 ); }
+  int status; FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+  ctx->resolved_servers_cnt = 1UL;
+  after_credit( ctx, NULL, NULL, &busy );
+  long now = fd_clock_tile_now( ctx->clock );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && ctx->deadline_nanos>now && test_publish_cnt==published );
+
+  /* The resolver lists the server before it knows its snapshots:
+     wait, however long, saying so now and then. */
+  fd_sspeer_key_t key = { .is_url = 1 };
+  strcpy( key.url.hostname, "server" );
+  key.url.resolved_addr = ctx->resolved_servers[ 0 ].addr;
+  fd_sspeer_selector_add( ctx->selector, &key, ctx->resolved_servers[ 0 ].addr, FD_SSPEER_LATENCY_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, NULL, NULL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && test_publish_cnt==published );
+  ctx->deadline_nanos = 0L;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && ctx->deadline_nanos>now && test_publish_cnt==published );
+
+  /* A gossip peer with newer snapshots is not the server. */
+  fd_sspeer_key_t other = test_key( 0xF0 );
+  uchar full_hash[ FD_HASH_FOOTPRINT ]; memset( full_hash, 0x22, FD_HASH_FOOTPRINT );
+  uchar incr_hash[ FD_HASH_FOOTPRINT ]; memset( incr_hash, 0x11, FD_HASH_FOOTPRINT );
+  fd_sspeer_selector_add( ctx->selector, &other, test_addr( 0x0A000002U, 8899 ), 1000UL, 300UL, 350UL, full_hash, incr_hash );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT );
+
+  /* The server has a full at slot 100 with an incremental at slot
+     150 on it: the stream at 150 is asked for by name, with its slot
+     and hash. */
+  fd_sspeer_selector_add( ctx->selector, &key, ctx->resolved_servers[ 0 ].addr, 5000UL, 100UL, 150UL, full_hash, incr_hash );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
+  FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->fast_boot.full_slot==100UL && ctx->fast_boot.full_hash[ 0 ]==0x22 );
+  fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->fast_boot_stream && !init->is_redirect && !init->file );
+  FD_TEST( init->slot==150UL && init->snapshot_hash[ 0 ]==0x11 && init->snapshot_hash[ 31 ]==0x11 );
+  FD_TEST( !strcmp( ctx->http_full_snapshot_name, "fast-boot-stream-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, 0UL, NULL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->start_sent && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
+  FD_TEST( !strcmp( test_start.path, "/fast-boot-stream-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
+
+  /* No META yet: once the wait is up the server's snapshots are
+     looked at again.  The same ones, or the server gone from the
+     selector: the wait starts over. */
+  published = test_publish_cnt;
+  now       = fd_clock_tile_now( ctx->clock );
+  FD_TEST( ctx->deadline_nanos>now && ctx->deadline_nanos<=now+FD_SNAPCT_STREAM_ABSENT_NS );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && test_publish_cnt==published );
+  ctx->deadline_nanos = 0L;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->deadline_nanos>now && test_publish_cnt==published );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && test_publish_cnt==published );
+  fd_sspeer_selector_remove( ctx->selector, &key );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  ctx->deadline_nanos = 0L;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->deadline_nanos>now && test_publish_cnt==published );
+
+  /* The server now has an incremental at slot 160: the stream load
+     is failed and, once snapld has acked, started again at 160.
+     While the reset is acked, data, an error and a stale INIT ack
+     are ignored; only the FAIL acks count, one per path. */
+  uchar incr_hash2[ FD_HASH_FOOTPRINT ]; memset( incr_hash2, 0x44, FD_HASH_FOOTPRINT );
+  fd_sspeer_selector_add( ctx->selector, &key, ctx->resolved_servers[ 0 ].addr, 5000UL, 100UL, 160UL, full_hash, incr_hash2 );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  ctx->deadline_nanos = 0L;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && test_publish_cnt==published+1UL && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && test_publish_cnt==published+1UL );
+  ctx->flush_ack_cnt = 2;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_DATA, 50UL, 0UL, NULL );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, NULL );
+  stream_ack_frag( ctx, FD_SNAPSHOT_MSG_CTRL_ERROR, NULL );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, 0UL, NULL );
+  stream_ack_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, NULL );
+  FD_TEST( !ctx->malformed && !ctx->flush_ack && !ctx->metrics.full.bytes_read );
+  stream_ack_frag( ctx, FD_SNAPSHOT_MSG_CTRL_FAIL, NULL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && ctx->flush_ack==1 );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, NULL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && test_publish_cnt==published+1UL );
+  ctx->flush_ack_cnt = 1;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->deadline_nanos>now && test_publish_cnt==published+2UL );
+  FD_TEST( ctx->fast_boot.stream_slot==160UL && ctx->fast_boot.stream_hash[ 0 ]==0x44 && ctx->fast_boot.full_slot==100UL && ctx->fast_boot.full_hash[ 0 ]==0x22 );
+  init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->fast_boot_stream && init->slot==160UL && init->snapshot_hash[ 0 ]==0x44 );
+  char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
+  fd_base58_encode_32( incr_hash2, NULL, hash_b58 );
+  char name[ PATH_MAX ];
+  FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "fast-boot-stream-160-%s.tar.zst", hash_b58 ) );
+  FD_TEST( !strcmp( ctx->http_full_snapshot_name, name ) );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, 0UL, NULL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->start_sent && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
+  FD_TEST( test_start.path[ 0 ]=='/' && !strcmp( test_start.path+1, name ) );
+
+  /* On the stream's META the snapct behind the stream is told the
+     stream's slot and hash and the full it is on.  Once it is in,
+     the wait is over: the server moving on changes nothing. */
+  fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)input;
+  memset( meta, 0, sizeof(*meta) );
+  meta->total_sz      = 1000UL;
+  meta->resolved_slot = ULONG_MAX;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  fd_ssctrl_stream_init_t const * fwd = fd_chunk_to_laddr_const( ct_out, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_STREAM_INIT && test_publish_sz==sizeof(*fwd) );
+  FD_TEST( fwd->stream_slot==160UL && fwd->stream_hash[ 0 ]==0x44 && fwd->full_slot==100UL && fwd->full_hash[ 0 ]==0x22 );
+  FD_TEST( ctx->deadline_nanos==LONG_MAX );
+  published = test_publish_cnt;
+  memset( full_hash, 0x33, FD_HASH_FOOTPRINT );
+  fd_sspeer_selector_add( ctx->selector, &key, ctx->resolved_servers[ 0 ].addr, 5000UL, 200UL, FD_SSPEER_SLOT_UNKNOWN, full_hash, NULL );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && test_publish_cnt==published );
+
+  /* A newer full with no incremental on it yet: the stream at the
+     full. */
+  ctx->state = FD_SNAPCT_STATE_INIT;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
+  FD_TEST( ctx->fast_boot.stream_slot==200UL && ctx->fast_boot.stream_hash[ 0 ]==0x33 && ctx->fast_boot.full_slot==200UL && ctx->fast_boot.full_hash[ 0 ]==0x33 );
+  init = fd_chunk_to_laddr_const( output, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->slot==200UL && init->snapshot_hash[ 0 ]==0x33 );
+  FD_TEST( !strcmp( ctx->http_full_snapshot_name, "fast-boot-stream-200-4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4.tar.zst" ) );
+
+  /* The server moves on again before the stream answered, and the
+     answer arrives while the reset is being acked: the fail was too
+     late.  The stream is kept, the snapct behind it is told the
+     stream that answered and the wait is over. */
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, 0UL, NULL );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->start_sent && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
+  memset( incr_hash, 0x55, FD_HASH_FOOTPRINT );
+  fd_sspeer_selector_add( ctx->selector, &key, ctx->resolved_servers[ 0 ].addr, 5000UL, 200UL, 250UL, full_hash, incr_hash );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  ctx->deadline_nanos = 0L;
+  published = test_publish_cnt;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && test_publish_cnt==published+1UL && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( ctx->fast_boot.stream_slot==200UL && ctx->fast_boot.stream_hash[ 0 ]==0x33 );
+  meta->total_sz = 2000UL;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->metrics.full.bytes_total==2000UL && ctx->deadline_nanos==LONG_MAX );
+  fwd = fd_chunk_to_laddr_const( ct_out, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_STREAM_INIT && test_publish_cnt==published+2UL );
+  FD_TEST( fwd->stream_slot==200UL && fwd->stream_hash[ 0 ]==0x33 && fwd->full_slot==200UL && fwd->full_hash[ 0 ]==0x33 );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && test_publish_cnt==published+2UL );
+
+  free( sel );
   free( scratch );
 }
 
@@ -910,6 +1429,8 @@ test_start_after_init_acks( void ) {
         ctx->peer.key.url.resolved_addr = ctx->peer.addr;
         fd_cstr_ncpy( ctx->peer.key.url.hostname, source==1 ? "alpha.example" : "beta.example", FD_FQDN_BUF_MAX );
       }
+      /* The file init_load above cleared the name an HTTP one sets. */
+      if( !file && full ) strcpy( ctx->http_full_snapshot_name, "snapshot.tar.bz2" );
       ulong sig  = full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR;
       int   busy = 0;
       for( int ack=0; ack<ctx->flush_ack_cnt; ack++ ) {
@@ -1131,15 +1652,18 @@ test_full_fini_full_only( void ) {
     int          gossip;
     ulong        wfs_slot;    /* 0: no target */
     ulong        local_incr;  /* incremental on disk, ULONG_MAX: none */
+    int          fast_boot;   /* the stream names the incremental */
     int          expect_load_incremental;
   } const cases[] = {
-    { "http, nobody offers one",      1, 0, 0, 0, 0UL,   ULONG_MAX, 0 },
-    { "file, nobody offers one",      0, 0, 0, 0, 0UL,   ULONG_MAX, 0 },
-    { "http, live server",            1, 1, 0, 0, 0UL,   ULONG_MAX, 1 },
-    { "http, remembered server",      1, 0, 1, 0, 0UL,   ULONG_MAX, 1 },
-    { "http, gossip may still bring", 1, 0, 0, 1, 0UL,   ULONG_MAX, 1 },
-    { "http, full short of WFS",      1, 0, 0, 0, 300UL, ULONG_MAX, 1 },
-    { "file, incremental on disk",    0, 0, 0, 0, 0UL,   120UL,     1 },
+    { "http, nobody offers one",      1, 0, 0, 0, 0UL,   ULONG_MAX, 0, 0 },
+    { "file, nobody offers one",      0, 0, 0, 0, 0UL,   ULONG_MAX, 0, 0 },
+    { "http, live server",            1, 1, 0, 0, 0UL,   ULONG_MAX, 0, 1 },
+    { "http, remembered server",      1, 0, 1, 0, 0UL,   ULONG_MAX, 0, 1 },
+    { "http, gossip may still bring", 1, 0, 0, 1, 0UL,   ULONG_MAX, 0, 1 },
+    { "http, full short of WFS",      1, 0, 0, 0, 300UL, ULONG_MAX, 0, 1 },
+    { "file, incremental on disk",    0, 0, 0, 0, 0UL,   120UL,     0, 1 },
+    { "http, fast boot, nobody offers one", 1, 0, 0, 0, 0UL, ULONG_MAX, 1, 1 },
+    { "file, fast boot, nobody offers one", 0, 0, 0, 0, 0UL, ULONG_MAX, 1, 1 },
   };
 
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
@@ -1170,7 +1694,8 @@ test_full_fini_full_only( void ) {
     ctx->load_incremental  = 1;
     ctx->wfs_is_configured = cases[ i ].wfs_slot!=0UL;
     ctx->config.wfs_slot   = cases[ i ].wfs_slot;
-    ctx->predicted_incremental.full_slot    = 100UL;
+    ctx->config.fast_boot  = cases[ i ].fast_boot;
+    ctx->predicted_incremental.full_slot    = cases[ i ].fast_boot ? FD_SSPEER_SLOT_UNKNOWN : 100UL;
     ctx->predicted_incremental.slot         = FD_SSPEER_SLOT_UNKNOWN;
     ctx->local_in.full_snapshot_slot        = cases[ i ].http ? ULONG_MAX : 100UL;
     ctx->local_in.incremental_snapshot_slot = cases[ i ].local_incr;
@@ -1926,6 +2451,10 @@ main( int     argc,
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
   test_load_complete_signal();
   test_snapld_ctrl_frag_matches_ack();
+  test_stream_signals();
+  test_stream_instance_init();
+  test_background_snapshot_instance();
+  test_background_snapshot_full_on_disk();
   test_start_after_init_acks();
   test_full_fini_full_only();
   test_meta_repins_full();
