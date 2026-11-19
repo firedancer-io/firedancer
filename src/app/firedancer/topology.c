@@ -1629,7 +1629,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.ports.votor            = config->firedancer.development.votor.quic_server_listen_port;
 
     /* Peers download snapshots through the rpc port, which redirects
-       to the snapshot server.  Both must listen beyond loopback. */
+       to the snapshot server.  We advertise an IPv4 address, so both
+       must take IPv4 connections from other hosts. */
     tile->gossip.ports.rpc = 0;
     int snapsv_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
     if( config->tiles.rpc.enabled && snapsv_enabled ) {
@@ -1642,7 +1643,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       parse_listen_addr( rpc_address,    "tiles.rpc.rpc_listen_address",         &rpc_addr    );
       parse_listen_addr( snapsv_address, "snapshots.server.http_listen_address", &snapsv_addr );
 
-      if( !fd_ip6_addr_is_loopback( rpc_addr.addr ) && !fd_ip6_addr_is_loopback( snapsv_addr.addr ) ) {
+      /* An IPv4 address or the IPv6 wildcard takes IPv4 connections. */
+      int rpc_takes_ip4    = fd_ip6_addr_is_ip4_mapped( rpc_addr.addr    ) || fd_ip6_addr_is_unspecified( rpc_addr.addr    );
+      int snapsv_takes_ip4 = fd_ip6_addr_is_ip4_mapped( snapsv_addr.addr ) || fd_ip6_addr_is_unspecified( snapsv_addr.addr );
+      int any_loopback     = fd_ip6_addr_is_loopback( rpc_addr.addr ) || fd_ip6_addr_is_loopback( snapsv_addr.addr );
+      if( rpc_takes_ip4 && snapsv_takes_ip4 && !any_loopback ) {
         tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
       }
     }
