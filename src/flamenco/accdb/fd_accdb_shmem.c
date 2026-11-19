@@ -351,8 +351,8 @@ fd_accdb_shmem_new( void * shmem,
   accdb->root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   accdb->generation = 0U;
 
-  accdb->partition_lock   = 0;
-  accdb->grow_lock        = 0;
+  fd_spinlock_new( &accdb->partition_lock );
+  fd_spinlock_new( &accdb->grow_lock      );
   accdb->snapshot_loading = 0;
   accdb->bundle_enabled   = bundle_enabled;
 
@@ -514,9 +514,9 @@ fd_accdb_shmem_bytes_freed( fd_accdb_shmem_t * accdb,
   if( FD_LIKELY( partition->bytes_freed<(accdb->partition_sz*FD_ACCDB_COMPACTION_THRESHOLD_PCT/100UL) ) ) return;
   if( FD_UNLIKELY( partition->marked_compaction ) ) return;
 
-  spin_lock_acquire( &accdb->partition_lock );
+  fd_spinlock_acquire( &accdb->partition_lock );
   fd_accdb_shmem_try_enqueue_compaction( accdb, partition_idx );
-  spin_lock_release( &accdb->partition_lock );
+  fd_spinlock_release( &accdb->partition_lock );
 }
 
 ulong

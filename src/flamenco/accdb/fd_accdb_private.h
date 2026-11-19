@@ -4,29 +4,18 @@
 #include "fd_accdb_base.h"
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_cache.h"
+#include "../fd_rwlock.h"
 
-static inline void
-spin_lock_acquire( int * lock ) {
-# if FD_HAS_THREADS
-  for(;;) {
-    if( FD_LIKELY( !FD_ATOMIC_CAS( lock, 0, 1 ) ) ) break;
-    FD_SPIN_PAUSE();
-  }
-# else
-  *lock = 1;
-# endif
-  FD_COMPILER_MFENCE();
-}
+/* fd_spinlock_t is a plain mutex for accdb's rare slow paths
+   (partition switches, file growth): Reuse fd_rwlock_t instead
+   of rolling custom ones.  Uses defines instead of wrapper functions
+   to keep thread-safety annotations from fd_rwlock. */
 
-static inline void
-spin_lock_release( int * lock ) {
-  FD_COMPILER_MFENCE();
-# if FD_HAS_THREADS
-  FD_VOLATILE( *lock ) = 0;
-# else
-  *lock = 0;
-# endif
-}
+typedef fd_rwlock_t fd_spinlock_t;
+
+#define fd_spinlock_new     fd_rwlock_new
+#define fd_spinlock_acquire fd_rwlock_write
+#define fd_spinlock_release fd_rwlock_unwrite
 
 struct fd_accdb_txn {
   union {
@@ -415,8 +404,8 @@ FD_STATIC_ASSERT( FD_ACCDB_MAX_JOINERS%64UL==0UL, joiner_bitmap );  /* cache_fre
 #define FD_ACCDB_EVICT_SENTINEL UINT_MAX
 
 struct fd_accdb_shmem_private {
-  int partition_lock  __attribute__((aligned(64)));
-  int grow_lock       __attribute__((aligned(64)));
+  fd_spinlock_t partition_lock __attribute__((aligned(64)));
+  fd_spinlock_t grow_lock      __attribute__((aligned(64)));
 
   /* Set non-zero by the snapin tile while a snapshot is being loaded.
      Suppresses compaction enqueue so the compaction tile does not race
