@@ -75,13 +75,13 @@ test_bundle_msg_oversized_wraparound( fd_wksp_t * wksp ) {
   test_bundle_env_mock_conn_empty( env );
 
   fd_bundle_tile_t * state  = env->state;
-  fd_grpc_client_t * client = state->grpc_client;
+  fd_grpc_client_t * client = state->conn->grpc_client;
 
   test_bundle_env_mock_h2_hs( state );
   test_bundle_env_mock_bundle_stream( state );
 
-  FD_TEST( state->bundle_subscription_live );
-  FD_TEST( state->backoff_iter==0U );
+  FD_TEST( state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live );
+  FD_TEST( state->conn->backoff_iter==0U );
   FD_TEST( client->stream_cnt==1UL );
   FD_TEST( client->request_stream );
 
@@ -107,10 +107,10 @@ test_bundle_msg_oversized_wraparound( fd_wksp_t * wksp ) {
 
   FD_TEST( fd_h2_rbuf_used_sz( client->frame_rx )==0UL );
   FD_TEST( client->conn->rx_data_cnt_rem==0U );
-  FD_TEST( state->defer_reset==1 );
-  FD_TEST( state->backoff_iter==1U );
-  FD_TEST( !state->bundle_subscription_live );
-  FD_TEST( !state->bundle_subscription_wait );
+  FD_TEST( state->conn->defer_reset==1 );
+  FD_TEST( state->conn->backoff_iter==1U );
+  FD_TEST( !state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].live );
+  FD_TEST( !state->conn->sub[ FD_BUNDLE_SUB_BUNDLES ].wait );
   FD_TEST( client->stream_cnt==0UL );
   FD_TEST( !client->request_stream );
   expect_rst_stream( client->frame_tx, stream_id, FD_H2_ERR_INTERNAL );

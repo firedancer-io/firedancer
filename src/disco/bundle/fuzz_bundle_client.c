@@ -53,10 +53,10 @@ LLVMFuzzerTestOneInput( uchar const * data,
   test_bundle_env_mock_conn_empty( env );
 
   fd_bundle_tile_t * const ctx      = env->state;
-  fd_h2_rbuf_t *     const frame_rx = ctx->grpc_client->frame_rx;
-  fd_h2_rbuf_t *     const frame_tx = ctx->grpc_client->frame_tx;
+  fd_h2_rbuf_t *     const frame_rx = ctx->conn->grpc_client->frame_rx;
+  fd_h2_rbuf_t *     const frame_tx = ctx->conn->grpc_client->frame_tx;
 
-  ctx->grpc_client->conn->ping_tx = 2; /* allow PING ACKs */
+  ctx->conn->grpc_client->conn->ping_tx = 2; /* allow PING ACKs */
 
   ulong const seed = fd_ulong_hash( FD_LOAD( ulong, data+size-8 ) );
   if( seed &  1 ) test_bundle_env_mock_h2_hs( env->state );
@@ -93,7 +93,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     int charge_busy = 0;
     fd_bundle_client_step( ctx, &charge_busy );
     fd_h2_rbuf_skip( frame_tx, fd_h2_rbuf_used_sz( frame_tx ) );
-    if( ctx->defer_reset ) break;
+    if( ctx->conn->defer_reset ) break;
   }
 
   test_bundle_env_destroy( env );

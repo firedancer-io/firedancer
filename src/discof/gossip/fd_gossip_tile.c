@@ -11,6 +11,7 @@
 #include "../../flamenco/stakes/fd_stake_weight_sort.h"
 #include "../../disco/topo/fd_dns_resolve.h"
 #include "../../disco/fd_txn_m.h"
+#include "../../disco/tiles.h"
 #include "../restore/utils/fd_ssmsg.h"
 #include "../restore/utils/fd_wfs.h"
 
@@ -19,6 +20,7 @@
 #define IN_KIND_SIGN          (2)
 #define IN_KIND_EPOCH         (4)
 #define IN_KIND_SNAPIN_MANIF  (6)
+#define IN_KIND_BUNDLE_TPU    (7)
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -338,6 +340,25 @@ handle_shred_version( fd_gossip_tile_ctx_t * ctx,
   fd_gossip_set_shred_version( ctx->gossip, (ushort)sig );
 }
 
+/* Advertise the bundle tile's TPU, or ours (kept in my_contact_info) if
+   it is zero.  As in Agave, the QUIC ports are the UDP ports plus 6. */
+
+static void
+handle_bundle_tpu( fd_gossip_tile_ctx_t *  ctx,
+                   fd_bundle_tpu_t const * tpu ) {
+  fd_gossip_socket_t sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_CNT ];
+  fd_memcpy( sockets, ctx->my_contact_info->sockets, sizeof(sockets) );
+  if( tpu->ip4 ) {
+    sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU               ] = (fd_gossip_socket_t){ .ip4 = tpu->ip4,     .port = fd_ushort_bswap( tpu->port                 ) };
+    sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC          ] = (fd_gossip_socket_t){ .ip4 = tpu->ip4,     .port = fd_ushort_bswap( (ushort)(tpu->port+6)     ) };
+    sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS      ] = (fd_gossip_socket_t){ .ip4 = tpu->fwd_ip4, .port = fd_ushort_bswap( tpu->fwd_port             ) };
+    sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC ] = (fd_gossip_socket_t){ .ip4 = tpu->fwd_ip4, .port = fd_ushort_bswap( (ushort)(tpu->fwd_port+6) ) };
+  }
+  fd_gossip_set_sockets( ctx->gossip, sockets );
+  FD_LOG_NOTICE(( "Advertising TPU " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU ].ip4 ),
+                  fd_ushort_bswap( sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TPU ].port ) ));
+}
+
 static void
 handle_epoch( fd_gossip_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
@@ -490,6 +511,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
+    case IN_KIND_BUNDLE_TPU:    handle_bundle_tpu( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_SNAPIN_MANIF: {
       if( FD_LIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_DONE ) ) break;
 
@@ -631,6 +653,8 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->in[ i ].kind = IN_KIND_EPOCH;
     } else if( FD_UNLIKELY( !strcmp( link->name, "snapin_manif" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SNAPIN_MANIF;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "bundle_tpu" ) ) ) {
+      ctx->in[ i ].kind = IN_KIND_BUNDLE_TPU;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }

@@ -2637,7 +2637,8 @@ fd_pack_microblock_complete( fd_pack_t * pack,
 static inline int
 fd_pack_try_schedule_bundle( fd_pack_t  * pack,
                              ulong        bank_tile,
-                             fd_txn_e_t * out ) {
+                             fd_txn_e_t * out,
+                             int          in_order ) {
   int state = pack->initializer_bundle_state;
   if( FD_UNLIKELY( (state==FD_PACK_IB_STATE_PENDING) | (state==FD_PACK_IB_STATE_FAILED ) ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
 
@@ -2838,7 +2839,9 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     }
     FD_TEST( acct_uses_key_cnt( pack->bundle_temp_map )==0UL );
 
-    if( FD_UNLIKELY( retval==TRY_BUNDLE_DOES_NOT_FIT ) ) {
+    if( FD_UNLIKELY( retval==TRY_BUNDLE_DOES_NOT_FIT && in_order ) ) {
+      delete_transaction( pack, txn0, 1, 0 );
+    } else if( FD_UNLIKELY( retval==TRY_BUNDLE_DOES_NOT_FIT ) ) {
       /* Decrement the skip count for the bundle we just tried. */
 
       for( _cur=_txn0; !treap_rev_iter_done( _cur ); _cur=treap_rev_iter_next( _cur, pool ) ) {
@@ -2889,6 +2892,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     out_txnp->source_tpu                      = cur->txn->source_tpu;
     out_txnp->source_ipv4                     = cur->txn->source_ipv4;
     out_txnp->flags                           = cur->txn->flags;
+    if( FD_UNLIKELY( out_txnp->flags & FD_TXN_P_FLAGS_NO_REVERT ) ) out_txnp->flags &= ~FD_TXN_P_FLAGS_BUNDLE;
     /* Copy the ALT accounts from the source fd_txn_e_t */
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
     if( FD_UNLIKELY( alt_acct_cnt ) ) pack_memcpy_out( out->alt_accts, cur->txn_e->alt_accts, alt_acct_cnt*sizeof(fd_acct_addr_t) );
@@ -2997,7 +3001,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   sched_return_t status = {0};
 
   if( FD_UNLIKELY( schedule_flags & FD_PACK_SCHEDULE_BUNDLE ) ) {
-    int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out );
+    int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out, !!(schedule_flags & FD_PACK_SCHEDULE_IN_ORDER) );
     if( FD_UNLIKELY( bundle_result>0                         ) ) return (ulong)bundle_result;
     if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) return 0UL;
     /* in the NO_READY_BUNDLES or DOES_NOT_FIT case, we schedule like

@@ -408,6 +408,16 @@ struct fd_config {
     struct {
       int  enabled;
       char url[ FD_URL_MAX ];
+      char builder_url[ FD_URL_MAX ];
+      char builder_protocol[ 16 ];
+      int  builder_protocol_enum;
+      char relayer_url[ FD_URL_MAX ];
+      int  advertise_tpu;
+      int  forward_shreds;
+      char strategy[ 8 ];
+      int  strategy_enum;
+      char builder_slot_end[ 8 ];
+      int  builder_slot_end_enum;
       char tls_domain_name[ FD_SNI_BUF_MAX ];
       char tip_distribution_program_addr[ FD_BASE58_ENCODED_32_SZ ];
       char tip_payment_program_addr[ FD_BASE58_ENCODED_32_SZ ];

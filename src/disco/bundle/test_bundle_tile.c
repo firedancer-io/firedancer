@@ -395,14 +395,15 @@ test_tls_keylog( void ) {
   int pipefd[2];
   FD_TEST( !pipe( pipefd ) );
   ctx->keylog_fd = pipefd[1];
+  ctx->conn->ctx = ctx;
 
   uchar client_random[32]; fd_memset( client_random, 0x11, sizeof(client_random) );
   uchar client_secret[32]; fd_memset( client_secret, 0x22, sizeof(client_secret) );
   uchar server_secret[32]; fd_memset( server_secret, 0x33, sizeof(server_secret) );
-  fd_memcpy( ctx->tls_conn->hs.base.client_random, client_random, sizeof(client_random) );
+  fd_memcpy( ctx->conn->tls_conn->hs.base.client_random, client_random, sizeof(client_random) );
 
-  fd_bundle_tls_keylog( &ctx->tls_conn->hs, server_secret, client_secret, FD_TLS_LEVEL_HANDSHAKE );
-  fd_bundle_tls_keylog( &ctx->tls_conn->hs, server_secret, client_secret, FD_TLS_LEVEL_APPLICATION );
+  fd_bundle_tls_keylog( &ctx->conn->tls_conn->hs, server_secret, client_secret, FD_TLS_LEVEL_HANDSHAKE );
+  fd_bundle_tls_keylog( &ctx->conn->tls_conn->hs, server_secret, client_secret, FD_TLS_LEVEL_APPLICATION );
   FD_TEST( !close( pipefd[1] ) );
 
   char random_hex[65];
@@ -435,6 +436,104 @@ test_tls_keylog( void ) {
   FD_TEST( !memcmp( actual, expected, actual_sz ) );
 }
 
+/* Jito ignores pack leader state.  Other protocols keep the latest
+   message whole, and Harmonic queues a leader window notice once per
+   slot.  The sleep mode replay state is left alone. */
+
+static void
+inject_pack_leader_state( fd_bundle_tile_t *             ctx,
+                          ulong                          in_idx,
+                          fd_pack_leader_state_t const * state ) {
+  *(fd_pack_leader_state_t *)fd_chunk_to_laddr( ctx->pack_in.mem, 0UL ) = *state;
+  during_frag( ctx, in_idx, 0UL, state->slot, 0UL, sizeof(fd_pack_leader_state_t), 0UL );
+  after_frag( ctx, in_idx, 0UL, state->slot, sizeof(fd_pack_leader_state_t), 0UL, 0UL, NULL );
+}
+
+static void
+test_builder_protocol( void ) {
+  FD_TEST( fd_bundle_builder_protocol( "https://ams.auction.harmonic.gg"        )==FD_BUNDLE_PROTOCOL_HARMONIC );
+  FD_TEST( fd_bundle_builder_protocol( "https://testnet.be.harmonic.gg:443"     )==FD_BUNDLE_PROTOCOL_HARMONIC );
+  FD_TEST( fd_bundle_builder_protocol( "http://mainnet.bam.jito.wtf"            )==FD_BUNDLE_PROTOCOL_BAM      );
+  FD_TEST( fd_bundle_builder_protocol( "http://ewr.mainnet.bam.jito.wtf:50055/" )==FD_BUNDLE_PROTOCOL_BAM      );
+  FD_TEST( fd_bundle_builder_protocol( "https://mainnet.block-engine.jito.wtf"  )==-1                          );
+  FD_TEST( fd_bundle_builder_protocol( "https://harmonic.gg.example.com"        )==-1                          );
+  FD_TEST( fd_bundle_builder_protocol( "http://127.0.0.1:8080"                  )==-1                          );
+  FD_TEST( fd_bundle_builder_protocol( "harmonic.gg"                            )==-1                          );
+}
+
+static void
+test_pack_leader_state( void ) {
+  FD_LOG_NOTICE(( "TEST pack leader state" ));
+
+  fd_bundle_tile_t * ctx = test_ctx;
+  memset( ctx, 0, sizeof(fd_bundle_tile_t) );
+
+  void * wksp = mock_replay_wksp_new();
+  ulong const in_idx = 0UL;
+  ctx->in_kind[ in_idx ]  = IN_KIND_PACK_LEADER;
+  ctx->pack_in.mem        = wksp;
+  ctx->pack_in.chunk0     = 0UL;
+  ctx->pack_in.wmark      = 1UL;
+  ctx->next_leader_slot   = 500UL;
+  ctx->reset_slot         = 100UL;
+  ctx->leader_state->slot = ULONG_MAX;
+  ctx->next_step_deadline = LONG_MAX;
+  ctx->conn_cnt           = 1UL;
+
+  fd_pack_leader_state_t state = {
+    .slot          = 500UL,
+    .slot_start_ns = 1000L,
+    .slot_end_ns   = 2000L,
+    .tick          = 0UL,
+    .cus_remaining = 48000000UL
+  };
+
+  /* Jito keeps the leader state, but sends nothing */
+  ctx->conn->protocol = FD_BUNDLE_PROTOCOL_JITO;
+  inject_pack_leader_state( ctx, in_idx, &state );
+  FD_TEST( ctx->leader_state->slot==500UL );
+  FD_TEST( !ctx->conn->leader_pending );
+  FD_TEST( ctx->next_step_deadline==LONG_MAX );
+  ctx->leader_state->slot = ULONG_MAX;
+
+  ctx->conn->protocol = FD_BUNDLE_PROTOCOL_HARMONIC;
+  inject_pack_leader_state( ctx, in_idx, &state );
+  FD_TEST( !memcmp( ctx->leader_state, &state, sizeof(fd_pack_leader_state_t) ) );
+  FD_TEST( ctx->conn->leader_pending );
+  FD_TEST( ctx->next_step_deadline==0L );
+
+  /* Later updates for the same slot replace the progress fields, but do
+     not queue another leader window notice or wake the client */
+  ctx->conn->leader_pending = 0;
+  ctx->next_step_deadline   = LONG_MAX;
+  state.tick          = 20UL;
+  state.cus_remaining = 1000000UL;
+  inject_pack_leader_state( ctx, in_idx, &state );
+  FD_TEST( !memcmp( ctx->leader_state, &state, sizeof(fd_pack_leader_state_t) ) );
+  FD_TEST( !ctx->conn->leader_pending );
+  FD_TEST( ctx->next_step_deadline==LONG_MAX );
+  FD_TEST( ctx->next_leader_slot==500UL );
+  FD_TEST( ctx->reset_slot==100UL );
+
+  state.slot        = 501UL;
+  state.slot_end_ns = 3000L;
+  inject_pack_leader_state( ctx, in_idx, &state );
+  FD_TEST( ctx->leader_state->slot==501UL );
+  FD_TEST( ctx->conn->leader_pending );
+
+  /* BAM forwards every leader state, including updates for the same
+     slot */
+  ctx->conn->protocol       = FD_BUNDLE_PROTOCOL_BAM;
+  ctx->conn->leader_pending = 0;
+  ctx->next_step_deadline   = LONG_MAX;
+  state.tick                = 21UL;
+  inject_pack_leader_state( ctx, in_idx, &state );
+  FD_TEST( ctx->leader_state->tick==21UL );
+  FD_TEST( ctx->conn->leader_pending && ctx->next_step_deadline==0L );
+
+  free( wksp );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -458,6 +557,8 @@ main( int     argc,
   test_boundary_thresholds();
   test_saturating_sub();
   test_tls_keylog();
+  test_builder_protocol();
+  test_pack_leader_state();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

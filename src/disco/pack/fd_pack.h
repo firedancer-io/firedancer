@@ -34,6 +34,7 @@
 #define FD_TXN_P_FLAGS_EXECUTE_SUCCESS    (16U)
 #define FD_TXN_P_FLAGS_FEES_ONLY          (32U)
 #define FD_TXN_P_FLAGS_DURABLE_NONCE      (64U)
+#define FD_TXN_P_FLAGS_NO_REVERT          (128U) /* bundle of one that lands even if it fails, so runs outside the bundle */
 
 #define FD_TXN_P_FLAGS_RESULT_MASK  (0xFF000000U)
 
@@ -672,9 +673,13 @@ void fd_pack_set_rotation_end_ns( fd_pack_t * pack, long end_ns );
 
 /* FD_PACK_SCHEDULE_{BUNDLE,TXN} form a set of bitflags used in
    fd_pack_schedule_next_microblock below.  They control what types of
-   scheduling are allowed.  The names should be self-explanatory. */
-#define FD_PACK_SCHEDULE_BUNDLE 2
-#define FD_PACK_SCHEDULE_TXN    4
+   scheduling are allowed.  The names should be self-explanatory.
+   FD_PACK_SCHEDULE_IN_ORDER, with BUNDLE, deletes a bundle that does
+   not fit in the block instead of skipping it, so no later bundle is
+   scheduled before it. */
+#define FD_PACK_SCHEDULE_BUNDLE   2
+#define FD_PACK_SCHEDULE_TXN      4
+#define FD_PACK_SCHEDULE_IN_ORDER 8
 
 /* fd_pack_schedule_next_microblock schedules pending transactions.
    These transaction either form a microblock, which is a set of

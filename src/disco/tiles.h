@@ -58,6 +58,9 @@ struct fd_became_leader {
   /* The block height of the slot for which we are becoming leader. */
   ulong block_height;
 
+  /* 1 if we are also leader for the slot after it, 0 otherwise. */
+  int leader_next_slot;
+
   /* Consensus-critical cost limits for the slot we are becoming leader.
      These are typically unchanging, but may change after a feature
      activation. */
@@ -80,6 +83,39 @@ struct fd_became_leader {
   } bundle[1];
 };
 typedef struct fd_became_leader fd_became_leader_t;
+
+/* fd_pack_leader_state_t is published by pack to the bundle tile when
+   pack starts packing a leader slot, then periodically until the slot
+   ends. */
+struct fd_pack_leader_state {
+  ulong slot;
+  long  slot_start_ns; /* fd_log_wallclock() */
+  long  slot_end_ns;
+  ulong tick;          /* ticks elapsed in the slot, in [0,ticks_per_slot] */
+  ulong cus_remaining; /* block cost limit minus the cost packed so far */
+};
+typedef struct fd_pack_leader_state fd_pack_leader_state_t;
+
+/* fd_bundle_tpu is published by the bundle tile to gossip whenever the
+   TPU to advertise changes: a block engine's TPU while connected to it,
+   or all zero to advertise our own.  Ports are in host byte order. */
+struct fd_bundle_tpu {
+  uint   ip4;
+  ushort port;
+  uint   fwd_ip4;
+  ushort fwd_port;
+};
+typedef struct fd_bundle_tpu fd_bundle_tpu_t;
+
+/* fd_bundle_shred_sig packs the shred receiver the bundle tile
+   publishes to the shred tiles into a frag's sig: an IPv4 address in
+   network byte order and a port in host byte order, or 0 for none. */
+
+static inline ulong
+fd_bundle_shred_sig( uint   ip4,
+                     ushort port ) {
+  return (ulong)ip4 | ((ulong)port<<32);
+}
 
 /* fd_txn_ns_dt contains nanosecond offsets for an executed solana
    transaction relative to the publish event by pack for its
