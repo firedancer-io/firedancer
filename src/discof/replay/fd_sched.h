@@ -478,7 +478,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
    If a block has been abandoned or marked dead for any reason, it'll be
    pruned the moment in-flight task count hits 0 due to the last task
    completing.  Then, in the immediate ensuing stem run loop,
-   sched_pruned_next() will return the index for the corresponding bank
+   fd_sched_pruned_block_next() will return the index for the corresponding bank
    so the refcnt can be decremented for sched.
 
    The transaction at the given index may be freed upon return from this
@@ -522,7 +522,7 @@ fd_sched_block_start_writes( fd_sched_t * sched, ulong bank_idx, fd_acct_addr_t 
    The way this works is that an abandoned block will have its refcnt
    queued for release by sched as soon as, and only if, the block has no
    more in-flight tasks associated with it.  No sooner, no later.  In
-   the immediate ensuing stem run loop, sched_pruned_next() will return
+   the immediate ensuing stem run loop, fd_sched_pruned_block_next() will return
    the index for the corresponding bank so the refcnt can be decremented
    for sched.  After that point, banks will eventually instruct sched to
    prune the block, when all other components release their refcnts on

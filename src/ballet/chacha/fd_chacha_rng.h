@@ -44,11 +44,9 @@ struct __attribute__((aligned(32UL))) fd_chacha_rng_private {
   uchar key[ 32UL ] __attribute__((aligned(32UL)));
 
   /* Ring buffer of pre-generated ChaCha20 RNG data.
-     Note: We currently assume all reads are 8 byte.  This means the
-           cursor is always aligned by 8 and strictly increases in
-           increments of 8.  Thus, we really only have to refill the
-           buffer if buf_off==buf_fill.  pre_buf is used for one
-           optimization where it's helpful to stage data before buf. */
+     Reads consume 8 or 32 bytes.  The cursor is always 8-byte aligned;
+     32-byte reads first advance it to a 32-byte boundary.  pre_buf is
+     used for one optimization where it's helpful to stage data before buf. */
   uchar pre_buf[ 128 ] __attribute__((aligned(FD_CHACHA_BLOCK_SZ)));
   uchar buf[ FD_CHACHA_RNG_BUFSZ ] __attribute__((aligned(FD_CHACHA_BLOCK_SZ)));
   ulong buf_off;   /* Total number of bytes consumed */
@@ -189,7 +187,8 @@ fd_chacha_rng_ulong( fd_chacha_rng_t * rng ) {
   return x;
 }
 
-/* fd_chacha_rng_read32 reads 32 bytes from the RNG stream into buf.
+/* fd_chacha_rng_read32 reads 32 bytes from the RNG stream into buf,
+   discarding up to 24 bytes to align the stream cursor to 32 bytes.
    buf may be unaligned. */
 
 static inline void

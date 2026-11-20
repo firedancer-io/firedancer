@@ -188,9 +188,9 @@ fd_accdb_shmem_snapshot_sync( fd_accdb_shmem_t const * accdb );
 FD_PROTOTYPES_END
 
 /* fd_accdb_delta tracks account addresses changed since a full snap.
-   This is used to determine which accounts should be packed into a full
-   snapshot (including tombstones for accounts no longer present in
-   accdb, but present in the full snapshot). */
+   This is used to determine which accounts should be packed into an
+   incremental snapshot (including tombstones for accounts no longer
+   present in accdb, but present in the full snapshot). */
 
 struct fd_accdb_delta {
   uchar pubkey[ 32UL ];

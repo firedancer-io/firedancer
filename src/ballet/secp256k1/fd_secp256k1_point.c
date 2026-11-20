@@ -11,7 +11,7 @@
 
   We know that a^((p-1)/2) = 1 when a is a quadratic residue.
   So for a valid square, we can show that re-squaring recovers a with:
-    (a^((p+1)/4))^2 = a^((p+1)/1)
+    (a^((p+1)/4))^2 = a^((p+1)/2)
                     = a * a^((p-1)/2)
                     = a (if a is a square)
 

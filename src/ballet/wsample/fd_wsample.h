@@ -77,13 +77,13 @@ void *            fd_wsample_delete   ( void * shmem  );
 #define FD_WSAMPLE_HINT_POWERLAW_NOREMOVE 2
 #define FD_WSAMPLE_HINT_POWERLAW_REMOVE   3
 
-/* fd_wsample_new_init, fd_wsample_new_add_weight, and
+/* fd_wsample_new_init, fd_wsample_new_add, and
    fd_wsample_new_fini format a memory region with the appropriate
    alignment and footprint to be usable as a weighted sampler.  This
    multi-function initialization process prevents needing to construct a
    flat array of weights, which is often inconvenient.
 
-   The caller must first call fd_wsample_new_init, then new_add_weight
+   The caller must first call fd_wsample_new_init, then new_add
    ele_cnt times, and finally new_fini.  Only at that point will the
    region of memory be ready to be joined.
 
@@ -103,13 +103,13 @@ void *            fd_wsample_delete   ( void * shmem  );
 
    fd_wsample_new_add adds a weight to a partially formatted memory
    region.  shmem must be a partially constructed region of memory, as
-   returned by fd_wsample_new_init or fd_wsample_new_add_weight, weight
+   returned by fd_wsample_new_init or fd_wsample_new_add, weight
    must be strictly positive, and the cumulative sum of this weight and
    all other weights must be no more than ULONG_MAX.
 
    fd_wsample_new_fini finalizes the formatting of a partially formatted
    memory region.  shmem must be a partially constructed region of
-   memory, as returned by fd_wsample_new_add_weight (or
+   memory, as returned by fd_wsample_new_add (or
    fd_wsample_new_init if ele_cnt==0).  If poisoned_weight is non-zero,
    the weighted sampler will end with a poisoned region representing an
    indeterminate number of unknown elements with total weight equal to

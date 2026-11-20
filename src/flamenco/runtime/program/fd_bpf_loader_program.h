@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_fd_bpf_loader_program_h
 #define HEADER_fd_src_flamenco_runtime_program_fd_bpf_loader_program_h
 
-/* fd_bpf_loader_v3_program.h is the third version of the BPF loader
+/* fd_bpf_loader_program.h is the third version of the BPF loader
    program.
 
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
@@ -245,7 +245,7 @@ fd_bpf_instruction_decode( fd_bpf_instruction_t * out,
 # undef CURSOR
 }
 
-/* fd_bpf_upgradeable_loader_program_instruction_encode serializes an
+/* fd_bpf_instruction_encode serializes an
    UpgradeableLoaderInstruction into [buf, buf+bufsz).  On success stores
    the number of bytes written to *out_sz and returns 0.  Returns -1 on
    short buffer or unknown discriminant. */

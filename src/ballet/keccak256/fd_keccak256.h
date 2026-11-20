@@ -35,8 +35,6 @@ struct __attribute__((aligned(FD_KECCAK256_ALIGN))) fd_keccak256_private {
 
   ulong state[ 25 ];
 
-  /* This point is 32-byte aligned */
-
   ulong padding_start; /* Number of buffered bytes, in [0,FD_KECCAK256_RATE) */
 
   /* Padding to 128-byte here */

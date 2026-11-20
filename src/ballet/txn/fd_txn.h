@@ -76,12 +76,9 @@
 #define FD_TXN_ACCT_ADDR_MAX (64UL)
 
 /* FD_TXN_ADDR_TABLE_LOOKUP_MAX: The (inclusive) maximum number of address
-   tables that this transaction references.  The spec is pretty sloppy about
-   the maximum number allowed.  Since there's a maximum of 128 total accounts
-   (including the fee payer) that the transaction can reference, if you have
-   more than 127 table lookups, then you must have some from which you are not
-   using any account.  Realistically, the current MTU of 1232 B restricts this
-   to 33. FIXME: We should petition to limit this to approx 8. */
+   tables that this transaction references.  This is a conservative bound:
+   the 1232-byte V0 MTU and the requirement that each lookup reference at
+   least one account restrict the parser to at most 31 lookups. */
 #define FD_TXN_ADDR_TABLE_LOOKUP_MAX (127UL)
 
 /* FD_TXN_INSTR_MAX: The (inclusive) maximum number of instructions a transaction
@@ -294,8 +291,9 @@ struct fd_txn {
      Specifically, if uchar const * payload is a pointer to the first byte of
      the transaction data in the packet, then (payload+recent_blockhash_off) is
      a pointer to the blockhash. Since the resulting pointer points inside the
-     packet, it should be treated as pointing to unaligned data. In practice,
-     recent_blockhash_off is 5 or 6 (mod 32). */
+     packet, it should be treated as pointing to unaligned data. For legacy
+     and V0 transactions, recent_blockhash_off is 5 or 6 (mod 32); for V1,
+     it is 8. */
   ushort      recent_blockhash_off;
 
   /* addr_table_lookup_cnt: The number of address lookup tables this

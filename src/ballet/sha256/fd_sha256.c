@@ -488,7 +488,7 @@ fd_sha256_fini( fd_sha256_t * sha,
   }
 
   /* Clear in progress block up to last 64-bits, append the message
-     size in bytes in the last 64-bits of the in progress block and
+     size in bits in the last 64-bits of the in progress block and
      update the hash to finalize it. */
 
   fd_memset( buf + buf_used, 0, FD_SHA256_PRIVATE_BUF_MAX-8UL-buf_used );

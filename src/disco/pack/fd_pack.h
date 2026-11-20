@@ -779,7 +779,7 @@ int fd_pack_microblock_complete( fd_pack_t * pack, ulong bank_tile );
    no-ops. */
 ulong fd_pack_expire_before( fd_pack_t * pack, ulong expire_before );
 
-/* fd_pack_delete_txn removes a transaction (identified by its first
+/* fd_pack_delete_transaction removes a transaction (identified by its first
    signature) from the pool of available transactions.  Returns a
    nonzero count of the number of transactions deleted, if the
    transaction was found (and then removed) and 0 if not.  The count

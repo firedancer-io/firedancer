@@ -82,15 +82,14 @@ fd_poseidon_append( fd_poseidon_t * pos,
                     ulong           sz );
 
 /* fd_poseidon_fini finishes a Poseidon calculation.
-   out is assumed to be valid (i.e. is a current local join to a Poseidon
+   pos is assumed to be valid (i.e. is a current local join to a Poseidon
    calculation state with no other concurrent operations that would modify
-   the state while this is executing). out==NULL is ok to allow chaining:
+   the state while this is executing). pos==NULL is ok to allow chaining:
      fd_poseidon_fini( fd_poseidon_append( ... ) )
    hash points to the first byte of a 32-byte memory region where the
    result of the calculation should be stored.
-   Returns hash, or NULL if pos==NULL (on return, there will be no calculation
-   in-progress on pos and 32-byte buffer pointed to by hash will be populated
-   with the calculation result). */
+   Returns hash on success, or NULL if pos==NULL or no elements were
+   appended.  On failure, hash is unchanged. */
 
 uchar *
 fd_poseidon_fini( fd_poseidon_t * pos,

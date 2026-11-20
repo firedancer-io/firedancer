@@ -209,7 +209,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self );
 
 /* fd_quic_tls_get_hs_data
 
-   get oldest queued handshake data from the queue of pending data to sent to peer
+   get oldest queued handshake data for enc_level to send to the peer
 
    returns
      NULL    there is no data available
@@ -221,9 +221,7 @@ fd_quic_tls_process( fd_quic_tls_hs_t * self );
 
    args
      self        the handshake in question (fine if NULL)
-     enc_level   a pointer for receiving the encryption level
-     data        a pointer for receiving the pointer to the data buffer
-     data_sz     a pointer for receiving the data size */
+     enc_level   the encryption level whose queue to inspect */
 fd_quic_tls_hs_data_t *
 fd_quic_tls_get_hs_data( fd_quic_tls_hs_t *  self, uint enc_level );
 
@@ -239,7 +237,7 @@ fd_quic_tls_get_next_hs_data( fd_quic_tls_hs_t * self, fd_quic_tls_hs_data_t * h
 
 /* fd_quic_tls_pop_hs_data
 
-   remove handshake data from head of queue and free associated resources */
+   remove handshake data from the head of the queue for enc_level */
 void
 fd_quic_tls_pop_hs_data( fd_quic_tls_hs_t * self, uint enc_level );
 

@@ -229,10 +229,6 @@ metrics_write( fd_sign_ctx_t * ctx ) {
   FD_MHIST_COPY( SIGN, SIGN_DURATION_NANOS, ctx->sign_duration );
 }
 
-/* during_frag is called between pairs for sequence number checks, as
-   we are reading incoming frags.  We don't actually need to copy the
-   fragment here, see fd_dedup.c for why we do this.*/
-
 static void FD_FN_SENSITIVE
 during_frag_sensitive( void * _ctx,
                        ulong  in_idx,

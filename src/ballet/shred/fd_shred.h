@@ -442,7 +442,7 @@ fd_shred_code_payload( fd_shred_t const * shred ) {
   return (uchar const *)shred + FD_SHRED_CODE_HEADER_SZ;
 }
 
-/* fd_shred_chain_offset: Assuming that `shred` is a chained Merkle
+/* fd_shred_chain_off: Assuming that `shred` is a chained Merkle
    variant, compute the offset from the start of the shred to the start
    of the chained Merkle root.  U.B. if the shred is not a chained
    variant. */
@@ -455,7 +455,7 @@ fd_shred_chain_off( uchar variant ) {
     - fd_ulong_if( fd_shred_is_resigned( type ), FD_SHRED_SIGNATURE_SZ, 0 );
 }
 
-/* fd_shred_retrasmitter_sig_off: Assuming that `shred` is a resigned
+/* fd_shred_retransmitter_sig_off: Assuming that `shred` is a resigned
    variant, compute the offset from the start of the shred to the start
    of the retransmitter signature.  U.B if the shred is not a resigned
    chained type. */

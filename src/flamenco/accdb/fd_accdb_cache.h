@@ -138,12 +138,14 @@ static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
 
    The algorithm:
    1) Reserves min_reserved of each class off the top.
-   2) Reserves additional per-class minimums (at most 1% of remaining
-      budget per class, clamped to [1, 1024] slots).
+   2) Tops up classes toward working-set targets, subject to the
+      remaining budget and estimated population maximums.
    3) Iteratively allocates remaining budget proportional to access
-      density weights derived from mainnet replay data.
-   4) Caps classes at estimated population maximums and redistributes
-      surplus to uncapped classes. */
+      density weights derived from mainnet replay data, redistributing
+      surplus when a class reaches its population maximum.
+   4) Distributes excess beyond the population maximums by density,
+      capped at FD_ACCDB_CACHE_LINE_MAX slots per class.
+   5) Spends integer-division slack on additional slots that fit. */
 
 int
 fd_accdb_cache_class_cnt( ulong   cache_footprint,
