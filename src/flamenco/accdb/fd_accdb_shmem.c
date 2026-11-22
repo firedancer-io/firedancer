@@ -429,6 +429,8 @@ fd_accdb_shmem_new( void * shmem,
       line->acc_idx        = UINT_MAX;
       line->refcnt         = 0U;
       line->referenced     = 0;
+      line->hazard_pending = 0;
+      line->hazard_read    = 0;
       line->persisted      = 1;
       line->seq            = 0U;
     }
