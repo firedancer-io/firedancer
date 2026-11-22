@@ -326,7 +326,7 @@ main( int     argc,
     FD_TEST( set_range_cnt( s, l, h )==set_cnt( y ) );
   }
 
-#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+#if FD_HAS_HOSTED && FD_DCHECK_STYLE==1
 #define FD_EXPECT_LOG_CRIT( CALL ) do {                            \
     FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
     pid_t pid = fork();                                            \
@@ -350,8 +350,13 @@ main( int     argc,
   FD_EXPECT_LOG_CRIT( set_insert_if( t, 1, MAX ) );
   FD_EXPECT_LOG_CRIT( set_remove_if( t, 1, MAX ) );
   FD_EXPECT_LOG_CRIT( set_test     ( t,    MAX ) );
+  FD_EXPECT_LOG_CRIT( set_range       ( t, MAX, 0UL ) );
+  FD_EXPECT_LOG_CRIT( set_insert_range( t, MAX, 0UL ) );
+  FD_EXPECT_LOG_CRIT( set_select_range( t, MAX, 0UL ) );
+  FD_EXPECT_LOG_CRIT( set_remove_range( t, MAX, 0UL ) );
+  FD_EXPECT_LOG_CRIT( set_range_cnt   ( t, MAX, 0UL ) );
 #else
-  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted and FD_DCHECK_STYLE==1" ));
 #endif
 
   set_delete( set_leave( t    ) );
