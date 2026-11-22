@@ -12,19 +12,19 @@
 #include "../sysvar/fd_sysvar_base.h"
 #include "../../../ballet/txn/fd_txn.h"
 
-/* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/bpf_loader/src/lib.rs#L35-L39 */
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
 #define DEPRECATED_LOADER_COMPUTE_UNITS  (1140UL)
 #define UPGRADEABLE_LOADER_COMPUTE_UNITS (2370UL)
 
-/* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/bpf_loader_upgradeable.rs#L29-L120 */
+/* https://github.com/anza-xyz/solana-sdk/blob/loader-v3-interface%40v9.0.0/loader-v3-interface/src/state.rs#L13-L68 */
 #define SIZE_OF_PROGRAM                  (36UL  ) /* UpgradeableLoaderState::size_of_program() */
 #define BUFFER_METADATA_SIZE             (37UL  ) /* UpgradeableLoaderState::size_of_buffer_metadata() */
 #define PROGRAMDATA_METADATA_SIZE        (45UL  ) /* UpgradeableLoaderState::size_of_programdata_metadata() */
 #define SIZE_OF_UNINITIALIZED            (4UL   ) /* UpgradeableLoaderState::size_of_uninitialized() */
 
 /* InstructionError conversions
-   https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L127-L160 */
+   https://github.com/anza-xyz/solana-sdk/blob/program-error%40v3.0.1/program-error/src/lib.rs#L14-L47 */
 #define BUILTIN_BIT_SHIFT                           (32UL)
 
 #define CUSTOM_ZERO                                 ((1UL)  << BUILTIN_BIT_SHIFT)
@@ -56,7 +56,7 @@
 
 /* UpgradeableLoaderInstruction wire format (u32 discriminant).
 
-   https://github.com/anza-xyz/agave/blob/v2.2.6/sdk/program/src/bpf_loader_upgradeable.rs */
+   https://github.com/anza-xyz/solana-sdk/blob/loader-v3-interface%40v9.0.0/loader-v3-interface/src/instruction.rs#L29-L191 */
 
 #define FD_BPF_INSTR_INITIALIZE_BUFFER        (0U)
 #define FD_BPF_INSTR_WRITE                    (1U)
@@ -70,7 +70,7 @@
 #define FD_BPF_INSTR_EXTEND_PROGRAM_CHECKED   (9U)
 
 /* SIMD-0431: must extend by at least 10kb
-   https://github.com/anza-xyz/solana-sdk/blob/loader-v3-interface%40v7.0.0/loader-v3-interface/src/instruction.rs#L18 */
+   https://github.com/anza-xyz/solana-sdk/blob/loader-v3-interface%40v9.0.0/loader-v3-interface/src/instruction.rs#L20 */
 #define MINIMUM_EXTEND_PROGRAM_BYTES (10240UL)
 
 /* Per-variant payload structs.
@@ -118,7 +118,7 @@ typedef struct fd_bpf_instruction fd_bpf_instruction_t;
 
 /* UpgradeableLoaderState wire format (u32 discriminant).
 
-   https://github.com/anza-xyz/agave/blob/v2.2.6/sdk/program/src/bpf_loader_upgradeable.rs */
+   https://github.com/anza-xyz/solana-sdk/blob/loader-v3-interface%40v9.0.0/loader-v3-interface/src/state.rs#L13-L37 */
 
 #define FD_BPF_STATE_UNINITIALIZED (0U)
 #define FD_BPF_STATE_BUFFER        (1U)
@@ -181,8 +181,8 @@ fd_bpf_instruction_decode( fd_bpf_instruction_t * out,
                            ulong                  data_sz,
                            int                    unbound_loader_v3_instruction_data ) {
   uchar const * _payload    = data;
-  /* https://github.com/anza-xyz/agave/blob/v4.5/programs/bpf_loader/src/lib.rs#L192-L204
-     https://github.com/anza-xyz/agave/blob/v4.5/programs/bpf_loader/src/lib.rs#L68-L73 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/bpf_loader/src/lib.rs#L192-L204
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/bpf_loader/src/lib.rs#L68-L73 */
   ulong const   _payload_sz = unbound_loader_v3_instruction_data ? data_sz : fd_ulong_min( data_sz, FD_TXN_MTU_V0 );
   ulong         _i          = 0UL;
 
@@ -477,7 +477,7 @@ fd_bpf_state_size( fd_bpf_state_t const * in ) {
 FD_PROTOTYPES_BEGIN
 
 /* Mirrors solana_sdk::transaction_context::BorrowedAccount::get_state()
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965-L969 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L252-L258 */
 
 int
 fd_bpf_loader_program_get_state( fd_acc_t const * acc,

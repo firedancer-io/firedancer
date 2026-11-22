@@ -65,14 +65,14 @@ static const fd_core_bpf_migration_config_t * const MIGRATE_STATELESS_TO_CORE_BP
 #define FEATURE_PROGRAM_BUILTIN           STATELESS_BUILTIN(&fd_solana_feature_program_id,  MIGRATE_STATELESS_TO_CORE_BPF_FEATURE_GATE_PROGRAM_CONFIG)
 #define SLASHING_PROGRAM_BUILTIN          STATELESS_BUILTIN(&fd_solana_slashing_program_id, MIGRATE_STATELESS_TO_CORE_BPF_SLASHING_PROGRAM_CONFIG)
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/mod.rs#L133-L143 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/builtins/src/lib.rs#L111 */
 static const fd_stateless_builtin_program_t stateless_programs_builtins[] = {
     FEATURE_PROGRAM_BUILTIN,
     SLASHING_PROGRAM_BUILTIN
 };
 #define STATELESS_BUILTINS_COUNT (sizeof(stateless_programs_builtins) / sizeof(fd_stateless_builtin_program_t))
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/mod.rs#L34-L131 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/builtins/src/lib.rs#L28-L109 */
 static fd_builtin_program_t const builtin_programs[] = {
     SYSTEM_PROGRAM_BUILTIN,
     VOTE_PROGRAM_BUILTIN,
@@ -87,7 +87,7 @@ static fd_builtin_program_t const builtin_programs[] = {
 #define BUILTIN_PROGRAMS_COUNT (sizeof(builtin_programs) / sizeof(fd_builtin_program_t))
 
 /* Used by the compute budget program to determine how many CUs to deduct by default
-   https://github.com/anza-xyz/agave/blob/v2.1.13/builtins-default-costs/src/lib.rs#L113-L139 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/builtins-default-costs/src/lib.rs#L94-L106 */
 static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
   /* Any future migrating builtins should be added here. Intentionally
      not cleaned up to support future migrations. */
@@ -95,7 +95,7 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 };
 #define MIGRATING_BUILTINS_COUNT (sizeof(migrating_builtins) / sizeof(fd_core_bpf_migration_config_t const *))
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.13/builtins-default-costs/src/lib.rs#L141-L193 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/builtins-default-costs/src/lib.rs#L108-L120 */
 #define MAP_PERFECT_NAME fd_non_migrating_builtins_tbl
 #define MAP_PERFECT_LG_TBL_SZ 4
 #define MAP_PERFECT_T fd_pubkey_t
@@ -126,7 +126,7 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 #include "../../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
 
-// https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4944
+// https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6631-L6635
 static int
 fd_builtin_is_bpf( fd_accdb_t *         accdb,
                    fd_accdb_fork_id_t   fork_id,
@@ -148,7 +148,7 @@ fd_builtin_is_bpf( fd_accdb_t *         accdb,
    Bogus accounts are marked as "executable", but their data is a
    hardcoded ASCII string. */
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/native_loader.rs#L19 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6753-L6762 */
 void
 fd_write_builtin_account( fd_bank_t  *       bank,
                           fd_accdb_t *       accdb,
@@ -170,11 +170,11 @@ void
 fd_builtin_programs_init( fd_bank_t *        bank,
                           fd_accdb_t *       accdb,
                           fd_capture_ctx_t * capture_ctx ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.3.7/builtins/src/lib.rs#L52 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/builtins/src/lib.rs#L28 */
   fd_builtin_program_t const * builtins = fd_builtins();
 
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
-    /** https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4949 */
+    /** https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6639-L6650 */
     if( bank->f.slot==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( accdb, bank->accdb_fork_id, builtins[i].pubkey ) ) {
       fd_write_builtin_account( bank, accdb, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
     } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {

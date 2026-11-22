@@ -6,7 +6,7 @@
 #include "../../disco/fd_txn_p.h"
 #include "sysvar/fd_sysvar_rent.h"
 
-/* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L40-L47 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/account_loader.rs#L38-L53 */
 #define FD_TRANSACTION_ACCOUNT_BASE_SIZE  (64UL)
 #define FD_ADDRESS_LOOKUP_TABLE_BASE_SIZE (8248UL)
 
@@ -20,7 +20,7 @@
   if( FD_UNLIKELY( err ) ) return err;                        \
   } while(0)
 
-// https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L82
+// https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/cost-model/src/cost_model.rs#L24
 #define FD_ACCOUNT_DATA_COST_PAGE_SIZE ( 32UL * 1024UL )
 
 FD_PROTOTYPES_BEGIN
@@ -58,7 +58,7 @@ fd_executor_txn_verify( fd_txn_p_t *         txn_p,
                         fd_sha512_t *        shas[ FD_TXN_SIG_MAX ],
                         fd_ed25519_cache_t * cache );
 
-/* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/svm/src/rent_calculator.rs#L144-L178 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/rent_calculator.rs#L144-L178 */
 int
 fd_executor_check_static_account_rent_state_transition( ulong             pre_exec_balance,
                                                         ulong             post_exec_balance,

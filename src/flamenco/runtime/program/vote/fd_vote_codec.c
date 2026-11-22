@@ -1282,7 +1282,7 @@ deser_vote_state_update( fd_vote_state_update_t * out,
 
 /* This function contains slightly custom deserialization logic to
    adhere to serde_compact_vote_state_update in Agave.
-   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/mod.rs#L265-L299 */
+   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L381-L391 */
 static int
 deser_compact_vote_state_update( fd_compact_vote_state_update_t * out,
                                  uchar const **                   data,
@@ -1317,7 +1317,7 @@ deser_compact_vote_state_update( fd_compact_vote_state_update_t * out,
 /* Similar to above. Tower sync uses delta-encoded lockout offsets,
    converting them to absolute slot numbers on the fly.  Mirrors the
    checked arithmetic from Agave's custom deserializer:
-   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/mod.rs#L360-L396 */
+   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L404-L415 */
 
 static int
 deser_tower_sync( fd_tower_sync_t * out,
@@ -1375,7 +1375,7 @@ deser_vote_authorize_with_seed( fd_vote_authorize_with_seed_args_t * out,
 
   ulong seed_len;
   READ_U64( seed_len, data, sz );
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/vote/src/vote_processor.rs#L42-L49 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_processor.rs#L42-L49 */
   CHECK( seed_len<=FD_VOTE_INSTR_SEED_MAX );
   out->current_authority_derived_key_seed_len = seed_len;
 
@@ -1395,7 +1395,7 @@ deser_vote_authorize_checked_with_seed( fd_vote_authorize_checked_with_seed_args
 
   ulong seed_len;
   READ_U64( seed_len, data, sz );
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/vote/src/vote_processor.rs#L130 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_processor.rs#L112-L114 */
   CHECK( seed_len<=FD_VOTE_INSTR_SEED_MAX );
   out->current_authority_derived_key_seed_len = seed_len;
 
@@ -1533,7 +1533,7 @@ fd_vote_instruction_deserialize( fd_vote_instruction_t * instruction,
                                  uchar const *           data,
                                  ulong                   data_sz ) {
   /* limited_deserialize(data, PACKET_DATA_SIZE)
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/programs/vote/src/vote_processor.rs#L130 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_processor.rs#L112-L114 */
   data_sz = fd_ulong_min( data_sz, FD_TXN_MTU_V0 );
   CHECK_RET_NULL( !fd_vote_instruction_deserialize_inner( instruction, data, data_sz ) );
   return instruction;

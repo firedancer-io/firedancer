@@ -7,7 +7,7 @@
 
 #define FD_SLOT_HISTORY_BLOCKS_LEN (FD_SLOT_HISTORY_MAX_ENTRIES / FD_SLOT_HISTORY_BITS_PER_BLOCK)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
+/* https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v3.2.0/slot-history/src/lib.rs#L30-L36 */
 
 void
 fd_sysvar_slot_history_init( fd_bank_t *        bank,
@@ -94,7 +94,7 @@ fd_sysvar_slot_history_update( fd_bank_t *        bank,
   uchar * footer    = acc.data + 9UL + bits_bitvec_len * sizeof(ulong);
   ulong   next_slot = FD_LOAD( ulong, footer+8UL );
 
-  /* https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/slot-history/src/lib.rs#L62-L74 */
+  /* https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v3.2.0/slot-history/src/lib.rs#L66-L78 */
   ulong cur_slot = bank->f.slot;
   if( FD_UNLIKELY( cur_slot>next_slot && cur_slot-next_slot>=FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
     fd_memset( bits, 0, bits_bitvec_len * sizeof(ulong) );

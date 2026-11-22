@@ -37,24 +37,24 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
                                       ushort                      idx_in_txn,
                                       fd_borrowed_account_t *     account ) {
   /* Get the account from the transaction context using idx_in_txn.
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L600-L602 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L215-L218 */
   fd_acc_t * ref = fd_runtime_get_account_at_index( ctx->txn_in, ctx->txn_out, idx_in_txn, NULL );
   if( FD_UNLIKELY( !ref ) ) {
     /* Return a MissingAccount error if the account is not found.
-       https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L603 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction_accounts.rs#L371-L374 */
     FD_TXN_ERR_FOR_LOG_INSTR( ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, ctx->txn_out->err.exec_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   /* Return an AccountBorrowFailed error if the write is not acquirable.
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L605 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction_accounts.rs#L549-L551 */
   if( FD_UNLIKELY( ctx->runtime->accounts.refcnt[idx_in_txn]!=0UL ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
   }
   ctx->runtime->accounts.refcnt[idx_in_txn]++;
 
   /* Create a BorrowedAccount upon success.
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L606 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L220 */
   fd_borrowed_account_init( account,
                             ref,
                             ctx,
@@ -69,7 +69,7 @@ fd_exec_instr_ctx_try_borrow_instr_account( fd_exec_instr_ctx_t const * ctx,
                                             ushort                      idx,
                                             fd_borrowed_account_t *     account ) {
   /* Find the index of the account in the transaction context.
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L649-L650 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction.rs#L210-L213 */
   ushort idx_in_txn;
   int err = fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( ctx,
                                                                          idx,

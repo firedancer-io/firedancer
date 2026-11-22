@@ -34,7 +34,7 @@ FD_PROTOTYPES_BEGIN
    field is not specified by the config mask the defaults as per
    SIMD 385 are used.
 
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L98-L107 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime-transaction/src/transaction_meta.rs#L145-L152 */
 static inline void
 fd_txn_parse_v1_config( uint           config_mask,
                         uchar const *  config_values,

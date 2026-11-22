@@ -9,7 +9,7 @@
 /* to_vote_state_1_14_11 converts a "v3" vote state object into the
    older "v1.14.11" version.  This destroys the "v3" object in the
    process.
-   https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L67 */
+   https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_1_14_11.rs#L75 */
 static void
 to_vote_state_1_14_11( fd_vote_state_v3_t *      vote_state,
                        fd_vote_state_1_14_11_t * vote_state_1_14_11 /* out */ ) {

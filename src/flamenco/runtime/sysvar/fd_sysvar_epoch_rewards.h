@@ -15,7 +15,7 @@ fd_sysvar_epoch_rewards_read( fd_accdb_t *                accdb,
 
 /* Update EpochRewards sysvar with distributed rewards
 
-   https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L75 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L71 */
 void
 fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
                                     fd_accdb_t *       accdb,
@@ -25,7 +25,7 @@ fd_sysvar_epoch_rewards_distribute( fd_bank_t *        bank,
 
 /* Set the EpochRewards sysvar to inactive
 
-    https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L113 */
+    https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L106 */
 void
 fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
                                       fd_accdb_t *       accdb,
@@ -33,7 +33,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *        bank,
 
 /* Initialize the EpochRewards sysvar account
 
-    https://github.com/anza-xyz/agave/blob/v4.4.0-alpha.5/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L27 */
+    https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L26 */
 void
 fd_sysvar_epoch_rewards_init( fd_bank_t *        bank,
                               fd_accdb_t *       accdb,

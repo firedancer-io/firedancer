@@ -9,7 +9,7 @@ FD_PROTOTYPES_BEGIN
 /* Equivalent to Agave's `native_invoke()` function. Used by native
    programs to CPI into other native programs.
 
-   https://github.com/anza-xyz/agave/blob/v2.2.6/program-runtime/src/invoke_context.rs#L307-L323 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L300-L319 */
 int
 fd_native_cpi_native_invoke( fd_exec_instr_ctx_t *             ctx,
                              fd_pubkey_t const *               native_program_id,

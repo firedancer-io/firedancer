@@ -54,7 +54,7 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
                                   uchar * *               data_out,
                                   ulong *                 dlen_out ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L824 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L170 */
   int err;
   fd_borrowed_account_can_data_be_changed( borrowed_acct, &err );
   if( FD_UNLIKELY( err ) ) {
@@ -76,25 +76,25 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
                                fd_pubkey_t const *     owner ) {
 
   /* Only the owner can assign a new owner
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L741 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L93 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
 
   /* And only if the account is writable
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L745 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L97 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( borrowed_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
 
   /* And only if the data is zero-initialized or empty
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L753 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L101 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_zeroed( borrowed_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID;
   }
 
   /* Don't copy the account if the owner does not change
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L757 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L105 */
   if( !memcmp( borrowed_acct->acc->owner, owner, sizeof(fd_pubkey_t) ) ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
@@ -102,32 +102,32 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
   *borrowed_acct->touched = 1;
 
   /* Copy into owner
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L761 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L109 */
   fd_memcpy( borrowed_acct->acc->owner, owner, sizeof(fd_pubkey_t) );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 /* Overwrites the number of lamports of this account (transaction wide)
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L773 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L120 */
 int
 fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
                                   ulong                   lamports ) {
 
   /* An account not owned by the program cannot have its balance decrease
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L775 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L122 */
   if( FD_UNLIKELY( (!fd_borrowed_account_is_owned_by_current_program( borrowed_acct )) &&
                    (lamports<borrowed_acct->acc->lamports) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND;
   }
 
   /* The balance of read-only may not change
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L779 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L126 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( borrowed_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE;
   }
 
   /* Don't copy the account if the lamports do not change
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L787 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L130-L133 */
   if( borrowed_acct->acc->lamports==lamports ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
@@ -143,7 +143,7 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
                                          uchar const *           data,
                                          ulong                   data_sz ) {
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L181-L184 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L180-L183 */
   int err;
   if ( FD_UNLIKELY( !fd_borrowed_account_can_data_be_resized( borrowed_acct, data_sz, &err ) ) ) {
     return err;
@@ -151,7 +151,7 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
 
   *borrowed_acct->touched = 1;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L868 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L183 */
   if( FD_UNLIKELY( !fd_borrowed_account_update_accounts_resize_delta( borrowed_acct, data_sz, &err ) ) ) {
     return err;
   }
@@ -168,7 +168,7 @@ fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
                                      ulong                   new_len ) {
   int err = FD_EXECUTOR_INSTR_SUCCESS;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L197-L204 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L196-L203 */
   if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_resized( borrowed_acct, new_len, &err ) ) ) {
     return err;
   }
@@ -176,20 +176,20 @@ fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
   ulong old_len = borrowed_acct->acc->data_len;
 
   /* Don't copy the account if the length does not change
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L886 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L199 */
   if( old_len==new_len ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
   *borrowed_acct->touched = 1;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L890 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L203 */
   if( FD_UNLIKELY( !fd_borrowed_account_update_accounts_resize_delta( borrowed_acct, new_len, &err ) ) ) {
     return err;
   }
 
   /* Resize the account
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L891 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L204 */
   ulong memset_sz = fd_ulong_sat_sub( new_len, borrowed_acct->acc->data_len );
   fd_memset( borrowed_acct->acc->data+borrowed_acct->acc->data_len, 0, memset_sz );
   borrowed_acct->acc->data_len = (uint)new_len;
@@ -201,33 +201,33 @@ int
 fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
                                     int                     is_executable ) {
   /* To become executable an account must be rent exempt
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1003-L1006 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L295-L298 */
   fd_rent_t const * rent = &borrowed_acct->instr_ctx->bank->f.rent;
   if( FD_UNLIKELY( borrowed_acct->acc->lamports<fd_rent_exempt_minimum_balance( rent, borrowed_acct->acc->data_len ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
   }
 
   /* Only the owner can set the executable flag
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1011 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L303 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
   }
 
   /* And only if the account is writable
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1015 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L307 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( borrowed_acct ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
   }
 
   /* Don't copy the account if the executable flag does not change
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1023 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L312 */
   if( fd_borrowed_account_is_executable( borrowed_acct ) == is_executable ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
   *borrowed_acct->touched = 1;
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1027 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L316 */
   borrowed_acct->acc->executable = !!is_executable;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -240,7 +240,7 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
   fd_exec_instr_ctx_t const * instr_ctx  = borrowed_acct->instr_ctx;
   long                        size_delta = fd_long_sat_sub( (long)new_len, (long)borrowed_acct->acc->data_len );
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.8/transaction-context/src/transaction_accounts.rs#L303-L313 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction_accounts.rs#L335-L345 */
   instr_ctx->txn_out->details.accounts_resize_delta = fd_long_sat_add( instr_ctx->txn_out->details.accounts_resize_delta, size_delta );
   *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
@@ -251,14 +251,14 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
                                          ulong                         new_length,
                                          int *                         err ) {
   /* The new length can not exceed the maximum permitted length
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/transaction_accounts.rs#L319-L322 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction_accounts.rs#L352-L355 */
   if( FD_UNLIKELY( new_length>MAX_PERMITTED_DATA_LENGTH ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
     return 0;
   }
 
   /* The resize can not exceed the per-transaction maximum
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/transaction_accounts.rs#L323-L329 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction_accounts.rs#L356-L362 */
   long length_delta              = fd_long_sat_sub( (long)new_length, (long)borrowed_acct->acc->data_len );
   long new_accounts_resize_delta = fd_long_sat_add( borrowed_acct->instr_ctx->txn_out->details.accounts_resize_delta, length_delta );
   if( FD_UNLIKELY( new_accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
@@ -267,6 +267,6 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
   }
 
   /* The account data can only be resized if it can be changed
-     https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L351-L357 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L358-L364 */
   return fd_borrowed_account_can_data_be_changed( borrowed_acct, err );
 }

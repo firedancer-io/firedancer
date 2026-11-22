@@ -13,10 +13,10 @@
 #include "../fd_bank.h"
 #include "vote/fd_vote_codec.h"
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L48
+// https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L49
 #define VOTE_CREDITS_MAXIMUM_PER_SLOT 16
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L45
+// https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L46
 #define VOTE_CREDITS_GRACE_SLOTS 2
 
 /* Vote program custom error codes */
@@ -43,7 +43,7 @@
 #define FD_VOTE_ERR_COMMISSION_UPDATE_TOO_LATE      (19)
 
 /* Target vote state version.
-   https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/handler.rs#L33-L38 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L85-L90 */
 #define VOTE_STATE_TARGET_VERSION_V4 (1)
 
 FD_PROTOTYPES_BEGIN

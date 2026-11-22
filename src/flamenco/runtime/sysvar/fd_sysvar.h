@@ -4,7 +4,7 @@
 #include "../fd_bank.h"
 #include "fd_sysvar_rent.h"
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1833 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/sysvar_account.rs#L42 */
 #define FD_SYSVAR_RENT_UNADJUSTED_INITIAL_BALANCE ( 1UL )
 
 /* fd_sysvar_account_update persists a sysvar data update to the account
@@ -20,7 +20,7 @@ fd_sysvar_account_update( fd_bank_t *         bank,
 
 /* fd_sysvar_adjust_balance_for_rent raises a sysvar account's balance
    to the rent exempt minimum.
-   https://github.com/anza-xyz/agave/blob/v4.2.0-rc.1/runtime/src/bank.rs#L6284-L6289 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/runtime/src/bank.rs#L6512-L6517 */
 
 static inline void
 fd_sysvar_adjust_balance_for_rent( fd_bank_t const * bank,

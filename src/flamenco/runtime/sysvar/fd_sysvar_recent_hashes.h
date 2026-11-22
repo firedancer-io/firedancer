@@ -9,7 +9,7 @@
 /* FD_SYSVAR_RECENT_HASHES_CAP is the max number of block hash entries
    the recent blockhashes sysvar will include.
 
-   https://github.com/anza-xyz/agave/blob/6398ddf6ab8a8f81017bf675ab315a70067f0bf0/sdk/program/src/sysvar/recent_blockhashes.rs#L32
+   https://github.com/anza-xyz/solana-sdk/blob/sysvar%40v5.0.0/sysvar/src/recent_blockhashes.rs#L36
 */
 
 #define FD_SYSVAR_RECENT_HASHES_CAP (150UL)

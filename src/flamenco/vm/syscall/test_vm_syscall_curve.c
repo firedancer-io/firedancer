@@ -223,7 +223,7 @@ main( int     argc,
   test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
 
   // success
-  // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L3107
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L4165
   {
     uchar _scalars[ 64 ] = {
       254, 198, 23, 138, 67, 243, 184, 110, 236, 115, 236, 205, 205, 215, 79, 114, 45, 250,
@@ -346,7 +346,7 @@ main( int     argc,
     ) );
   }
 
-  // https://github.com/solana-labs/solana/blob/v1.17.15/programs/bpf_loader/src/syscalls/mod.rs#L2948C8-L2948C46
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L4010
   {
     uchar _points[ 64 ] = {
       208, 165, 125, 204, 2, 100, 218, 17, 170, 194, 23, 9, 102, 156, 134, 136, 217, 190, 98,

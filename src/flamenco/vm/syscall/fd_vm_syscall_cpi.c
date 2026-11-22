@@ -17,7 +17,7 @@ fd_vm_prepare_instruction populates instruction_accounts and instruction_account
 with the instruction accounts ready for execution.
 
 The majority of this logic is taken from
-https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L311-L455,
+https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L332-L491,
 and is not vm-specific, but a part of the runtime.
 TODO: should we move this out of the CPI section?
 
@@ -82,7 +82,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
   /* Normalize the privileges of each instruction account in the callee, after de-duping
      the account references.
-    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L327-L367 */
+    https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L414-L454 */
   for( ulong i=0UL; i<callee_instr->acct_cnt; i++ ) {
     ushort index_in_transaction = callee_instr->accounts[i].index_in_transaction;
     ushort index_in_caller      = callee_instr->accounts[i].index_in_caller;
@@ -151,7 +151,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   for( ulong i = 0; i < deduplicated_instruction_accounts_cnt; i++ ) {
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
 
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L393-L403 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L348-L362 */
     ushort caller_idx                 = instruction_account->index_in_caller;
     fd_pubkey_t const * caller_pubkey = NULL;
     int err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, caller_idx, &caller_pubkey );
@@ -185,7 +185,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* Failing this condition is technically impossible, but it is probably safest to keep this in
        so that we throw InstructionError::NotEnoughAccountKeys at the same point at Solana does,
        in the event any surrounding code is changed.
-       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L345-L366 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/invoke_context.rs#L432-L445 */
     if ( FD_LIKELY( duplicate_index < deduplicated_instruction_accounts_cnt ) ) {
       instruction_accounts[i] = deduplicated_instruction_accounts[duplicate_index];
       callee_instr->accounts[i].is_writable = !!(instruction_accounts[i].is_writable);
@@ -220,7 +220,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 /* FD_CPI_MAX_SIGNER_CNT is the max amount of PDA signer addresses that
    a cross-program invocation can include in an instruction.
 
-   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/mod.rs#L80 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L63 */
 
 #define FD_CPI_MAX_SIGNER_CNT              (16UL)
 
@@ -228,18 +228,18 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
    invocation. A limit on account info structs is effectively the same as
    limiting the number of unique accounts.
 
-   https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L25
-   https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1011 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L184-L185
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L225-L235 */
 
 #define FD_CPI_MAX_ACCOUNT_INFOS (255UL)
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L168-L180 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L227 */
 static inline ulong
 get_cpi_max_account_infos( void ) {
   return FD_CPI_MAX_ACCOUNT_INFOS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/execution_budget.rs#L25-L31 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/execution_budget.rs#L20-L21 */
 static inline ulong
 get_cpi_invoke_unit_cost( void ) {
   return FD_VM_INVOKE_UNITS;
@@ -251,7 +251,7 @@ get_cpi_invoke_unit_cost( void ) {
 static int
 fd_vm_syscall_cpi_check_instruction( ulong           acct_cnt,
                                      ulong           data_sz ) {
-  /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L146-L161 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L207-L222 */
   if( FD_UNLIKELY( acct_cnt > FD_TXN_INSTR_ACCT_MAX ) ) {
     // SyscallError::MaxInstructionAccountsExceeded
     return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED;
@@ -264,14 +264,14 @@ fd_vm_syscall_cpi_check_instruction( ulong           acct_cnt,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1276-L1311 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L1341-L1382 */
 static inline int
 fd_vm_cpi_update_caller_account_region( fd_vm_t *                              vm,
                                         fd_vm_cpi_translated_account_t const * translated_account,
                                         fd_borrowed_account_t *                borrowed_account ) {
   fd_vm_cpi_caller_account_t const * caller_account = &translated_account->caller_account;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1283-L1290 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L1352-L1354 */
   ulong address_space_reserved_for_account;
   if( vm->is_deprecated ) {
     address_space_reserved_for_account = caller_account->orig_data_len;
@@ -279,9 +279,9 @@ fd_vm_cpi_update_caller_account_region( fd_vm_t *                              v
     address_space_reserved_for_account = fd_ulong_sat_add( caller_account->orig_data_len, MAX_PERMITTED_DATA_INCREASE );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1292-L1308 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L1356-L1379 */
   if( address_space_reserved_for_account > 0UL ) {
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1295-L1297 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L1359-L1361 */
     fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[ translated_account->index_in_caller ];
     fd_vm_input_region_t *    region          = &vm->input_mem_regions[ acc_region_meta->region_idx + 1UL ];
 
@@ -294,8 +294,8 @@ fd_vm_cpi_update_caller_account_region( fd_vm_t *                              v
        Therefore we do not have equivalents of Agave's
        modify_memory_region_of_account and create_memory_region_of_account
        functions, but we instead inline this logic directly below. */
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1301-L1307 */
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/serialization.rs#L23-L35 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L1366-L1371 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/serialization.rs#L23-L54 */
     region->region_sz = (uint)fd_borrowed_account_get_data_len( borrowed_account );
 
     int err;
@@ -322,7 +322,7 @@ fd_vm_syscall_cpi_check_id( fd_pubkey_t const * program_id,
    list of known pre-compiles.
 
    This mirrors the behaviour in solana_sdk::precompiles::is_precompile
-   https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/src/precompiles.rs#L93
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/precompiles/src/lib.rs#L75
  */
 static inline int
 fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id ) {
@@ -333,7 +333,7 @@ fd_vm_syscall_cpi_is_precompile( fd_pubkey_t const * program_id ) {
 
 /* fd_vm_syscall_cpi_check_authorized_program corresponds to
 solana_bpf_loader_program::syscalls::cpi::check_authorized_program:
-https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1032
+https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L238
 
 It determines if the given program_id is authorized to execute a CPI call.
 Returns 1 if authorized, 0 otherwise.
@@ -366,7 +366,7 @@ ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
   return rc_refcell_vaddr + offsetof(fd_vm_rc_refcell_t, payload);
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L508-L514
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L529-L535
  */
 FD_FN_CONST static inline
 ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_haddr, ulong acct_info_haddr ) {
@@ -408,7 +408,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
   void * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_addr, alignof(ulong), sizeof(ulong) );
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L304 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L548 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl ) \
   ulong decl = acc_info->data_addr;
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
@@ -487,13 +487,13 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
     /* Extract the vaddr embedded in the RefCell */                                                                                              \
     ulong decl = FD_LOAD( ulong, FD_EXPAND_THEN_CONCAT2(decl, _hptr_) );
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L184-L195 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L392-L408 */
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                                                                     \
     ulong FD_EXPAND_THEN_CONCAT2(decl, _vaddr_) =                                                                                                                  \
       FD_LOAD( ulong, FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) ) ); \
     void * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _vaddr_), alignof(ulong), sizeof(ulong) );
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L367-L378 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L416-L428 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \
     if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions &&                                                                                 \
                      vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ) >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                \
@@ -506,7 +506,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
     /* Extract the vaddr embedded in the slice */                                                                                                  \
     ulong decl = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr;
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L212-L221 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/cpi.rs#L436-L446 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_LEN_VADDR( vm, acc_info, decl ) \
     ulong decl = fd_ulong_sat_add( vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), sizeof(ulong) );
 

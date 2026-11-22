@@ -34,7 +34,7 @@
     _vm->cu = _cu - _cost;                           \
   }))
 
-/* https://github.com/anza-xyz/agave/blob/5263c9d61f3af060ac995956120bef11c1bbf182/programs/bpf_loader/src/syscalls/mem_ops.rs#L7 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/mem_ops.rs#L3 */
 #define FD_VM_CU_MEM_OP_UPDATE( vm, sz ) \
   FD_VM_CU_UPDATE( vm, fd_ulong_max( FD_VM_MEM_OP_BASE_COST, sz / FD_VM_CPI_BYTES_PER_UNIT ) )
 
@@ -222,9 +222,9 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
 
    Users of this macro should be aware that they should never access the returned value if sz==0.
 
-   https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/memory.rs#L95-L100
 
-   LONG_MAX check: https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/bpf_loader/src/syscalls/mod.rs#L580
+   LONG_MAX check: https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/memory.rs#L102
    Technically, the check in Agave is against
    "pointer-sized signed integer type ... The size of this primitive is
     how many bytes it takes to reference any location in memory. For
@@ -267,7 +267,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t *vm, ulong vaddr, ulong align, ulong sz, int *err )
   }                                                                                                             \
 } while(0)
 
-/* https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L630-L656 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L608-L636 */
 static inline int
 fd_vm_mem_touch_st( fd_vm_t * vm,
                     ulong     vaddr,
@@ -293,17 +293,17 @@ fd_vm_mem_touch_st( fd_vm_t * vm,
    query. The translated haddr is written into the `haddr` field
    of each of the `fd_vm_haddr_query_t` objects on success.
 
-   https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L662-L713 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L642-L694 */
 #define FD_VM_TRANSLATE_MUT( _vm, _queries ) do { \
   ulong _n = sizeof(_queries)/sizeof(fd_vm_haddr_query_t *); \
-  /* https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L699 */ \
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L679 */ \
   for( ulong i=0UL; i<(_n); i++ ) { \
     fd_vm_haddr_query_t * query = _queries[i]; \
     if( query->is_slice && !query->sz ) continue; \
     int touch_err = fd_vm_mem_touch_st( _vm, query->vaddr, query->sz ); \
     if( FD_UNLIKELY( touch_err ) ) return touch_err; \
   } \
-  /* https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L700 */ \
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L681 */ \
   for( ulong i=0UL; i<(_n); i++ ) { \
     fd_vm_haddr_query_t * query = _queries[i]; \
     if( query->is_slice ) { \
@@ -312,7 +312,7 @@ fd_vm_mem_touch_st( fd_vm_t * vm,
       query->haddr = FD_VM_MEM_HADDR_ST( _vm, query->vaddr, query->align, query->sz ); \
     } \
   } \
-  /* https://github.com/anza-xyz/agave/blob/v4.4.0-beta.0/syscalls/src/lib.rs#L701-L710 */ \
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L682-L691 */ \
   for( ulong i=0UL; i<(_n); i++ ) { \
     fd_vm_haddr_query_t * query = _queries[i]; \
     for( ulong j=0UL; j<i; j++ ) { \

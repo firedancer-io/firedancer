@@ -9,22 +9,22 @@
 #include "../../fd_runtime.h"
 #include "../../fd_system_ids.h"
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/mod.rs#L43 */
 #define DEFAULT_PRIOR_VOTERS_OFFSET 114
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L886 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_v3.rs#L216 */
 #define VERSION_OFFSET (4UL)
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L887 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_v3.rs#L217 */
 #define DEFAULT_PRIOR_VOTERS_END (118)
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L6 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_1_14_11.rs#L8 */
 #define DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 (82UL)
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L60 */
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_1_14_11.rs#L68 */
 #define DEFAULT_PRIOR_VOTERS_END_1_14_11 (86UL)
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L780-L785 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L292-L296 */
 static inline fd_vote_lockout_t *
 last_lockout( fd_vote_state_versioned_t * self ) {
   fd_landed_vote_t * votes = NULL;
@@ -174,7 +174,7 @@ fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self ) {
   }
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L938 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L375 */
 int
 fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
   switch( self->kind ) {
@@ -186,7 +186,7 @@ fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L483 */
       return 0;
     case fd_vote_state_versioned_enum_v4:
-      /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L676 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L377 */
       return !!self->v4.has_bls_pubkey_compressed;
     case fd_vote_state_versioned_enum_v5:
       return 1;
@@ -195,7 +195,7 @@ fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
   }
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L823-L828 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L243-L247 */
 ulong
 fd_vsv_get_pending_delegator_rewards( fd_vote_state_versioned_t * self ) {
   switch( self->kind ) {
@@ -245,7 +245,7 @@ fd_vsv_get_votes_mutable( fd_vote_state_versioned_t * self ) {
 int
 fd_vsv_set_state( fd_borrowed_account_t *     self,
                   fd_vote_state_versioned_t * state ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L974 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L266-L267 */
   uchar * data = NULL;
   ulong   dlen = 0UL;
   int err = fd_borrowed_account_get_data_mut( self, &data, &dlen );
@@ -256,13 +256,13 @@ fd_vsv_set_state( fd_borrowed_account_t *     self,
   /* Note that although the serialization method already performs bounds
      checks, the account data buffer should remain unmodified if the
      serialization would fail.
-     https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L978 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L268 */
   ulong serialized_size = fd_vote_state_versioned_serialized_size( state );
   if( FD_UNLIKELY( serialized_size>dlen ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L983 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L274 */
   if( FD_UNLIKELY( fd_vote_state_versioned_serialize( state, data, dlen ) ) ) {
     FD_LOG_CRIT(( "invariant violation: fd_vote_state_versioned_serialize failed" ));
   }
@@ -509,27 +509,27 @@ fd_vsv_set_last_timestamp( fd_vote_state_versioned_t *       self,
 /* General functions                                                  */
 /**********************************************************************/
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L855
+// https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L537
 static void
 double_lockouts( fd_vote_state_versioned_t * self ) {
   fd_landed_vote_t * votes = fd_vsv_get_votes_mutable( self );
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L856
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L538
   ulong stack_depth = deq_fd_landed_vote_t_cnt( votes );
   ulong i           = 0;
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L857
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L539
   for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( votes );
        !deq_fd_landed_vote_t_iter_done( votes, iter );
        iter = deq_fd_landed_vote_t_iter_next( votes, iter ) ) {
     fd_landed_vote_t * v = deq_fd_landed_vote_t_iter_ele( votes, iter );
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L860
+    // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L542
     if( stack_depth >
         fd_ulong_checked_add_expect(
             i,
             (ulong)v->lockout.confirmation_count,
             "`confirmation_count` and tower_size should be bounded by `MAX_LOCKOUT_HISTORY`" ) )
       {
-        // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L864
+        // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L548
         fd_vote_lockout_increase_confirmation_count( &v->lockout, 1 );
       }
     i++;
@@ -542,21 +542,21 @@ fd_vsv_increment_credits( fd_vote_state_versioned_t * self,
                           ulong                       credits ) {
   fd_vote_epoch_credits_t * epoch_credits = fd_vsv_get_epoch_credits_mutable( self );
 
-  /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L286-L305 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L481-L500 */
   if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_empty( epoch_credits ) ) ) {
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L286-L288 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L481-L483 */
     deq_fd_vote_epoch_credits_t_push_tail_wrap(
         epoch_credits,
         ( fd_vote_epoch_credits_t ){ .epoch = epoch, .credits = 0, .prev_credits = 0 } );
   } else if( FD_LIKELY( epoch !=
                         deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits )->epoch ) ) {
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L290 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L485 */
     fd_vote_epoch_credits_t * last = deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits );
 
     ulong credits      = last->credits;
     ulong prev_credits = last->prev_credits;
 
-    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L292-L299 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L487-L494 */
     if( FD_LIKELY( credits!=prev_credits ) ) {
       if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_cnt( epoch_credits )>=MAX_EPOCH_CREDITS_HISTORY ) ) {
         /* Although Agave performs a `.remove(0)` AFTER the call to
@@ -566,7 +566,7 @@ fd_vsv_increment_credits( fd_vote_state_versioned_t * self,
           simply call `.push()` and then popping afterwards. We have to
           reverse the order of operations to maintain correct behavior
           and avoid overflowing the deque.
-          https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L303 */
+          https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L498 */
         deq_fd_vote_epoch_credits_t_pop_head( epoch_credits );
       }
 
@@ -578,7 +578,7 @@ fd_vsv_increment_credits( fd_vote_state_versioned_t * self,
           ( fd_vote_epoch_credits_t ){
               .epoch = epoch, .credits = credits, .prev_credits = credits } );
     } else {
-      /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L297-L298 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L492-L493 */
       deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits )->epoch = epoch;
 
       /* Here we can perform the same deque size check and pop if
@@ -589,7 +589,7 @@ fd_vsv_increment_credits( fd_vote_state_versioned_t * self,
     }
   }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L663
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L502
   deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits )->credits = fd_ulong_sat_add(
       deq_fd_vote_epoch_credits_t_peek_tail( epoch_credits )->credits, credits );
 }
@@ -599,7 +599,7 @@ fd_vsv_process_timestamp( fd_exec_instr_ctx_t *       ctx,
                           fd_vote_state_versioned_t * self,
                           ulong                       slot,
                           long                        timestamp ) {
-  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L160 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L515 */
   fd_vote_block_timestamp_t const * last_timestamp = fd_vsv_get_last_timestamp( self );
   if( FD_UNLIKELY(
           ( slot<last_timestamp->slot || timestamp<last_timestamp->timestamp ) ||
@@ -610,7 +610,7 @@ fd_vsv_process_timestamp( fd_exec_instr_ctx_t *       ctx,
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L168 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L523 */
   fd_vote_block_timestamp_t new_timestamp = {
     .slot = slot,
     .timestamp = timestamp,
@@ -650,7 +650,7 @@ fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
     .lockout = ( fd_vote_lockout_t ){ .slot = next_vote_slot }
   };
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L623
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L576
   if( FD_UNLIKELY( deq_fd_landed_vote_t_cnt( votes ) == MAX_LOCKOUT_HISTORY ) ) {
     ulong            credits     = fd_vote_credits_for_vote_at_index( votes, 0 );
     fd_landed_vote_t landed_vote = deq_fd_landed_vote_t_pop_head( votes );
@@ -659,7 +659,7 @@ fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
     fd_vsv_increment_credits( self, epoch, credits );
   }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L634
+  // https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L583
   deq_fd_landed_vote_t_push_tail_wrap( votes, landed_vote );
   double_lockouts( self );
 }
@@ -668,11 +668,11 @@ int
 fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
                           fd_pubkey_t const *         vote_pubkey ) {
   switch( self->kind ) {
-    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L971-L974 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L700 */
     case fd_vote_state_versioned_enum_uninitialized: {
       return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
     }
-    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L975-L989 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L701-L715 */
     case fd_vote_state_versioned_enum_v1_14_11: {
       fd_vote_state_1_14_11_t * state = &self->v1_14_11;
 
@@ -703,7 +703,7 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
 
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
-    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L990-L1004 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L716-L730 */
     case fd_vote_state_versioned_enum_v3: {
       fd_vote_state_v3_t * state = &self->v3;
       fd_vote_state_v4_t v4 = {
@@ -729,7 +729,7 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
 
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
-    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L1005 */
+    /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L731 */
     case fd_vote_state_versioned_enum_v4:
       return FD_EXECUTOR_INSTR_SUCCESS;
     /* V5 can't be converted back to V4 */
@@ -813,7 +813,7 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
                                         fd_borrowed_account_t * vote_account,
                                         int                     target_version ) {
   /* V4 clears the entire account data on deinitialize.
-     https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/handler.rs#L366-L377 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/vote/src/vote_state/handler.rs#L419-L430 */
   (void)ctx;
   (void)target_version;
   uchar * data;
@@ -845,7 +845,7 @@ int
 fd_vsv_is_correct_size_and_initialized( uchar const * data,
                                         ulong         data_len ) {
   /* VoteStateV4::is_correct_size_and_initialized
-     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v4.rs#L207-L210 */
+     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_v4.rs#L219-L222 */
   if( FD_LIKELY( data_len==FD_VOTE_STATE_V4_SZ && FD_LOAD( uint, data )==fd_vote_state_versioned_enum_v4 ) ) {
     return 1;
   }
@@ -855,14 +855,14 @@ fd_vsv_is_correct_size_and_initialized( uchar const * data,
   }
 
   /* VoteStateV3::is_correct_size_and_initialized
-     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L509-L514 */
+     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_v3.rs#L215-L220 */
   if( FD_LIKELY( data_len==FD_VOTE_STATE_V3_SZ &&
                  !fd_mem_iszero( data+VERSION_OFFSET, DEFAULT_PRIOR_VOTERS_OFFSET ) ) ) {
     return 1;
   }
 
   /* VoteState1_14_11::is_correct_size_and_initialized
-     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_1_14_11.rs#L63-L69 */
+     https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v7.3.0/vote-interface/src/state/vote_state_1_14_11.rs#L66-L71 */
   if( FD_LIKELY( data_len==FD_VOTE_STATE_V2_SZ &&
                  !fd_mem_iszero( data+VERSION_OFFSET, DEFAULT_PRIOR_VOTERS_OFFSET_1_14_11 ) ) ) {
     return 1;

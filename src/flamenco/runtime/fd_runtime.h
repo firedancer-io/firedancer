@@ -285,9 +285,9 @@ struct fd_txn_out {
   } details;
 
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139
+     https://github.com/anza-xyz/solana-sdk/blob/message%40v6.0.0/message/src/versions/v0/mod.rs#L167
      Nonetheless, when Agave prepares a sanitized batch for execution and tries to lock accounts, a lower limit is enforced:
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/accounts-db/src/account_locks.rs#L166
      That is the limit we are going to use here. */
   struct {
     /* is_setup is set to 1 if account data buffer resources have been

@@ -54,18 +54,18 @@ extern const fd_pubkey_t fd_solana_pata_program_buffer_address;
 
 extern const fd_hash_t fd_solana_feature_program_verified_build_hash;
 
-/* https://github.com/anza-xyz/agave/blob/8da849e919e0762f6bfc9ca17ac2339c7a003a0e/feature-set/src/lib.rs#L1596-L1601 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/feature-set/src/lib.rs#L1596-L1601 */
 extern const fd_hash_t fd_solana_pata_program_verified_build_hash;
 
 /* BPF migration authority
-   https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L399-L401 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/programs/bpf_loader/src/lib.rs#L116-L118 */
 extern const fd_pubkey_t fd_solana_migration_authority;
 
 /* fd_pubkey_is_{pending, active}_reserved_key checks to see if the pubkey is
    a reserved account. They return 1 if the pubkey is in the list, and 0 otherwise.
 
    A pubkey is a reserved key if it is in the active or pending reserved key sets.
-   https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/src/reserved_account_keys.rs
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/reserved-account-keys/src/lib.rs
 
    If a pubkey is a reserved key, it will not be added to Agave's message writable accounts cache and thus
    not be writable.

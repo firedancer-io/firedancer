@@ -36,7 +36,7 @@ fd_sysvar_recent_hashes_init( fd_bank_t *        bank,
   fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_recent_block_hashes_id, enc, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
 }
 
-// https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
+// https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/accounts-db/src/blockhash_queue.rs#L133
 static void
 register_blockhash( fd_bank_t *       bank,
                     fd_hash_t const * hash ) {

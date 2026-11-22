@@ -72,7 +72,7 @@ typedef struct fd_vm_vec fd_vm_vec_t;
 FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch );
 
 /* SBPF version and features
-   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L28
+   https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L21
    Note: SIMDs enable or disable features, e.g. BPF instructions.
    If we have macros with names ENABLE vs DISABLE, we have the advantage that
    the condition is always pretty clear: sbpf_version <= activation_version,
@@ -81,32 +81,32 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
    and create a huge mess.
    We define both, so hopefully it's foolproof. */
 
-/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L28-L93 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L36-L110 */
 /* SIMD-0166 */
-#define FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP(v)              ( v == FD_SBPF_V1 || v == FD_SBPF_V2 ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L32-L34 */
-#define FD_VM_SBPF_STACK_FRAME_GAPS(v)                     ( v == FD_SBPF_V0 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L36-L38 */
+#define FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP(v)              ( v == FD_SBPF_V1 || v == FD_SBPF_V2 ) /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L49-L51 */
+#define FD_VM_SBPF_STACK_FRAME_GAPS(v)                     ( v == FD_SBPF_V0 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L53-L55 */
 /* SIMD-0174 */
-#define FD_VM_SBPF_ENABLE_PQR(v)                           ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L41-L43 */
-#define FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS(v)   ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L45-L47 */
-#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)            ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L49-L51 */
-#define FD_VM_SBPF_DISABLE_NEG(v)                          ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L53-L55 */
+#define FD_VM_SBPF_ENABLE_PQR(v)                           ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L58-L60 */
+#define FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS(v)   ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L62-L64 */
+#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)            ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L66-L68 */
+#define FD_VM_SBPF_DISABLE_NEG(v)                          ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L70-L72 */
 /* SIMD-0173 */
-#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)                   ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L58-L60 */
-#define FD_VM_SBPF_DISABLE_LDDW(v)                         ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L62-L64 */
-#define FD_VM_SBPF_DISABLE_LE(v)                           ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L66-L68 */
-#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)               ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L70-L72 */
+#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)                   ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L75-L77 */
+#define FD_VM_SBPF_DISABLE_LDDW(v)                         ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L79-L81 */
+#define FD_VM_SBPF_DISABLE_LE(v)                           ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L83-L85 */
+#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)               ( v == FD_SBPF_V2 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L87-L89 */
 /* SIMD-0178 */
-#define FD_VM_SBPF_STATIC_SYSCALLS(v)                      ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L75-L77 */
+#define FD_VM_SBPF_STATIC_SYSCALLS(v)                      ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L92-L94 */
 /* SIMD-0189 */
-#define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)          ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L79-L81 */
-#define FD_VM_SBPF_ENABLE_LOWER_RODATA_VADDR(v)            ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L83-L85 */
+#define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)          ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L96-L98 */
+#define FD_VM_SBPF_ENABLE_LOWER_RODATA_VADDR(v)            ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L100-L102 */
 /* SIMD-0377 */
-#define FD_VM_SBPF_ENABLE_JMP32(v)                         ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L87-L89 */
-#define FD_VM_SBPF_CALLX_USES_DST_REG(v)                   ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L91-L93 */
+#define FD_VM_SBPF_ENABLE_JMP32(v)                         ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L104-L106 */
+#define FD_VM_SBPF_CALLX_USES_DST_REG(v)                   ( v >= FD_SBPF_V3 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/program.rs#L108-L110 */
 
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L32 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/lib.rs#L23 */
 #define FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION ((long)(FD_RUNTIME_ACC_SZ_MAX * 2UL))
 
 /* Kept equal to the canonical constant in fd_runtime_const.h, which the
@@ -217,7 +217,7 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
        This is so that we don't need to do any relocations - all rodata
        accesses are direct offsets from 0.
 
-       https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L358-L362
+       https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/elf.rs#L461-L465
        https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/syscalls/src/lib.rs#L346 */
     vm->region_haddr[0]                  = (ulong)vm->rodata; vm->region_ld_sz[0]                  = (uint)vm->rodata_sz;   vm->region_st_sz[0]                  = (uint)0UL;
     vm->region_haddr[FD_VM_PROG_REGION]  = 0UL;               vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)0UL;             vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
@@ -239,7 +239,7 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
    FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION if the provided vaddr is in the
    stack (0x200000000) and FD_VM_ERR_EBPF_ACCESS_VIOLATION otherwise.
 
-   https://github.com/anza-xyz/sbpf/blob/v0.11.1/src/memory_region.rs#L834-L869 */
+   https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/memory_region.rs#L1068-L1096 */
 static FD_FN_PURE inline int
 fd_vm_generate_access_violation( ulong vaddr, ulong sbpf_version ) {
   /* rel_offset can be negative because there is an edge case where the
@@ -304,7 +304,7 @@ fd_vm_get_input_mem_region_idx( fd_vm_t const * vm, ulong offset ) {
    corresponds to
    solana_transaction_context::TransactionContext::access_violation_handler
 
-   https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L510-L581 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L677-L785 */
 static inline void
 fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
                                    ulong           offset,
@@ -318,27 +318,27 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
   }
 
   /* If the access is not a write, we don't need to do anything
-     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L523-L525 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L690-L692 */
   if( FD_UNLIKELY( !write ) ) {
     return;
   }
 
   fd_vm_input_region_t * region = &vm->input_mem_regions[ region_idx ];
   /* If the region is not writable, we don't need to do anything
-     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L526-L529 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L693-L696 */
   if( FD_UNLIKELY( !region->is_writable ) ) {
     return;
   }
 
   /* Calculate the requested length
-     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L532-L535 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L697-L705 */
   ulong requested_len = fd_ulong_sat_sub( fd_ulong_sat_add( offset, sz ), region->vaddr_offset );
   if( FD_UNLIKELY( requested_len > region->address_space_reserved ) ) {
     return;
   }
 
   /* Calculate the remaining allowed growth
-     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L549-L551 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L719-L721 */
   long remaining_growth_signed = fd_long_sat_sub(
     FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION,
     vm->instr_ctx->txn_out->details.accounts_resize_delta );
@@ -348,16 +348,16 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
 
   /* If the requested length is greater than the size of the region,
      resize the region
-     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L553-L571 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L723-L774 */
   if( FD_UNLIKELY( requested_len > region->region_sz ) ) {
     /* Calculate the new region size
-       https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L558-L560 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L728-L730 */
     ulong new_region_sz = fd_ulong_min(
       fd_ulong_min( region->address_space_reserved, FD_RUNTIME_ACC_SZ_MAX ),
       fd_ulong_sat_add( region->region_sz, remaining_allowed_growth ) );
 
     /* Resize the account and the region
-       https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L569-L570 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L740-L773 */
     if( FD_UNLIKELY( new_region_sz > region->region_sz ) ) {
       /* Safe because new_region_sz > region->region_sz */
       long growth = (long)(new_region_sz - region->region_sz);
@@ -367,7 +367,7 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
       ulong memset_sz = fd_ulong_sat_sub( new_region_sz, vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len );
       fd_memset( vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data+vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len, 0, memset_sz );
       vm->acc_region_metas[ region->acc_region_meta_idx ].acc->data_len = new_region_sz;
-      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/transaction.rs#L546 */
+      /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L714 */
       *vm->acc_region_metas[ region->acc_region_meta_idx ].touched = 1;
       region->region_sz = (uint)new_region_sz;
     }
@@ -416,7 +416,7 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
     return sentinel; /* Illegal write */
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/transaction.rs#L546 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L714 */
   if( FD_UNLIKELY( write && vm->acc_region_metas &&
                    vm->input_mem_regions[ region_idx ].acc_region_meta_idx!=ULONG_MAX ) ) {
     uchar * touched = vm->acc_region_metas[ vm->input_mem_regions[ region_idx ].acc_region_meta_idx ].touched;
@@ -500,7 +500,7 @@ fd_vm_mem_haddr( fd_vm_t *       vm,
        physical address space, we need to subtract from the offset the size of all the virtual
        gap frames underneath it.
 
-       https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L147-L149 */
+       https://github.com/anza-xyz/sbpf/blob/v0.27.0/src/memory_region.rs#L396-L398 */
     ulong gap_mask = 0xFFFFFFFFFFFFF000;
     offset = ( ( offset & gap_mask ) >> 1 ) | ( offset & ~gap_mask );
   }
@@ -508,7 +508,7 @@ fd_vm_mem_haddr( fd_vm_t *       vm,
   /* If the region is an account, handle the resizing logic. This logic corresponds to
      solana_transaction_context::TransactionContext::access_violation_handler
 
-     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L510-L581 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/transaction.rs#L677-L785 */
   if( region==FD_VM_INPUT_REGION ) {
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
   }

@@ -68,7 +68,7 @@ fd_borrowed_account_drop( fd_borrowed_account_t * borrowed_acct ) {
 /* fd_borrowed_account_get_data mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::get_data.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L817 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L164 */
 
 static inline uchar const *
 fd_borrowed_account_get_data( fd_borrowed_account_t const * borrowed_acct ) {
@@ -88,7 +88,7 @@ fd_borrowed_account_get_data_len( fd_borrowed_account_t const * borrowed_acct ) 
    Returns 0 on success or an FD_EXECUTOR_INSTR_ERR_{...} code if the
    data cannot be changed.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L823 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L169 */
 
 int
 fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
@@ -105,7 +105,7 @@ fd_borrowed_account_get_owner( fd_borrowed_account_t const * borrowed_acct ) {
 
    Returns the current number of lamports in the account.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L767 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L115 */
 
 static inline ulong
 fd_borrowed_account_get_lamports( fd_borrowed_account_t const * borrowed_acct ) {
@@ -117,7 +117,7 @@ fd_borrowed_account_get_lamports( fd_borrowed_account_t const * borrowed_acct ) 
 /* fd_borrowed_account_set_owner mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::set_owner.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L739 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L91 */
 
 int
 fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
@@ -132,7 +132,7 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
    FD_EXECUTOR_INSTR_ERR_{...} code.  Assumes the caller already holds
    the account's mutable borrow.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L773 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L120 */
 
 int
 fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
@@ -145,7 +145,7 @@ fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
    account must already have enough space to fit data.  Assumes the
    caller already holds the account's mutable borrow.
 
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L177-L192 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L176-L191 */
 
 int
 fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
@@ -158,7 +158,7 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
    Assumes the caller already holds the account's mutable borrow.
    Returns 0 on success.
 
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L194-L207 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L193-L206 */
 
 int
 fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
@@ -169,7 +169,7 @@ fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
 
    Returns FD_EXECUTOR_INSTR_SUCCESS if the set is successful.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1001 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L293 */
 
 int
 fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
@@ -184,7 +184,7 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
    success or an FD_EXECUTOR_INSTR_ERR_{...} code on failure.
    Gracefully handles overflow.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L797 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L145 */
 
 static inline int
 fd_borrowed_account_checked_add_lamports( fd_borrowed_account_t * borrowed_acct,
@@ -207,7 +207,7 @@ fd_borrowed_account_checked_add_lamports( fd_borrowed_account_t * borrowed_acct,
    success or an FD_EXECUTOR_INSTR_ERR_{...} code on failure.
    Gracefully handles underflow.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L807 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L154 */
 
 static inline int
 fd_borrowed_account_checked_sub_lamports( fd_borrowed_account_t * borrowed_acct,
@@ -226,7 +226,7 @@ fd_borrowed_account_checked_sub_lamports( fd_borrowed_account_t * borrowed_acct,
 /* fd_borrowed_account_update_accounts_resize_delta mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::update_accounts_resize_delta.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1123 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L372 */
 
 int
 fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrowed_acct,
@@ -240,14 +240,14 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
 
    Returns 1 if an account is rent exempt at its current data length.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L987 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L279 */
 
 static inline int
 fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const * borrowed_acct ) {
   if( FD_UNLIKELY( !borrowed_acct->acc ) ) FD_LOG_ERR(( "account is not setup" ));
 
   /* TODO: Add an is_exempt rent API to better match Agave and clean up code
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L990 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L282 */
   fd_rent_t const * rent        = &borrowed_acct->instr_ctx->bank->f.rent;
   ulong             min_balance = fd_rent_exempt_minimum_balance( rent, borrowed_acct->acc->data_len );
   return borrowed_acct->acc->lamports>=min_balance;
@@ -259,7 +259,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
    Returns 1 if the given account has the
    executable flag set.  Otherwise, returns 0.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L995 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L288 */
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct ) {
@@ -273,7 +273,7 @@ fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct )
    Otherwise, returns 0, including when the account is not an
    instruction account (index_in_instruction out of bounds).
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1039 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L327 */
 
 static inline int
 fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
@@ -294,7 +294,7 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
    Otherwise, returns 0, including when the account is not an
    instruction account (index_in_instruction out of bounds).
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1052 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L332 */
 
 static inline int
 fd_borrowed_account_is_writable( fd_borrowed_account_t const * borrowed_acct ) {
@@ -315,7 +315,7 @@ fd_borrowed_account_is_writable( fd_borrowed_account_t const * borrowed_acct ) {
    account is owned by the program invoked in the current instruction.
    Otherwise, returns 0.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1065 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L337 */
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * borrowed_acct ) {
@@ -331,20 +331,20 @@ fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * b
 /* fd_borrowed_account_can_data_be_changed mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::can_data_be_changed.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1074 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L345 */
 
 static inline int
 fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_acct,
                                          int *                       err ) {
   /* Only writable accounts can be changed
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1080 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L347 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( borrowed_acct ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
     return 0;
   }
 
   /* And only if we are the owner
-     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1084 */
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L351 */
   if( FD_UNLIKELY( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
     return 0;
@@ -357,7 +357,7 @@ fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_
 /* fd_borrowed_account_can_data_be_resized mirrors Agave function
    solana_transaction_context::instruction_accounts::BorrowedInstructionAccount::can_data_be_resized.
 
-   https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/transaction-context/src/instruction_accounts.rs#L351-L357 */
+   https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/transaction-context/src/instruction_accounts.rs#L358-L364 */
 
 int
 fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_acct,

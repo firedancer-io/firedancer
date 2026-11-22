@@ -30,7 +30,7 @@ instructions_serialized_size( fd_txn_t const * txn ) {
   return serialized_size;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.1/svm/src/account_loader.rs#L547-L576 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/account_loader.rs#L687-L719 */
 int
 fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
                                           fd_txn_out_t *      txn_out,
@@ -38,7 +38,7 @@ fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
   fd_txn_t const * txn           = TXN( txn_in->txn );
   ulong            serialized_sz = instructions_serialized_size( txn );
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/svm/src/account_loader.rs#L660-L665 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/svm/src/account_loader.rs#L713-L718 */
   if( FD_UNLIKELY( fd_sysvar_instructions_offsets_overflow( txn ) ) ) {
     return FD_RUNTIME_TXN_ERR_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED;
   }
@@ -118,7 +118,7 @@ fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
 }
 
 /* Stores the current instruction index in the instructions sysvar account.
-   https://github.com/anza-xyz/solana-sdk/blob/instructions-sysvar%40v2.2.1/instructions-sysvar/src/lib.rs#L164-L167 */
+   https://github.com/anza-xyz/solana-sdk/blob/instructions-sysvar%40v5.0.0/instructions-sysvar/src/lib.rs#L190-L201 */
 void
 fd_sysvar_instructions_update_current_instr_idx( fd_acc_t * acc,
                                                  ushort     current_instr_idx ) {

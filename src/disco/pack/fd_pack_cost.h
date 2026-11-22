@@ -154,7 +154,7 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 #define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      ( 50000000UL)
 #define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND * 4UL / 10UL ) /* simd 0306 */
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/cost-model/src/block_cost_limits.rs#L39-L41 */
+/* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/cost-model/src/block_cost_limits.rs#L35-L37 */
 #define FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK        ( 100UL*1000UL*1000UL )
 
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND/FD_PACK_MIN_TXN_COST), max_txn_per_slot_cu );
@@ -382,7 +382,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   /* E.g. a transaction can alloc a 10MB account, close it, and repeat
      many times.  According to the spec, this would count as a 20MB
      allocation. See
-     https://github.com/anza-xyz/agave/blob/2a61a3ecd417b0515c0b2f322d0128394f20626b/cost-model/src/cost_model.rs#L317-L318
+     https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/cost-model/src/cost_model.rs#L298-L299
    */
   allocated_data = fd_ulong_min( allocated_data, 20UL*1024UL*1024UL ); /* MAX_PERMITTED_ACCOUNTS_DATA_ALLOCATIONS_PER_TRANSACTION */
 #undef MAX_ALLOC
@@ -416,13 +416,13 @@ fd_pack_compute_cost( fd_txn_t const * txn,
        This means that advance nonce transactions that request a loaded
        accounts data size limit of 0 are still packed and the nonce
        still advances.
-       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/core/src/banking_stage/qos_service.rs#L68-L72
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/core/src/banking_stage/qos_service.rs#L69-L73
 
        V1 transactions which request a loaded account data
        size limit which is not a multiple of 32 KiB have the loaded
        account data cost rounded up to the nearest 32 KiB. This matches
        Agave's cost tracker behaviour.
-       https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/cost-model/src/cost_model.rs#L188-L203 */
+       https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/cost-model/src/cost_model.rs#L185-L200 */
     *loaded_account_data_cost = FD_COMPUTE_BUDGET_HEAP_COST *
         ( ( v1_loaded + FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE - 1UL )
           / FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE );

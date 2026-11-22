@@ -12,7 +12,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
                                       ulong   input_sz,
                                       ulong   result_addr,
                                       FD_PARAM_UNUSED ulong r5 ) {
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1509 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2327 */
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
@@ -47,7 +47,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1520-L1549 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2374-L2411 */
   ulong cost = 0UL;
   ulong output_sz = 0UL;
   switch( group_op ) {
@@ -94,7 +94,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
     return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1551 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2413 */
 
   FD_VM_CU_UPDATE( vm, cost );
 
@@ -103,7 +103,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
 
   int big_endian = ( group_op & FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG ) ? 0 : 1;
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1567-L1598
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2427-L2469
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
   switch( group_op ) {
 
@@ -142,7 +142,7 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
   case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_BE:
   case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING_LE:
     /* Compute pairing, always checking that input length is a multiple of 192.
-       https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.1.2/bn254/src/pairing.rs#L76-L82 */
+       https://github.com/anza-xyz/solana-sdk/blob/bn254%40v3.2.1/bn254/src/pairing.rs#L76-L82 */
     if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz, big_endian )==0 ) ) {
       ret = 0UL; /* success */
     }
@@ -160,7 +160,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
                                          ulong   input_sz,
                                          ulong   result_addr,
                                          FD_PARAM_UNUSED ulong r5 ) {
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1776 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2652 */
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
@@ -180,7 +180,7 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     }
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1791-L1811 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2689-L2711 */
   ulong cost = 0UL;
   ulong output_sz = 0UL;
   switch( op ) {
@@ -215,18 +215,18 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
   }
   cost = fd_ulong_sat_add( cost, FD_VM_SYSCALL_BASE_COST );
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1813 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2713 */
 
   FD_VM_CU_UPDATE( vm, cost );
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1815-L1827 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2715-L2725 */
 
   uchar * call_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_addr, output_sz );
   void const * input  = FD_VM_MEM_SLICE_HADDR_LD( vm, input_addr,  FD_VM_ALIGN_RUST_U8, input_sz );
 
   int big_endian = ( op & FD_VM_SYSCALL_SOL_ALT_BN128_LITTLE_ENDIAN_FLAG ) ? 0 : 1;
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1829-L1891
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2727-L2817
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
   switch( op ) {
 
@@ -283,18 +283,18 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
                             ulong   vals_addr,
                             ulong   vals_len,
                             ulong   result_addr ) {
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1678 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2563 */
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1688 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2574 */
 
   if( FD_UNLIKELY( params!=0UL ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS );
     return FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS; /* PoseidonSyscallError::InvalidParameters */
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1689 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2575 */
 
   if( FD_UNLIKELY(
        endianness!=0UL /* Big endian */
@@ -304,7 +304,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
     return FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS; /* PoseidonSyscallError::InvalidEndianness */
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1691-L1698 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2577-L2584 */
 
   if( FD_UNLIKELY( vals_len > FD_VM_SYSCALL_SOL_POSEIDON_MAX_VALS ) ) {
     /* Max msg_sz = 47 - 3 + 20 = 64 < 127 => we can use printf */
@@ -314,8 +314,8 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
     return FD_VM_SYSCALL_ERR_INVALID_LENGTH; /* SyscallError::InvalidLength */
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1700-L1707
-     poseidon_cost(): https://github.com/solana-labs/solana/blob/v1.18.12/program-runtime/src/compute_budget.rs#L211 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2586-L2593
+     poseidon_cost(): https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/program-runtime/src/execution_budget.rs#L315 */
 
   /* vals_len^2 * A + C */
   ulong cost = fd_ulong_sat_add(
@@ -333,15 +333,15 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
      }
   */
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1708 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2594 */
 
   FD_VM_CU_UPDATE( vm, cost );
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1710-L1715 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2596-L2604 */
 
   uchar * hash_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_addr, 32UL );
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1716-L1732 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2607-L2612 */
 
   /* Agave allocates a vector of translated slices (that can return a fatal
      error), and then computes Poseidon, returning a soft error in case of
@@ -363,7 +363,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
     inputs_haddr[i] = FD_VM_MEM_SLICE_HADDR_LD( vm, input_vec_haddr[i].addr, FD_VM_ALIGN_RUST_U8, input_vec_haddr[i].len );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1734-L1750
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L2614-L2617
      Note: this implementation is post SIMD-0129, we only support the simplified error codes. */
 
   /* Second loop to computed Poseidon. This can return a soft error. */
@@ -391,14 +391,14 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
                                      /**/            ulong   signature_vaddr,
                                      /**/            ulong   result_vaddr,
                                      FD_PARAM_UNUSED ulong   r5 ) {
-  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L810 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L905 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L820-L821 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L916-L917 */
 
   FD_VM_CU_UPDATE( vm, FD_VM_SECP256K1_RECOVER_COST );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L957-L968 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L919-L942 */
 
   uchar * pubkey_result = FD_VM_HADDR_QUERY_U8_SLICE( vm, result_vaddr, 64UL );
   uchar const * hash = FD_VM_MEM_HADDR_LD( vm, hash_vaddr,      FD_VM_ALIGN_RUST_U8, 32UL );
@@ -406,7 +406,7 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
 
   /* CRITICAL */
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L842-L853 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L944-L955 */
 
   /* Secp256k1RecoverError::InvalidHash
      This can never happen, as `libsecp256k1::Message::parse_slice(hash)`
@@ -444,7 +444,7 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
      And following the code, `scalar::check_overflow` is checks that the scalar is valid:
      https://github.com/paritytech/libsecp256k1/blob/master/core/src/scalar.rs#L70-L87 */
 
-  /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L855-L860 */
+  /* https://github.com/anza-xyz/agave/blob/v4.5.0-beta.0/syscalls/src/lib.rs#L956-L961 */
 
   uchar secp256k1_pubkey[64];
   if( FD_UNLIKELY( !fd_secp256k1_recover( secp256k1_pubkey, hash, sig, (int)recovery_id_val ) ) ) {
