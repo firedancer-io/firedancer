@@ -155,7 +155,7 @@ fd_aes_256_gcm_init( fd_aes_gcm_t * aes_gcm,
    ment requirements.  iv points to the 12 byte initialization vector.
    aad points to the 'associated data' buffer (with size aad_sz).  tag
    points to the 16 byte authentication tag (written by both decrypt and
-   encrypt).
+   encrypt).  sz and aad_sz must not exceed INT_MAX.
 
    (AAD serves to mix in arbitrary additional data into the auth tag,
    such that tampering with the AAD results in a decryption failure)
