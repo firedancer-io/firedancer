@@ -296,6 +296,7 @@ setup_topo_accdb( fd_topo_t *  topo,
   ulong cache_min_reserved = fd_accdb_cache_min_reserved( bundle_enabled );
 
   /* partition_cnt is a cap: the file cannot outgrow FD_ACCDB_FILE_SZ_MAX */
+  FD_CHECK_ERR( partition_sz, "invalid [development.accdb.partition_size_gib]: must be non-zero" );
   partition_cnt = fd_ulong_min( partition_cnt, FD_ACCDB_FILE_SZ_MAX/partition_sz );
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_accounts,       "obj.%lu.max_accounts",       obj->id ) );
