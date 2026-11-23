@@ -310,7 +310,10 @@ STEM_(park)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
   }
 
 #ifdef STEM_CALLBACK_PREVENT_PARK
-  if( FD_UNLIKELY( STEM_CALLBACK_PREVENT_PARK( ctx ) ) ) return 0;
+  /* The veto is for idle parks.  Backpressured, it cannot clear before
+     credits return (after_credit doesn't run), and the park is how a
+     credit return gets seen.  Still called for its side effects. */
+  if( FD_UNLIKELY( STEM_CALLBACK_PREVENT_PARK( ctx ) && !backpressured ) ) return 0;
 #endif
 
 #ifdef STEM_CALLBACK_SHOULD_SHUTDOWN
@@ -478,6 +481,26 @@ STEM_(cr_refresh)( ulong             out_cnt,
   }
 }
 
+/* STEM_(cons_reload) loads every consumer's fseq into cons_seq, as the
+   consumer housekeeping events do one at a time. */
+
+static inline void
+STEM_(cons_reload)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
+                    ulong                        cons_cnt,
+                    ulong const **               cons_fseq,
+                    ulong *                      cons_seq,
+                    ulong const *                cons_out,
+                    ulong const *                out_seq ) {
+  (void)ctx; (void)cons_out; (void)out_seq;
+  for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
+    ulong this_cons_seq = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
+    cons_seq[ cons_idx ] = this_cons_seq;
+#ifdef STEM_CALLBACK_RECV_CREDIT
+    STEM_CALLBACK_RECV_CREDIT( ctx, cons_out[ cons_idx ], out_seq[ cons_out[ cons_idx ] ], this_cons_seq );
+#endif
+  }
+}
+
 static inline void
 STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
                      fd_stem_sleep_t const *      cfg,
@@ -525,13 +548,7 @@ STEM_(park_attempt)( STEM_CALLBACK_CONTEXT_TYPE * ctx,
        backpressure park is woken by the consumer's credit return, so
        reload regardless, and turn cons_seq into cr_avail now, or we
        re-park on the stale count until the timer. */
-    for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
-      ulong this_cons_seq = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
-      cons_seq[ cons_idx ] = this_cons_seq;
-#ifdef STEM_CALLBACK_RECV_CREDIT
-      STEM_CALLBACK_RECV_CREDIT( ctx, cons_out[ cons_idx ], out_seq[ cons_out[ cons_idx ] ], this_cons_seq );
-#endif
-    }
+    STEM_(cons_reload)( ctx, cons_cnt, cons_fseq, cons_seq, cons_out, out_seq );
     if( FD_UNLIKELY( (*now-hk_due)>=0L ) ) {
       /* A lazy interval passed, full housekeeping is due now. */
       for( ulong k=0UL; k<event_cnt; k++ ) {
