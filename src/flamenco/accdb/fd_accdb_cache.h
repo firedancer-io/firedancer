@@ -11,16 +11,16 @@
    The cache has 8 size classes (to fit in a single cache line) with a
    x4 geometric progression:
 
-     Class 0: 0-128 B      (slot: 216 B)
-     Class 1: 129-512 B    (slot: 600 B)
-     Class 2: 513-2 KiB    (slot: 2,136 B)
-     Class 3: 2K-8 KiB     (slot: 8,280 B)
-     Class 4: 8K-32 KiB    (slot: 32,856 B)
-     Class 5: 32K-128 KiB  (slot: 131,160 B)
-     Class 6: 128K-1 MiB   (slot: 1,048,664 B)
-     Class 7: 1M-10 MiB    (slot: 10,485,848 B)
+     Class 0: 0-128 B      (slot: 192 B)
+     Class 1: 129-512 B    (slot: 576 B)
+     Class 2: 513-2 KiB    (slot: 2,112 B)
+     Class 3: 2K-8 KiB     (slot: 8,256 B)
+     Class 4: 8K-32 KiB    (slot: 32,832 B)
+     Class 5: 32K-128 KiB  (slot: 131,136 B)
+     Class 6: 128K-1 MiB   (slot: 1,048,640 B)
+     Class 7: 1M-10 MiB    (slot: 10,485,824 B)
 
-   Each slot has 88 bytes of fixed metadata overhead
+   Each slot has 64 bytes of fixed metadata overhead
    (sizeof(fd_accdb_cache_line_t)) on top of the max data capacity
    for its class.  Slot sizes are 8-byte aligned.
 
