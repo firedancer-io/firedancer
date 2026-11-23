@@ -2227,7 +2227,9 @@ typedef struct {
   ulong alloc_scheduled;
 } sched_return_t;
 
-static inline sched_return_t
+/* Always inlined: returning the struct through memory causes a store
+   forwarding stall. */
+static inline __attribute__((always_inline)) sched_return_t
 fd_pack_schedule_impl( fd_pack_t          * pack,
                        treap_t            * sched_from,
                        ulong                cu_limit,
