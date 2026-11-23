@@ -492,6 +492,7 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
 
   /* Deferred acc stack. */
   shmem->deferred_acc_head    = UINT_MAX;
+  shmem->deferred_acc_tail    = UINT_MAX;
   shmem->deferred_epoch       = 0UL;
   shmem->deferred_fork_head   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   shmem->deferred_fork_tail   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
@@ -1612,18 +1613,13 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
   /* All readers that could have been holding a captured pointer to any
      of these accs at unlink time have now exited their epoch sections.
      The stack is already linked through map.next, the acc_pool link, so
-     it goes back to the pool as one chain. */
-  fd_accdb_accmeta_t * acc_pool     = accdb->acc_pool;
-  ulong                acc_pool_cap = acc_pool_ele_max( accdb->acc_pool_join );
-  uint                 tail_idx     = head_idx;
-  for(;;) {
-    FD_TEST( (ulong)tail_idx<acc_pool_cap );
-    uint next_idx = acc_pool[ tail_idx ].map.next;
-    if( next_idx==UINT_MAX ) break;
-    tail_idx = next_idx;
-  }
-  acc_pool_release_chain( accdb->acc_pool_join, &acc_pool[ head_idx ], &acc_pool[ tail_idx ] );
+     it goes back to the pool as one chain, head to tail. */
+  uint tail_idx = shmem->deferred_acc_tail;
+  FD_TEST( (ulong)head_idx<acc_pool_ele_max( accdb->acc_pool_join ) );
+  FD_TEST( (ulong)tail_idx<acc_pool_ele_max( accdb->acc_pool_join ) );
+  acc_pool_release_chain( accdb->acc_pool_join, &accdb->acc_pool[ head_idx ], &accdb->acc_pool[ tail_idx ] );
   shmem->deferred_acc_head = UINT_MAX;
+  shmem->deferred_acc_tail = UINT_MAX;
 }
 
 /* deferred_acc_append pushes an acc that acc_unlink spliced out of its
@@ -1639,25 +1635,23 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
    read the old link (before the mark) follows the acc's chain successor,
    which is either still linked or itself marked.
 
-   The mark is a CAS of the whole data word, like every other change to
-   it (see "Data word").  A concurrent evictor or cold load may change
-   the word, so retry.
+   The mark is an atomic OR of the whole data word: every change to the
+   word is a 64-bit store, CAS or RMW (see "Data word").  A racing
+   evictor's or cold load's CAS then fails and retries with the mark.
 
    The stack links are acc_pool links (map.next is the pool's POOL_NEXT),
-   so drain_deferred_frees releases the stack as is. */
+   so drain_deferred_frees releases the stack as is.  The first acc
+   pushed onto an empty stack stays its bottom, so it is the tail. */
 static inline void
 deferred_acc_append( fd_accdb_t * accdb,
                      uint         acc_idx ) {
   fd_accdb_shmem_t *   shmem   = accdb->shmem;
   fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
-  for(;;) {
-    ulong d = FD_VOLATILE_CONST( accmeta->data );
-    ulong n = FD_ACCDB_DATA( FD_ACCDB_DATA_CIDX( d ), FD_ACCDB_DATA_ES( d ) | FD_ACCDB_SIZE_UNLINKED_BIT );
-    if( FD_LIKELY( FD_ATOMIC_CAS( &accmeta->data, d, n )==d ) ) break;
-  }
+  FD_ATOMIC_FETCH_AND_OR( &accmeta->data, FD_ACCDB_DATA( 0U, FD_ACCDB_SIZE_UNLINKED_BIT ) );
   fd_racesan_hook( "accdb_defer:post_mark" );
   FD_COMPILER_MFENCE();  /* the mark before the stack link */
   FD_VOLATILE( accmeta->map.next ) = shmem->deferred_acc_head;
+  if( shmem->deferred_acc_head==UINT_MAX ) shmem->deferred_acc_tail = acc_idx;
   shmem->deferred_acc_head = acc_idx;
 }
 
