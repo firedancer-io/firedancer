@@ -519,7 +519,7 @@ fd_sha512_fini( fd_sha512_t * sha,
   }
 
   /* Clear in progress block up to last 128-bits, append the message
-     size in bytes in the last 128-bits of the in progress block and
+     size in bits in the last 128-bits of the in progress block and
      update the hash to finalize it. */
 
   fd_memset( buf + buf_used, 0, FD_SHA512_PRIVATE_BUF_MAX-16UL-buf_used );

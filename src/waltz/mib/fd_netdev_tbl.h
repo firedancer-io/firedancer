@@ -2,7 +2,7 @@
 #define HEADER_fd_src_waltz_mib_fd_netdev_tbl_h
 
 /* fd_netdev_tbl.h provides a network interface table.
-   The entrypoint of this API is fd_netlink_tbl_t. */
+   The entrypoint of this API is fd_netdev_tbl_t. */
 
 #include "fd_seqlock.h"
 

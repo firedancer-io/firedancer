@@ -664,13 +664,11 @@ fd_blake3_fini_xof_prepare( fd_blake3_t *    sha,
 
 /* fd_blake3_fini_xof_compress performs BLAKE3 compression (input
    hashing) for all blocks in the hash tree except for the root block.
-   Root compression inputs are returned via the function's out pointers:
-   On return, root_msg[0..64] contains the padded message input for the
-   root block, root_cv_pre[0..32] contains the output chaining value of
-   the previous block (or the BLAKE3 IV if root block is the only block
-   in the hash operation, i.e. <=64 byte hash input).
-   Other values (counter, flags, size) are re-derived by the XOF
-   implementation using the blake3 state object. */
+   For inputs up to one chunk, root_msg[0..64) receives the padded
+   root block and root_cv_pre[0..32) receives its input chaining value.
+   For larger inputs, the outputs are left untouched and the final two
+   child chaining values remain in sha.  fd_blake3_fini_xof_expand
+   prepares the root compression inputs from this state. */
 
 void
 fd_blake3_fini_xof_compress( fd_blake3_t * sha,

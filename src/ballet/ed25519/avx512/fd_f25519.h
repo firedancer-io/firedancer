@@ -7,7 +7,8 @@
 
 #define FD_F25519_ALIGN 64
 
-/* A fd_f25519_t stores a curve25519 field element in 5 ulong, aligned to 64 bytes */
+/* A fd_f25519_t stores a curve25519 field element in six radix-2^43
+   limbs of an AVX-512 vector, aligned to 64 bytes. */
 struct fd_f25519 {
   fd_r43x6_t el __attribute__((aligned(FD_F25519_ALIGN)));
 };

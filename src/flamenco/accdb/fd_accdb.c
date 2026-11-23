@@ -137,7 +137,7 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong * cred;
 
   /* Track account addresses changed since a full snap.
-     Used to determine which accounts should be packed into a full
+     Used to determine which accounts should be packed into an incremental
      snapshot (including tombstones for accounts no longer present in
      accdb, but present in the full snapshot). */
   struct {
@@ -1476,8 +1476,8 @@ acc_unlink( fd_accdb_t * accdb,
      try to reclaim the cache line so the eviction path does not try
      to write back stale data from a recycled pool slot.  Lock-free:
      CAS the refcnt 0 -> EVICT_SENTINEL to claim it exclusively, then
-     push to this join's free list.  If the line is pinned (refcnt>0),
-     skip, the pinner's release will handle it.
+     push to this join's free list.  If the line is still pinned,
+     mark it persisted to prevent writeback after the account is freed.
 
      Acquire CACHE_CLAIM_BIT before touching acc->cache_idx /
      CACHE_VALID — see evict_clear_acc_cache_ref for the protocol.
@@ -2153,11 +2153,9 @@ change_partition( fd_accdb_t *           accdb,
   /* Snapshot-load tiering: accounts loaded from a snapshot never get
      a second write, so compaction-driven promotion never fires and
      they would otherwise live in Hot forever.  When snapshot_loading
-     is set, tag the new partition as Cold up front.  We do not set
-     has_partition[Cold] / whead[Cold] — those are owned by the
-     compaction tile and represent the live Cold write head, which is
-     independent of snapshot-loaded partitions that happen to be
-     labeled Cold. */
+     is set, tag the new partition as Cold up front.
+     fd_accdb_snapshot_load_end transfers the last snapshot partition
+     to the Cold write head if that head is not already set. */
   if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->snapshot_loading ) && layer==0 ) ) {
     FD_VOLATILE( partition->layer ) = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
   }

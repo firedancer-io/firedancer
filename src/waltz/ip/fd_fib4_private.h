@@ -6,7 +6,7 @@
 
 struct __attribute__((aligned(16))) fd_fib4_key {
   /* FIXME optimize this to 8 bytes? */
-  uint addr;       /* prefix bits, little endian (low bits outside of mask are undefined) */
+  uint addr;       /* prefix bits, little endian (bits outside of mask are zero) */
   uint mask;       /* bit pattern */
   uint prio;       /* lower is higher */
   int  mask_bits;  /* precompute mask bits for comparison */

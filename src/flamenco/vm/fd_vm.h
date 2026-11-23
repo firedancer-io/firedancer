@@ -190,7 +190,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   uint  region_ld_sz[6];
   uint  region_st_sz[6];
 
-  /* fd_vm_input_region_t and fd_vm_acc_to_mem arrays are passed in by the bpf
+  /* fd_vm_input_region_t and fd_vm_acc_region_meta_t arrays are passed in by the bpf
      loaders into fd_vm_init.
      TODO: It might make more sense to allocate space for these in the VM. */
   fd_vm_input_region_t *    input_mem_regions;               /* An array of input mem regions represent the input region.

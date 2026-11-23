@@ -85,11 +85,7 @@ typedef struct fd_sspeer_private fd_sspeer_private_t;
 /* Intentionally less than DEFAULT_SLOTS_BEHIND so that peers with an
    unknown slot are penalized more than the worst known peer. */
 #define MAX_SLOTS_BEHIND_CAP         (864000UL)      /* ~2 epochs worth of slots */
-/* Assumed latency (in nanos) for peers that have not been pinged yet.
-   Pings are sent immediately on peer discovery, so this default is
-   short-lived.  100ms is a neutral middle-ground: high enough that
-   any peer with a measured latency is preferred, low enough that slot
-   distance still meaningfully differentiates unpinged peers. */
+/* Assumed latency (in nanos) for peers that have not been pinged yet. */
 #define DEFAULT_PEER_LATENCY         (100UL*1000UL*1000UL)  /* 100ms */
 #define DEFAULT_SLOTS_BEHIND_PENALTY (200UL)
 

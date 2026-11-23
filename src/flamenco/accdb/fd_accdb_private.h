@@ -133,9 +133,8 @@ struct fd_accdb_partition {
   ulong compaction_dead_records;       /* records skipped (no live index entry) this pass */
 
   /* Epoch at which this partition was enqueued for compaction.  Set by
-     fd_accdb_shmem_bytes_freed when the partition crosses the
-     freed-bytes threshold.  The compaction tile will not begin reading
-     from this partition until all joiners that were in an
+     fd_accdb_shmem_try_enqueue_compaction.  The compaction tile will not
+     begin reading from this partition until all joiners that were in an
      epoch-protected critical section at enqueue time have exited,
      ensuring any in-flight pwritev2 to this partition has completed. */
   ulong compaction_ready_epoch;
@@ -530,7 +529,7 @@ struct fd_accdb_shmem_private {
   /* Per-layer write heads.  whead[0] is the hot (execution) write
      head, updated with atomic fetch-and-add by acquire/release
      threads.  whead[1..N-1] are compaction write heads, each
-     single-writer (compaction tile only). */
+     single-writer (compaction tile after snapshot loading). */
   accdb_offset_t whead[ FD_ACCDB_COMPACTION_LAYER_CNT ];
   int            has_partition[ FD_ACCDB_COMPACTION_LAYER_CNT ];
 

@@ -3753,13 +3753,8 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
     FD_TEST( parent );
     parent_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, parent );
   } else {
-    /* mid-slot FEC: rotor tile promises to populate block_id
-       correctly for blocks with known block id.  If we are processing
-       the last FEC set of a slot received through turbine though, the
-       block_id_map will still be keyed with {0}, but the block_id on
-       the FEC will have the computed DMR.  We first try to replay
-       this FEC on a bank keyed with the computed DMR - if it doesn't
-       exist, it must belong to the original turbine version. */
+    /* Known blocks use {slot, block_id}; turbine blocks use {slot, 0}
+       until their slot-complete FEC rekeys the bank. */
     fd_block_id_t key = { .slot = fec->slot };
     if( FD_LIKELY( fec->is_known ) ) {
       key = fd_block_id( fec->slot, fec->block_id.uc );

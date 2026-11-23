@@ -558,7 +558,7 @@ fd_bmtree_commitp_fini( fd_bmtree_commit_t * state, ulong leaf_cnt ) {
        not change that.  This means that if you start at a leaf node in
        the right half of the tree (which is always the case for the last
        leaf node), then going up will never go past the next power of 2
-       beyond the current one.  Since inclusion_proof_sz is a power of
+       beyond the current one.  Since inclusion_proof_sz+1 is a power of
        2, that means it suffices to check this once and not every time
        we go up the tree. */
     /* TODO: Make this argument more formal */

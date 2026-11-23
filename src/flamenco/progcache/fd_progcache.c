@@ -53,7 +53,7 @@ fd_progcache_arena_sz( ulong const * slot_cnt ) {
 
 /* fd_progcache_layout_footprint returns the exact shmem footprint of a cache
    holding txn_max transactions, rec_max records and arena_sz bytes of value arena.
-   fd_progcache_new lays out these same regions in this same order. */
+   fd_progcache_shmem_new lays out these same regions in this same order. */
 static ulong
 fd_progcache_layout_footprint( ulong txn_max,
                                ulong rec_max,

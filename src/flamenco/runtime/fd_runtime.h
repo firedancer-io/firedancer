@@ -58,10 +58,7 @@
    fd_runtime_prepare_and_execute_txn.  If the transaction is
    committable, it should be committed via fd_runtime_commit_txn.  If
    the transaction is not committable (txn_out->err.is_committable is 0),
-   it should be canceled via fd_runtime_cancel_txn.  Two calls to
-   fd_runtime_prepare_and_execute_txn without a call to
-   fd_runtime_commit_txn or fd_runtime_cancel_txn in between are not
-   allowed.
+   it should be canceled via fd_runtime_cancel_txn.
 
                input                                  output
    fd_runtime_t ->

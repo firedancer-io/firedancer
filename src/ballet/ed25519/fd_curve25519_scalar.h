@@ -58,11 +58,11 @@ fd_curve25519_scalar_reduce( uchar       out[ 32 ],
 static inline uchar const *
 fd_curve25519_scalar_validate( uchar const s[ 32 ] ) {
   /* If none of the top 4 bits are set, then the scalar fits into S \in [0, 2^252),
-     which is a tighter range than [0, L), which is about [0, 2^252.2). In this case
+     which is a tighter range than [0, L), since L is just above 2^252. In this case
      we can "succeed-fast" and skip the full canonical check. */
   if ( FD_UNLIKELY( s[31] & 0xF0 ) ) {
     /* Assuming canonical and IID scalars, the chance of the 252nd bit being
-       set is roughly 1/2^128 or log2(1 - (2^252 - 1) / L). */
+       set is roughly 1/2^128. */
 
     /* If any of the top 3 bits are set, the scalar representation must be invalid. */
     if ( FD_LIKELY( s[31] & 0xE0 ) ) return NULL;

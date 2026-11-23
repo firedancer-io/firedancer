@@ -97,23 +97,6 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
   #undef KIBIBYTE_MUL_PAGES_SUB_1
 }
 
-/* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L105-L171
-
-   Our arguments to deploy_program are different from the Agave version because
-   we handle the caching of deployed programs differently. In Firedancer we
-   lack the concept of ProgramCacheEntryType entirely.
-   https://github.com/anza-xyz/agave/blob/114d94a25e9631f9bf6349c4b833d7900ef1fb1c/program-runtime/src/loaded_programs.rs#L158
-
-   In Agave there is a separate caching structure that is used to store the
-   deployed programs. In Firedancer the deployed, validated program is stored as
-   metadata for the account.
-
-   See https://github.com/firedancer-io/firedancer/blob/9c1df680b3f38bebb0597e089766ec58f3b41e85/src/flamenco/runtime/program/fd_bpf_loader_v3_program.c#L1640
-   for how we handle the concept of 'LoadedProgramType::DelayVisibility' in Firedancer.
-
-   As a concrete example, our version of deploy_program does not have the
-   'account_size' argument because we do not update the record here. */
-
 struct fd_bpf_deploy_scratch {
   uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
   uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));

@@ -1,13 +1,13 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssping_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssping_h
 
-/* The snapshot pinger (ssping) is responsible for maintaining a list of
-   peers that are reachable for snapshot download, and returning the
-   "best" such peer at any time.
+/* The snapshot pinger (ssping) maintains a list of peers that are
+   reachable for snapshot download and reports their TCP connection
+   latencies through a callback.
 
-   The "best" peer is defined as the one with the lowest combined score
-   of TCP connection latency and snapshot age (slots behind the
-   cluster), as computed by the peer selector.
+   The peer selector uses these latencies to select the "best" peer:
+   the one with the lowest combined score of TCP connection latency
+   and snapshot age (slots behind the cluster).
 
    The snapshot pinger works on the assumption that there is a maximum
    size of peers that will ever be added, as we expect from the gossip
@@ -21,13 +21,11 @@ struct fd_sspeer_selector_private;
 typedef struct fd_sspeer_selector_private fd_sspeer_selector_t;
 
 #define FD_SSPING_FD_MIN 20000
-#define FD_SSPING_FD_CNT   247 /* Limit to how many pings can be
-                                  inflight.  Chosen so that it doesn't
-                                  overflow the tile limit (256 allowed
-                                  fds, less the workspace fd, stderr,
-                                  logfile, snapshot dir + 2 output
-                                  fds, the 2 netdb fds for DNS, and
-                                  the adns UDP socket). */
+#define FD_SSPING_FD_CNT   247 /* Maximum number of in-flight pings.
+                                  Sockets are preallocated in a contiguous
+                                  range starting at FD_SSPING_FD_MIN.
+                                  snapct includes this pool in its fd
+                                  limit and sandbox allowlist. */
 
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
 
