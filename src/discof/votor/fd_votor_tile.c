@@ -329,7 +329,6 @@ struct fd_votor_tile {
   fd_clock_tile_t    clock[1];
   fd_aio_t           quic_tx_aio[ 1 ];
   ushort             quic_client_listen_port;
-  ushort             quic_server_listen_port;
   uint               src_ip_addr;
   fd_ip4_udp_hdrs_t  hdr[ 1 ];
   ushort             net_id;
@@ -2691,9 +2690,11 @@ before_frag( fd_votor_tile_t * ctx,
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO && sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   case IN_KIND_IPECHO:
     return 0;
-  case IN_KIND_NET:
+  case IN_KIND_NET: {
     if( FD_UNLIKELY( !ctx->curr_epoch_info || ctx->keyswitch_state ) ) return 1; /* halted, no TLS handshake may sign */
-    return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_VOTOR;
+    ulong proto = fd_disco_netmux_sig_proto( sig );
+    return proto!=DST_PROTO_VOTOR_CLIENT && proto!=DST_PROTO_VOTOR_SERVER;
+  }
   case IN_KIND_REPLAY:
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED || sig==REPLAY_SIG_SLOT_DEAD ) ) {
       if( FD_UNLIKELY( !ctx->curr_epoch_info ) ) return -1;
@@ -2786,13 +2787,7 @@ after_frag( fd_votor_tile_t *   ctx,
     break;
   case IN_KIND_NET: {
     if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) break;
-    fd_ip4_hdr_t const * ip4   = (fd_ip4_hdr_t const *)fd_type_pun_const( ctx->net_buf+sizeof(fd_eth_hdr_t) );
-    ulong                iplen = FD_IP4_GET_LEN( *ip4 );
-    if( FD_UNLIKELY( iplen<sizeof(fd_ip4_hdr_t) || sz<sizeof(fd_eth_hdr_t)+iplen+sizeof(fd_udp_hdr_t) ) ) break;
-    fd_udp_hdr_t const * udp   = (fd_udp_hdr_t const *)fd_type_pun_const( ctx->net_buf+sizeof(fd_eth_hdr_t)+iplen );
-    ushort               dport = fd_ushort_bswap( udp->net_dport );
-    if( FD_UNLIKELY( dport!=ctx->quic_client_listen_port && dport!=ctx->quic_server_listen_port ) ) break;
-    fd_quic_t * quic = fd_ptr_if( dport==ctx->quic_client_listen_port, ctx->quic_client, ctx->quic_server );
+    fd_quic_t * quic = fd_ptr_if( fd_disco_netmux_sig_proto( sig )==DST_PROTO_VOTOR_CLIENT, ctx->quic_client, ctx->quic_server );
     ctx->stem = stem;
     fd_quic_process_packet( quic, ctx->net_buf+sizeof(fd_eth_hdr_t), sz-sizeof(fd_eth_hdr_t), fd_clock_tile_now( ctx->clock ) );
     for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
@@ -2958,7 +2953,6 @@ unprivileged_init( fd_topo_t const *      topo,
                  tile->votor.quic_client_listen_port ));
 
   ctx->quic_client_listen_port = tile->votor.quic_client_listen_port;
-  ctx->quic_server_listen_port = tile->votor.quic_server_listen_port;
   ctx->src_ip_addr             = tile->votor.ip_addr;
   ctx->net_id                  = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->hdr, FD_NET_MTU, ctx->src_ip_addr, ctx->quic_client_listen_port );

@@ -579,6 +579,42 @@ test_quic( uchar *           mem,
   return quic;
 }
 
+static void
+test_net_rx_proto( void ) {
+  static fd_votor_tile_t ctx;
+  static fd_aio_t        aio_mem[1];
+  ctx.id_key.uc[ 0 ] = 1;
+  ctx.in_kind[ 0 ] = IN_KIND_NET;
+  ctx.curr_epoch_info = &epoch_info_mem;
+  fd_clock_tile_init( ctx.clock );
+
+  fd_aio_t * aio = fd_aio_join( fd_aio_new( aio_mem, NULL, drop_aio_send ) );
+  FD_TEST( aio );
+  ctx.quic_client = test_quic( quic_client_scratch, sizeof(quic_client_scratch), FD_QUIC_ROLE_CLIENT, &ctx, aio );
+  ctx.quic_server = test_quic( quic_server_scratch, sizeof(quic_server_scratch), FD_QUIC_ROLE_SERVER, &ctx, aio );
+
+  ulong client_sig = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_VOTOR_CLIENT, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong server_sig = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_VOTOR_SERVER, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong other_sig  = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_TPU_QUIC,     FD_NETMUX_SIG_MIN_HDR_SZ );
+  FD_TEST( !before_frag( &ctx, 0UL, 0UL, client_sig ) );
+  FD_TEST( !before_frag( &ctx, 0UL, 0UL, server_sig ) );
+  FD_TEST(  before_frag( &ctx, 0UL, 0UL, other_sig  ) );
+
+  /* The signature selects the QUIC instance without consulting UDP ports. */
+  fd_ip4_udp_hdrs_t * hdr = fd_type_pun( ctx.net_buf );
+  fd_ip4_udp_hdr_init( hdr, 0UL, FD_IP4_ADDR( 127, 0, 0, 1 ), (ushort)9000 );
+  hdr->ip4->daddr     = FD_IP4_ADDR( 127, 0, 0, 2 );
+  hdr->udp->net_dport = fd_ushort_bswap( (ushort)9001 );
+  after_frag( &ctx, 0UL, 0UL, client_sig, sizeof(fd_ip4_udp_hdrs_t), 0UL, 0UL, NULL );
+  FD_TEST( ctx.quic_client->metrics.net_rx_pkt_cnt==1UL );
+  FD_TEST( ctx.quic_server->metrics.net_rx_pkt_cnt==0UL );
+  after_frag( &ctx, 0UL, 0UL, server_sig, sizeof(fd_ip4_udp_hdrs_t), 0UL, 0UL, NULL );
+  FD_TEST( ctx.quic_client->metrics.net_rx_pkt_cnt==1UL );
+  FD_TEST( ctx.quic_server->metrics.net_rx_pkt_cnt==1UL );
+
+  FD_LOG_NOTICE(( "pass, test_net_rx_proto" ));
+}
+
 /* Before epoch info, votor holds the replay completions it needs (the
    snapshot root's SLOT_COMPLETED initializes the pool) so stem polls
    them again, and still drops other replay sigs. */
@@ -1144,16 +1180,16 @@ test_id_keyswitch( void ) {
   fd_quic_conn_id_t rx_peer_cid = fd_quic_conn_id_new( &rx_conn_id, 8UL );
   fd_quic_conn_id_t hs_peer_cid = fd_quic_conn_id_new( &hs_conn_id, 8UL );
   fd_quic_conn_id_t hc_peer_cid = fd_quic_conn_id_new( &hc_conn_id, 8UL );
-  fd_quic_conn_t *  rx_conn     = fd_quic_conn_create( ctx.quic_server, rx_conn_id, &rx_peer_cid, ci->ip4, (ushort)9002, ctx.src_ip_addr, ctx.quic_server_listen_port, 1 );
-  fd_quic_conn_t *  hs_conn     = fd_quic_conn_create( ctx.quic_server, hs_conn_id, &hs_peer_cid, ci->ip4, (ushort)9003, ctx.src_ip_addr, ctx.quic_server_listen_port, 1 );
-  fd_quic_conn_t *  hc_conn     = fd_quic_conn_create( ctx.quic_server, hc_conn_id, &hc_peer_cid, ci->ip4, (ushort)9004, ctx.src_ip_addr, ctx.quic_server_listen_port, 1 );
+  fd_quic_conn_t *  rx_conn     = fd_quic_conn_create( ctx.quic_server, rx_conn_id, &rx_peer_cid, ci->ip4, (ushort)9002, ctx.src_ip_addr, (ushort)9001, 1 );
+  fd_quic_conn_t *  hs_conn     = fd_quic_conn_create( ctx.quic_server, hs_conn_id, &hs_peer_cid, ci->ip4, (ushort)9003, ctx.src_ip_addr, (ushort)9001, 1 );
+  fd_quic_conn_t *  hc_conn     = fd_quic_conn_create( ctx.quic_server, hc_conn_id, &hc_peer_cid, ci->ip4, (ushort)9004, ctx.src_ip_addr, (ushort)9001, 1 );
   FD_TEST( rx_conn && hs_conn && hc_conn );
   rx_conn->state = FD_QUIC_CONN_STATE_ACTIVE;
   hc_conn->state = FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE;
   peer->rx_conn[ 0 ] = rx_conn;
 
   ctx.in_kind[ 0 ] = IN_KIND_NET;
-  ulong net_sig = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_VOTOR, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong net_sig = fd_disco_netmux_sig( 0U, (ushort)0, 0U, DST_PROTO_VOTOR_CLIENT, FD_NETMUX_SIG_MIN_HDR_SZ );
   FD_TEST( !before_frag( &ctx, 0UL, 0UL, net_sig ) );
 
   /* The old identity, which votor booted as, has its vote history
@@ -3182,6 +3218,7 @@ main( int     argc,
 
   test_epoch_resets_total_stake();
   test_quic_client_ack_range();
+  test_net_rx_proto();
   test_epoch_bls_keys();
   test_load_keys( 0 );
   test_load_keys( 1 );
