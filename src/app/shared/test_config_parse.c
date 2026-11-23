@@ -46,12 +46,13 @@ extern uchar const firedancer_default_config[];
 extern ulong const firedancer_default_config_sz;
 
 static int
-genesis_max_file_size_is_valid( config_t * config,
-                                ulong      max_file_size_mib ) {
+ulong_config_is_valid( config_t * config,
+                       ulong *    field,
+                       ulong      value ) {
   int pid = fork();
   FD_TEST( pid>=0 );
   if( FD_UNLIKELY( !pid ) ) {
-    config->firedancer.development.genesis.max_file_size_mib = max_file_size_mib;
+    *field = value;
     fd_config_validate( config );
     _exit( 0 );
   }
@@ -251,8 +252,11 @@ main( int     argc,
   fd_config_validate( config );
   strcpy( config->net.provider, "xdp" );
 
-  FD_TEST(  genesis_max_file_size_is_valid( config, 4055UL ) );
-  FD_TEST( !genesis_max_file_size_is_valid( config, 4056UL ) );
+  FD_TEST(  ulong_config_is_valid( config, &config->firedancer.development.genesis.max_file_size_mib, 4055UL ) );
+  FD_TEST( !ulong_config_is_valid( config, &config->firedancer.development.genesis.max_file_size_mib, 4056UL ) );
+
+  FD_TEST(  ulong_config_is_valid( config, &config->development.accdb.partition_size_gib, 1UL ) );
+  FD_TEST( !ulong_config_is_valid( config, &config->development.accdb.partition_size_gib, 0UL ) );
 
   FD_TEST(  failover_is_valid( config, 1, 0, "0.0.0.0",   8010, "vote.json" ) );
   FD_TEST(  failover_is_valid( config, 1, 0, "10.0.0.1",  8010, "vote.json" ) );
