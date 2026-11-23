@@ -169,6 +169,14 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
   long then = fd_tickcount();
   long now  = then;
 
+  /* While backpressured, credits are also refreshed every async_min/16
+     ticks, not just at housekeeping (~async_min*event_cnt ticks), so a
+     consumer returning credits per frag unblocks us within ~1/16 of an
+     async event interval (4096 ticks, ~1.4 us, for pack).  Costs
+     cons_cnt loads per refresh, paid only while backpressured. */
+  long bp_refresh_ticks = (long)(async_min>>4);
+  long bp_refresh_due   = then;
+
 #if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG)
   fd_stem_context_t stem = {
     .mcaches             = out_mcache,
@@ -339,13 +347,25 @@ STEM_(STEM_RUN1_NAME)( ulong                        in_cnt,
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();
+      int credited = 0;
+      if( FD_UNLIKELY( (now-bp_refresh_due)>=0L ) ) {
+        ulong min_cr_avail_prev = min_cr_avail;
+        bp_refresh_due = now + bp_refresh_ticks;
+        STEM_(cons_reload)( ctx, cons_cnt, cons_fseq, cons_seq, cons_out, out_seq );
+        /* Blame is still charged only at housekeeping */
+        STEM_(cr_refresh)( out_cnt, out_depth, out_seq, cr_avail, &min_cr_avail, cr_max, cons_cnt, cons_out, cons_seq, cons_slow, 0UL );
+        credited = min_cr_avail>min_cr_avail_prev;
+      }
+      (void)credited;
       metric_regime_ticks[2] += housekeeping_ticks;
       long next = fd_tickcount();
       metric_regime_ticks[5] += (ulong)(next - now);
       now = next;
 #if STEM_SLEEP_PARKS
+      /* Credits the refresh found are checked before any park, which
+         would see no pending return and sleep through them */
       sleep_idle_streak++;
-      if( FD_UNLIKELY( sleep_idle_streak>=in_cnt && (now-linger_start)>sleep_linger_ticks ) ) {
+      if( FD_UNLIKELY( !credited && sleep_idle_streak>=in_cnt && (now-linger_start)>sleep_linger_ticks ) ) {
         sleep_idle_streak = 0UL;
         STEM_(park_attempt)( ctx, sleep, in, in_cnt, out_mcache, out_cnt, out_depth, out_seq, out_seq_pub, cr_avail, &min_cr_avail, cr_max,
                              cons_cnt, cons_fseq, cons_seq, cons_out, cons_slow, event_cnt, event_map, &event_seq, async_min, hk_due,
