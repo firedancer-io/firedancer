@@ -53,8 +53,8 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   /* Must shut down after snapshot load */
   { "snapct", STARTUP                      },
   { "snapld", STARTUP                      },
-  { "snapdc", STARTUP|THRUPUT              },
-  { "snapin", STARTUP|THRUPUT              },
+  { "snapdc", STARTUP },
+  { "snapin", STARTUP},
 
   /* Must sleep until snapshot load finishes */
   { "accdb",  POSTSTART|THRUPUT            },
