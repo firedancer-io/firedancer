@@ -246,6 +246,11 @@ fd_gossip_push_duplicate_shred( fd_gossip_t *                       gossip,
                                 fd_gossip_duplicate_shred_t const * duplicate_shred,
                                 long                                now );
 
+int
+fd_gossip_push_snapshot_hashes( fd_gossip_t *                       gossip,
+                                fd_gossip_snapshot_hashes_t const * snapshot_hashes,
+                                long                                now );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */

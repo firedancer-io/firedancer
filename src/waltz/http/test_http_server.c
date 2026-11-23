@@ -185,8 +185,8 @@ test_oring( void ) {
   };
 
   /* zstd cctx estimate assumes the single-threaded vendored build */
-  uchar scratch[ 1633280 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==1633280 );
+  uchar scratch[ 1633408 ] __attribute__((aligned(128UL)));
+  FD_TEST( fd_http_server_footprint( params )==1633408 );
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
 
   http->stage_off = 6UL;
@@ -271,7 +271,7 @@ test_content_length_overflow_close( void ) {
   };
 
   FD_LOG_NOTICE(( "footprint %lu", fd_http_server_footprint( params ) ));
-  uchar scratch[ 1306624 ] __attribute__((aligned(128UL)));
+  uchar scratch[ 1306752 ] __attribute__((aligned(128UL)));
   FD_TEST( fd_http_server_footprint( params )==sizeof( scratch ) );
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
@@ -1026,7 +1026,7 @@ test_ws_ping_during_pong( void ) {
 
 /* test_keep_alive covers connection reuse: sequential requests on one
    connection, Connection token parsing, explicit close, HTTP/1.0, and
-   pipelined requests, and body framing on GET. */
+   pipelined requests, and body framing on GET and HEAD. */
 
 static fd_http_server_t * keep_alive_http;
 
@@ -1116,6 +1116,16 @@ test_keep_alive( void ) {
   keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
   FD_TEST( strstr( buf, "Connection: keep-alive" ) );
   FD_TEST( !state.close_cnt );
+
+  /* HEAD gets the headers of a GET without the body, so the next
+     reply starts right after them */
+  char const * head_get = "HEAD / HTTP/1.1\r\nHost: test\r\n\r\nGET / HTTP/1.1\r\nHost: test\r\n\r\n";
+  send_all( client_fd, head_get, strlen( head_get ) );
+  keep_alive_recv( http, client_fd, buf, sizeof( buf ) );
+  char const * head_end = strstr( buf, "\r\n\r\n" );
+  char const * head_len = strstr( buf, "Content-Length: 2\r\n" );
+  FD_TEST( head_len && head_len<head_end );
+  FD_TEST( !strncmp( head_end+4UL, "HTTP/1.1 200 OK", 15UL ) );
   close( client_fd );
   keep_alive_wait_close( http, &state, 1UL );
 

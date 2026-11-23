@@ -30,6 +30,16 @@ main( int     argc,
     ip6_addr[ i ] = 0x00;
   }
 
+  /* fd_ip6_addr_is_loopback */
+
+  FD_TEST( fd_ip6_addr_is_loopback( (uchar const *)"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01" )==1 ); /* ::1 */
+  FD_TEST( fd_ip6_addr_is_loopback( (uchar const *)"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\x7f\x00\x00\x01" )==1 ); /* ::ffff:127.0.0.1 */
+  FD_TEST( fd_ip6_addr_is_loopback( (uchar const *)"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\x7f\x01\x02\x03" )==1 ); /* ::ffff:127.1.2.3 */
+  FD_TEST( fd_ip6_addr_is_loopback( (uchar const *)"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\x00\x00\x00\x00" )==0 ); /* ::ffff:0.0.0.0 */
+  FD_TEST( fd_ip6_addr_is_loopback( (uchar const *)"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\x40\x82\x39\x8e" )==0 ); /* ::ffff:64.130.57.142 */
+  FD_TEST( fd_ip6_addr_is_loopback( (uchar const *)"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" )==0 ); /* :: */
+  FD_TEST( fd_ip6_addr_is_loopback( (uchar const *)"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02" )==0 ); /* ::2 */
+
   /* fd_ip6_addr_is_scoped */
 
   FD_TEST( fd_ip6_addr_is_scoped( (uchar const *)"\xfe\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01" )==1 ); /* link-local */
