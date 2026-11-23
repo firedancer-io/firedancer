@@ -88,6 +88,7 @@ typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 
 #define FD_SNAPCT_COLLECTING_PEERS_TIMEOUT (90L*1000L*1000L*1000L) /* 1.5 minutes */
 #define FD_SNAPCT_STREAM_ABSENT_NS         (10L*1000L*1000L*1000L) /* 10 seconds */
+#define FD_SNAPCT_REPLAY_STALL_NS          (30L*1000L*1000L*1000L) /* 30 seconds */
 
 struct gossip_ci_entry {
   fd_pubkey_t   pubkey;
@@ -149,6 +150,8 @@ struct fd_snapct_tile {
     uchar stream_hash[ FD_HASH_FOOTPRINT ];
     ulong full_slot;  /* the full snapshot the stream is on */
     uchar full_hash[ FD_HASH_FOOTPRINT ];
+    ulong replay_slot;  /* newest slot replay has completed */
+    long  replay_nanos; /* when it completed */
   } fast_boot;
 
   fd_netdb_fds_t netdb_fds[1];
@@ -1238,9 +1241,18 @@ after_credit( fd_snapct_tile_t *  ctx,
            write contention. */
         fd_wait_info_t wait_info;
         if( FD_UNLIKELY( !fd_wait_info_try_read( &wait_info, ctx->wait_info ) ) ) break;
-        if( FD_UNLIKELY( !wait_info.caught_up && !wait_info.epoch_boundary_hold ) ) break;
-
         if( FD_UNLIKELY( ctx->fast_boot.stream_slot==ULONG_MAX ) ) break;
+
+        if( FD_UNLIKELY( wait_info.reset_slot!=ctx->fast_boot.replay_slot ) ) {
+          ctx->fast_boot.replay_slot  = wait_info.reset_slot;
+          ctx->fast_boot.replay_nanos = now;
+        }
+
+        /* Replay may be stuck on a record only the snapshots have. */
+        if( FD_UNLIKELY( !wait_info.caught_up && !wait_info.epoch_boundary_hold ) ) {
+          if( FD_LIKELY( now<=ctx->fast_boot.replay_nanos+FD_SNAPCT_REPLAY_STALL_NS ) ) break;
+          FD_LOG_WARNING(( "replay has not completed a slot in %ld seconds, loading the snapshots behind the fast boot stream now", FD_SNAPCT_REPLAY_STALL_NS/(1000L*1000L*1000L) ));
+        }
 
         /* The snapct behind the stream reads the full from disk when
            it is the one the stream is on. */
@@ -2898,6 +2910,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->predicted_incremental.committed = 0;
   fd_memset( &ctx->predicted_incremental.peer, 0, sizeof(fd_sspeer_t) );
   ctx->fast_boot.stream_slot           = ULONG_MAX;
+  ctx->fast_boot.replay_slot           = ULONG_MAX;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 

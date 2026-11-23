@@ -433,6 +433,23 @@ test_background_snapshot_instance( void ) {
   FD_TEST( waitpid( pid, &status, 0 )==pid );
   FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
 
+  /* Replay neither caught up nor holding: the load waits while
+     replay completes slots, and starts once it has completed none
+     for a while. */
+  fd_wait_info_write_begin( ctx->wait_info );
+  ctx->wait_info->info.epoch_boundary_hold = 0;
+  ctx->wait_info->info.reset_slot          = 7UL;
+  fd_wait_info_write_end( ctx->wait_info );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && ctx->fast_boot.replay_slot==7UL );
+  ctx->fast_boot.replay_nanos -= 2L*FD_SNAPCT_REPLAY_STALL_NS;
+  fd_wait_info_write_begin( ctx->wait_info );
+  ctx->wait_info->info.reset_slot = 8UL;
+  fd_wait_info_write_end( ctx->wait_info );
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && ctx->fast_boot.replay_slot==8UL );
+  ctx->fast_boot.replay_nanos -= 2L*FD_SNAPCT_REPLAY_STALL_NS;
+
   /* The full is asked for by its exact name, no redirect, with its
      slot and hash. */
   after_credit( ctx, NULL, NULL, &busy );
