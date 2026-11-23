@@ -2,7 +2,7 @@
 #define HEADER_fd_src_app_platform_fd_config_extract_h
 
 #include "../../util/fd_util.h"
-#include "../../util/fd_boolau.h"
+#include "../../util/fd_bool_auto.h"
 #include "../../util/pod/fd_pod.h"
 
 FD_PROTOTYPES_BEGIN
@@ -112,7 +112,7 @@ fdctl_cfg_get_bool( int *                 out,
   return 1;
 }
 
-/* Handles true, false, "true", "false" and "auto" */
+/* Handles true/false, "true"/"false" and "auto" */
 static inline int
 fdctl_cfg_get_boolau( int *                 out,
                       ulong                 out_sz FD_PARAM_UNUSED,
@@ -131,6 +131,35 @@ fdctl_cfg_get_boolau( int *                 out,
       return 1;
     }
     FD_LOG_WARNING(( "invalid value of `%s` entered for `%s`, must be true, false or auto. ",
+                     info_val, path ));
+    return 0;
+  }
+  return fdctl_cfg_get_bool( out, out_sz, info, path );
+}
+
+/* Handles true/false, "true"/"false", "auto" and "force" (force "true"
+   even on potentially unsafe setups) */
+static inline int
+fdctl_cfg_get_boolaf( int *                 out,
+                      ulong                 out_sz FD_PARAM_UNUSED,
+                      fd_pod_info_t const * info,
+                      char const *          path ) {
+  if( info->val_type==FD_POD_VAL_TYPE_CSTR ) {
+    char const * info_val = (char const *)info->val;
+    if( !strcmp( info_val, "auto"  ) ) {
+      *out = FD_BOOLAF_AUTO;
+      return 1;
+    } else if( !strcmp( info_val, "true"  ) ) {
+      *out = FD_BOOLAF_TRUE;
+      return 1;
+    } else if( !strcmp( info_val, "false" ) ) {
+      *out = FD_BOOLAF_FALSE;
+      return 1;
+    } else if( !strcmp( info_val, "force" ) ) {
+      *out = FD_BOOLAF_FORCE;
+      return 1;
+    }
+    FD_LOG_WARNING(( "invalid value of `%s` entered for `%s`, must be true, false, auto or force.",
                      info_val, path ));
     return 0;
   }
