@@ -109,12 +109,18 @@ pktgen_cmd_args( int *    pargc,
                  pkt_sz, PKTGEN_PKT_SZ_MIN, PKTGEN_PKT_SZ_MAX ));
   }
   args->pktgen.pkt_sz = pkt_sz;
+
+  int non_interactive = fd_env_strip_cmdline_contains( pargc, pargv, "--non-interactive" );
+  args->pktgen.interactive = !non_interactive;
 }
 
 static void
 pktgen_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--pkt-sz", "<bytes>", "Size of the L3 header + payload of each generated packet\n"
                                                    "(default 46, range [46,1486])" );
+  fd_action_help_arg( help, "--non-interactive", NULL, "Generate packets for a 10 s warm up, then a 10 s test,\n"
+                                                       "printing per second TX pps/bps and net busy %,\n"
+                                                       "and a TX summary, then exit" );
 }
 
 /* Hacky: Since the pktgen runs in the same process, use globals to
@@ -135,6 +141,12 @@ struct fd_net_stats {
   ulong  rx_bufs_busy;
   ulong  tx_bufs_idle;
   ulong  tx_bufs_busy;
+
+  /* Raw cumulative TX counters and the wallclock at which the stats
+     above were last updated. */
+  long   ts;
+  ulong  tx_ok_cum;
+  ulong  tx_byte_cum;
 };
 typedef struct fd_net_stats fd_net_stats_t;
 
@@ -257,6 +269,9 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
     stats->rx_drop_pps = 1e9*( (double)rx_drop_delta/(double)dt );
     stats->tx_ok_pps   = 1e9*( (double)tx_ok_delta  /(double)dt );
     stats->tx_bps      = 8e9*( (double)tx_byte_delta/(double)dt );
+    stats->ts          = now;
+    stats->tx_ok_cum   = tx_ok_now;
+    stats->tx_byte_cum = tx_byte_now;
 
     last->ts       = now;
     last->cum_idle = cum_idle_now;
@@ -271,24 +286,14 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
   return net_stats;
 }
 
-/* render_status prints statistics at the top of the screen.
-   Should be called at a low rate (~500ms). */
+/* sum_net_stats aggregates per net tile stats into a single summary.
+   busy_r is averaged, ts is taken from the first tile (all tiles are
+   updated with the same timestamp), everything else is summed. */
 
-static void
-render_status( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
-               ulong                  net_tile_cnt,
-               char const *           provider,
-               ulong                  pkt_sz ) {
-  fputs( "\0337"      /* save cursor position */
-         "\033[H"     /* move cursor to (0,0) */
-         "\033[2K\n", /* create an empty line to avoid spamming look back buffer */
-         stdout );
-  printf( "\033[2K" "[Firedancer pktgen] mode=%s pkt_sz=%lu\n",
-          FD_VOLATILE_CONST( fd_pktgen_active ) ? "send+recv" : "recv",
-          pkt_sz );
-
-  fd_net_stats_t const * stats = get_net_stats( net_metrics, net_tile_cnt, provider );
-
+static fd_net_stats_t
+sum_net_stats( fd_net_stats_t const * stats,
+               ulong                  net_tile_cnt ) {
+  FD_TEST( net_tile_cnt );
   fd_net_stats_t summary = {0};
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
     summary.busy_r       += stats[ i ].busy_r;
@@ -301,8 +306,32 @@ render_status( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
     summary.rx_bufs_busy += stats[ i ].rx_bufs_busy;
     summary.tx_bufs_idle += stats[ i ].tx_bufs_idle;
     summary.tx_bufs_busy += stats[ i ].tx_bufs_busy;
+    summary.tx_ok_cum    += stats[ i ].tx_ok_cum;
+    summary.tx_byte_cum  += stats[ i ].tx_byte_cum;
   }
   summary.busy_r /= (double)net_tile_cnt;
+  summary.ts      = stats[ 0 ].ts;
+  return summary;
+}
+
+/* render_interactive_status prints statistics at the top of the screen.
+   Should be called at a low rate (~500ms). */
+
+static void
+render_interactive_status( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
+                           ulong                  net_tile_cnt,
+                           char const *           provider,
+                           ulong                  pkt_sz ) {
+  fputs( "\0337"      /* save cursor position */
+         "\033[H"     /* move cursor to (0,0) */
+         "\033[2K\n", /* create an empty line to avoid spamming look back buffer */
+         stdout );
+  printf( "\033[2K" "[Firedancer pktgen] mode=%s pkt_sz=%lu\n",
+          FD_VOLATILE_CONST( fd_pktgen_active ) ? "send+recv" : "recv",
+          pkt_sz );
+
+  fd_net_stats_t const * stats   = get_net_stats( net_metrics, net_tile_cnt, provider );
+  fd_net_stats_t         summary = sum_net_stats( stats, net_tile_cnt );
 
   printf( "\033[2K" "Overall stats:\n" );
 
@@ -334,11 +363,24 @@ render_status( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
   fflush( stdout );
 }
 
-/* FIXME fixup screen on window size changes */
+/* fd_net_pktgen holds state produced by init_pktgen and consumed by
+   the pktgen run loop. */
 
-void
-pktgen_cmd_fn( args_t *   args,
-               config_t * config ) {
+struct fd_net_pktgen {
+  ulong                  net_tile_cnt;
+  ushort                 listen_port;
+  ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ];
+};
+typedef struct fd_net_pktgen fd_net_pktgen_t;
+
+/* init_pktgen configures the host, initializes workspaces, and starts
+   all pktgen topology tiles in this process.  On return, pktgen is
+   populated with the state required to run pktgen. */
+
+static void
+init_pktgen( args_t *          args,
+             config_t *        config,
+             fd_net_pktgen_t * pktgen ) {
   fd_topo_t *      topo         = &config->topo;
   ulong            net_tile_cnt = config->layout.net_tile_count;
   if( FD_UNLIKELY( net_tile_cnt>FD_TOPO_MAX_TILES ) ) {
@@ -349,8 +391,7 @@ pktgen_cmd_fn( args_t *   args,
   fd_topo_tile_t * pktgen_tile  = &topo->tiles[ fd_topo_find_tile( topo, "pktgen", 0UL ) ];
   pktgen_tile->pktgen.pkt_sz = args->pktgen.pkt_sz;
 
-  fd_topo_tile_t       * net_tiles  [ FD_TOPO_MAX_TILES ];
-  ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ];
+  fd_topo_tile_t * net_tiles[ FD_TOPO_MAX_TILES ];
 
   ushort const listen_port = 9000;
   config->tiles.quic.regular_transaction_listen_port = listen_port;
@@ -390,9 +431,17 @@ pktgen_cmd_fn( args_t *   args,
   /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( topo, config->uid, config->gid, fdctl_tile_run );
 
+  pktgen->net_tile_cnt = net_tile_cnt;
+  pktgen->listen_port  = listen_port;
   for( ulong kind_id=0UL; kind_id<net_tile_cnt; kind_id++ ) {
-    net_metrics[ kind_id ] = fd_metrics_tile( net_tiles[ kind_id ]->metrics );
+    pktgen->net_metrics[ kind_id ] = fd_metrics_tile( net_tiles[ kind_id ]->metrics );
   }
+}
+
+static void
+run_interactive_pktgen( args_t *          args,
+                        config_t *        config,
+                        fd_net_pktgen_t * pktgen ) {
 
   /* Don't attempt to render TTY */
   if( !isatty( STDOUT_FILENO ) ) {
@@ -412,12 +461,12 @@ pktgen_cmd_fn( args_t *   args,
 
   /* Simple REPL loop */
   puts( "Running firedancer-dev pktgen" );
-  printf( "%s socket listening on port %u\n", config->net.provider, (uint)listen_port );
+  printf( "%s socket listening on port %u\n", config->net.provider, (uint)pktgen->listen_port );
   puts( "Available commands: start, stop, quit" );
   puts( "" );
   char input[ 256 ] = {0};
   for(;;) {
-    render_status( net_metrics, net_tile_cnt, config->net.provider, args->pktgen.pkt_sz );
+    render_interactive_status( pktgen->net_metrics, pktgen->net_tile_cnt, config->net.provider, args->pktgen.pkt_sz );
     fputs( "pktgen> ", stdout );
     fflush( stdout );
 
@@ -425,7 +474,7 @@ pktgen_cmd_fn( args_t *   args,
       struct pollfd fds[1] = {{ .fd=STDIN_FILENO, .events=POLLIN }};
       int poll_res = poll( fds, 1, 500 );
       if( poll_res==0 ) {
-        render_status( net_metrics, net_tile_cnt, config->net.provider, args->pktgen.pkt_sz );
+        render_interactive_status( pktgen->net_metrics, pktgen->net_tile_cnt, config->net.provider, args->pktgen.pkt_sz );
         continue;
       } else if( poll_res>0 ) {
         break;
@@ -457,6 +506,69 @@ pktgen_cmd_fn( args_t *   args,
   puts( "Exiting" );
 }
 
+#define PKTGEN_WARMUP_SECS (10L)
+#define PKTGEN_TEST_SECS   (10L)
+
+/* run_noninteractive_pktgen generates packets for a warm up period of
+   PKTGEN_WARMUP_SECS, then for a test period of PKTGEN_TEST_SECS.
+   During the test period, it prints the TX rates and average net tile
+   busy ratio of each one second interval as
+   "<interval> <pps> <bps> <net_busy>", followed by a summary of the TX
+   rates over the entire test period. */
+
+static void
+run_noninteractive_pktgen( args_t *          args,
+                           config_t *        config,
+                           fd_net_pktgen_t * pktgen ) {
+  char const * provider     = config->net.provider;
+  ulong        net_tile_cnt = pktgen->net_tile_cnt;
+
+  printf( "[Firedancer pktgen] provider=%s pkt_sz=%lu net_tiles=%lu\n",
+          provider, args->pktgen.pkt_sz, net_tile_cnt );
+  printf( "Warming up for %ld s...\n", PKTGEN_WARMUP_SECS );
+  fflush( stdout );
+
+  FD_VOLATILE( fd_pktgen_active ) = 1U;
+
+  /* Prime get_net_stats (its first call only records a timestamp) */
+  long t0 = fd_log_wallclock();
+  get_net_stats( pktgen->net_metrics, net_tile_cnt, provider );
+
+  fd_log_wait_until( t0 + PKTGEN_WARMUP_SECS*(long)1e9 );
+  fd_net_stats_t start = sum_net_stats( get_net_stats( pktgen->net_metrics, net_tile_cnt, provider ), net_tile_cnt );
+
+  printf( "%8s %10s %10s %8s\n", "interval", "tx_pps", "tx_bps", "net_busy" );
+  fflush( stdout );
+
+  fd_net_stats_t end = start;
+  for( long i=1L; i<=PKTGEN_TEST_SECS; i++ ) {
+    fd_log_wait_until( start.ts + i*(long)1e9 );
+    end = sum_net_stats( get_net_stats( pktgen->net_metrics, net_tile_cnt, provider ), net_tile_cnt );
+    printf( "%8ld %10.3e %10.3e %7.2f%%\n", i, end.tx_ok_pps, end.tx_bps, 100.*end.busy_r );
+    fflush( stdout );
+  }
+
+  FD_VOLATILE( fd_pktgen_active ) = 0U;
+
+  double dt = (double)( end.ts - start.ts );
+  printf( "Summary (%.3f s): TX ok: %10.3e pps %10.3e bps\n",
+          dt/1e9,
+          1e9*( (double)( end.tx_ok_cum   - start.tx_ok_cum   )/dt ),
+          8e9*( (double)( end.tx_byte_cum - start.tx_byte_cum )/dt ) );
+  fflush( stdout );
+}
+
+/* FIXME fixup screen on window size changes */
+
+void
+pktgen_cmd_fn( args_t *   args,
+               config_t * config ) {
+  fd_net_pktgen_t pktgen[1];
+  init_pktgen( args, config, pktgen );
+  if( args->pktgen.interactive ) run_interactive_pktgen( args, config, pktgen );
+  else                           run_noninteractive_pktgen( args, config, pktgen );
+}
+
 action_t fd_action_pktgen = {
   .name        = "pktgen",
   .topo        = pktgen_topo,
@@ -464,6 +576,6 @@ action_t fd_action_pktgen = {
   .fn          = pktgen_cmd_fn,
   .perm        = dev_cmd_perm,
   .description = "Flood interface with invalid Ethernet frames",
-  .usage       = "pktgen [--pkt-sz <bytes>]",
+  .usage       = "pktgen [--pkt-sz <bytes>] [--non-interactive]",
   .args_help   = pktgen_args_help
 };

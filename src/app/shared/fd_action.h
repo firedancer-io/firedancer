@@ -153,6 +153,7 @@ union fdctl_args {
 
   struct {
     ulong pkt_sz; /* size of the L3 header + payload */
+    int interactive; /* boolean indicating if pktgen should run in interactive mode with a repl */
   } pktgen;
 
   struct {
