@@ -2533,7 +2533,7 @@ background_compact( fd_accdb_t * accdb,
         source_packed = candidate_packed;
         break;
       }
-      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { acc_idx = FD_VOLATILE_CONST( *chain ); continue; }
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { acc_idx = chain_head( chain ); continue; }
       acc_idx = next_idx;
     }
 
@@ -2807,6 +2807,7 @@ exists_inner( fd_accdb_t *       accdb,
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
     if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = chain_head( &accdb->acc_map[ hash ] ); continue; }
       acc = next_acc;
       continue;
     }
@@ -2896,7 +2897,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
            loaded it, next may be a deferred stack link, so restart */
         if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) {
           fd_racesan_hook( "accdb_acquire:restart" );
-          acc = FD_VOLATILE_CONST( accdb->acc_map[ acc_map_idxs[ i ] ] );
+          acc = chain_head( &accdb->acc_map[ acc_map_idxs[ i ] ] );
           continue;
         }
         acc = next_acc;
@@ -4150,7 +4151,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                       fd_accdb_acc_fork_id(candidate)!=fork_id.val &&
                       !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate) )) ) ||
                      memcmp( pubkey, candidate->key.pubkey, 32UL ) ) {
-      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { acc_idx = chain_head( &accdb->acc_map[ hash ] ); continue; }
       acc_idx = next_idx;
       continue;
     }
@@ -4350,7 +4351,7 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
     if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
-      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = chain_head( &accdb->acc_map[ hash ] ); continue; }
       acc = next_acc;
       continue;
     }
@@ -4399,7 +4400,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
     if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
-      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = chain_head( &accdb->acc_map[ hash ] ); continue; }
       acc = next_acc;
       continue;
     }
@@ -4433,7 +4434,7 @@ fd_accdb_data_len( fd_accdb_t *       accdb,
     uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
     if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) {
-      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate_acc ) ) ) { acc = chain_head( &accdb->acc_map[ hash ] ); continue; }
       acc = next_acc;
       continue;
     }
@@ -4903,8 +4904,9 @@ fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
         if( FD_UNLIKELY( candidate->key.generation>root_generation &&
                          fd_accdb_acc_fork_id( candidate )!=fork_id.val &&
                          !descends_set_test( fork->descends, fd_accdb_acc_fork_id( candidate ) ) ) ) {
+          if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { next_acc = chain_head; last_live = UINT_MAX; continue; }
           if( FD_LIKELY( !fork_is_ancestor( accdb, fork_id, fd_accdb_acc_fork_id( candidate ) ) ) ) last_live = next_acc;
-          next_acc = candidate->map.next;
+          next_acc = cand_next;
           continue;
         }
 
@@ -4923,7 +4925,7 @@ fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
         }
         break;
       }
-      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { next_acc = chain_head; continue; }
+      if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { next_acc = chain_head; last_live = UINT_MAX; continue; }
       next_acc = cand_next;
     }
 

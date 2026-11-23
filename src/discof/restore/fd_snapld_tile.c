@@ -37,8 +37,9 @@
 #define FD_SNAPLD_STREAM_RETRY_NS (50L*1000L*1000L) /* 50 milliseconds */
 
 /* How many times a snapshot request is sent again when it fails
-   before any of its response arrived.  Each try waits up to a second
-   for the server, so this covers about five seconds of no answer. */
+   before any of its response arrived.  Each try waits up to ten
+   seconds for the server, so this covers about a minute of no
+   answer. */
 #define FD_SNAPLD_REQUEST_RETRY_MAX (5U)
 
 /* The snapld tile is responsible for loading data from the local file
