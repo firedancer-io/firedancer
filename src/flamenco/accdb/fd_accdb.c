@@ -9,7 +9,9 @@
 #include "../../ballet/base58/fd_base58.h"
 #endif
 #include "../../util/racesan/fd_racesan_target.h"
+#if FD_HAS_AVX512
 #include "../../util/simd/fd_avx512.h"
+#endif
 
 #include "../../disco/events/generated/fd_event_gen.h"
 #include "../../disco/sleep/fd_sleep.h"
