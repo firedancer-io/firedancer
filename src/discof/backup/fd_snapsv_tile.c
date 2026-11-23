@@ -232,16 +232,18 @@ struct fd_snapsv {
   /* snapshot files */
   int dir_fd;
 
-  /* Fast boot stream files, served for fast boot.  fast_boot_slot[ i ]
-     is the slot the stream in pool file i starts at, ULONG_MAX while
+  /* Fast boot stream files, served for fast boot.  slot[ i ] is the
+     slot the stream in pool file i starts at, ULONG_MAX while
      the file is not served. */
-  ulong fast_boot_max;
-  ulong fast_boot_slot  [ FD_STRMK_POOL_MAX ];
-  uchar fast_boot_hash  [ FD_STRMK_POOL_MAX ][ 32 ];
-  int   fast_boot_fd    [ FD_STRMK_POOL_MAX ];
-  int   fast_boot_closed[ FD_STRMK_POOL_MAX ];
-  int   stream_conn; /* a conn is being sent a fast boot stream */
-  long  stream_next; /* when to look at those conns again */
+  struct {
+    ulong max;
+    ulong slot  [ FD_STRMK_POOL_MAX ];
+    uchar hash  [ FD_STRMK_POOL_MAX ][ 32 ];
+    int   fd    [ FD_STRMK_POOL_MAX ];
+    int   closed[ FD_STRMK_POOL_MAX ];
+    int   conn; /* a conn is being sent a fast boot stream */
+    long  next; /* when to look at those conns again */
+  } fast_boot;
 
   /* tango input links */
   ulong in_cnt;
@@ -470,9 +472,9 @@ privileged_init( fd_topo_t const *      topo,
     FD_LOG_ERR(( "io_uring_register_buffers() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  ctx->fast_boot_max = tile->snapsv.fast_boot_stream_max;
-  FD_CHECK_ERR( ctx->fast_boot_max<=FD_STRMK_POOL_MAX, "too many fast boot streams" );
-  for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) ctx->fast_boot_fd[ i ] = FD_STRMK_RO_FD( i );
+  ctx->fast_boot.max = tile->snapsv.fast_boot_stream_max;
+  FD_CHECK_ERR( ctx->fast_boot.max<=FD_STRMK_POOL_MAX, "too many fast boot streams" );
+  for( ulong i=0UL; i<ctx->fast_boot.max; i++ ) ctx->fast_boot.fd[ i ] = FD_STRMK_RO_FD( i );
 
   /* Build file descriptor table */
   FD_TEST( tile->snapsv.snap_max<=FD_SNAP_MAX );
@@ -558,10 +560,10 @@ unprivileged_init( fd_topo_t const *      topo,
 
   /* fast boot stream table setup */
 
-  ctx->fast_boot_max = tile->snapsv.fast_boot_stream_max;
-  for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
-    ctx->fast_boot_slot  [ i ] = ULONG_MAX;
-    ctx->fast_boot_closed[ i ] = 0;
+  ctx->fast_boot.max = tile->snapsv.fast_boot_stream_max;
+  for( ulong i=0UL; i<ctx->fast_boot.max; i++ ) {
+    ctx->fast_boot.slot  [ i ] = ULONG_MAX;
+    ctx->fast_boot.closed[ i ] = 0;
   }
 
   /* link setup */
@@ -978,7 +980,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_CHECK_ERR( ctx->snap_max, "snapsv snap_max is zero" );
   /* The range is empty unless fast boot streams are served. */
   uint fast_boot_min_fd = (uint)FD_STRMK_RO_FD( 0 );
-  uint fast_boot_max_fd = ctx->fast_boot_max ? (uint)FD_STRMK_RO_FD( ctx->fast_boot_max-1UL ) : fast_boot_min_fd-1U;
+  uint fast_boot_max_fd = ctx->fast_boot.max ? (uint)FD_STRMK_RO_FD( ctx->fast_boot.max-1UL ) : fast_boot_min_fd-1U;
   populate_sock_filter_policy_fd_snapsv_tile(
       out_cnt, out,
       (uint)fd_log_private_logfile_fd(),
@@ -1074,7 +1076,7 @@ static ulong
 fast_boot_file_sz( fd_snapsv_t const * ctx,
                    ulong               fast_boot_idx ) {
   struct stat st;
-  if( FD_UNLIKELY( 0!=syscall( SYS_fstat, ctx->fast_boot_fd[ fast_boot_idx ], &st ) ) ) {
+  if( FD_UNLIKELY( 0!=syscall( SYS_fstat, ctx->fast_boot.fd[ fast_boot_idx ], &st ) ) ) {
     FD_LOG_ERR(( "fstat(fast boot file %lu) failed (%i-%s)", fast_boot_idx, errno, fd_io_strerror( errno ) ));
   }
   return (ulong)st.st_size;
@@ -1088,7 +1090,7 @@ static ulong
 conn_file_fd_idx( fd_snapsv_t *   ctx,
                   snapsv_conn_t * conn ) {
   if( FD_UNLIKELY( conn->stream.active ) ) {
-    if( ctx->fast_boot_slot[ conn->stream.idx ]!=conn->stream.slot ) return ULONG_MAX;
+    if( ctx->fast_boot.slot[ conn->stream.idx ]!=conn->stream.slot ) return ULONG_MAX;
     return FIXED_FD_CNT + ctx->snap_max + conn->stream.idx;
   }
   snap_entry_t const * snap = conn_snap_entry( ctx, conn );
@@ -1212,7 +1214,7 @@ shovel( fd_snapsv_t *       ctx,
         shovel( ctx, stem, conn_idx, now );
         return;
       }
-      if( !ctx->fast_boot_closed[ conn->stream.idx ] ) return;
+      if( !ctx->fast_boot.closed[ conn->stream.idx ] ) return;
     }
     conn->res.close_kind = FD_SNAPSV_CLOSE_DONE;
     event_snap( ctx, stem, conn_idx, now, 0, 1 ); /* eom */
@@ -1580,10 +1582,10 @@ serve_redirect( fd_snapsv_t * ctx,
     /* The first stream after the one the peer finished, closed or
        not, so a peer far behind still reads every stream in order. */
     ulong idx = ULONG_MAX;
-    for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
-      ulong slot = ctx->fast_boot_slot[ i ];
+    for( ulong i=0UL; i<ctx->fast_boot.max; i++ ) {
+      ulong slot = ctx->fast_boot.slot[ i ];
       if( slot==ULONG_MAX || slot<=conn->stream.slot ) continue;
-      if( idx==ULONG_MAX || slot<ctx->fast_boot_slot[ idx ] ) idx = i;
+      if( idx==ULONG_MAX || slot<ctx->fast_boot.slot[ idx ] ) idx = i;
     }
     if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
       conn->state      = CONN_STATE_RES_WRITE_ERR;
@@ -1594,7 +1596,7 @@ serve_redirect( fd_snapsv_t * ctx,
     FD_CHECK_ERR( conn->iobuf_idx==UINT_MAX, "conn has stale iobuf" );
     iobuf_alloc( ctx, &conn->iobuf_idx );
     conn->res.sent = 0;
-    conn->res.len  = (uint)build_fast_boot_redirect_hdr( (char *)conn_iobuf( ctx, conn ), ctx->fast_boot_slot[ idx ], ctx->fast_boot_hash[ idx ], conn->sick );
+    conn->res.len  = (uint)build_fast_boot_redirect_hdr( (char *)conn_iobuf( ctx, conn ), ctx->fast_boot.slot[ idx ], ctx->fast_boot.hash[ idx ], conn->sick );
     prep_write_hdr( ctx, conn_idx );
     return;
   }
@@ -1663,7 +1665,7 @@ handle_write_hdr_comp( fd_snapsv_t *       ctx,
       return;
     }
     /* now serve the snapshot body */
-    ctx->stream_conn |= (int)conn->stream.active;
+    ctx->fast_boot.conn |= (int)conn->stream.active;
     conn->req.get_snap = 1; /* streaming begin */
     event_snap( ctx, stem, conn_idx, now, 1, 0 ); /* som */
     conn->state = CONN_STATE_RES_SHOVEL;
@@ -1719,8 +1721,8 @@ match_fast_boot_stream_path( fd_snapsv_t const * ctx,
   if( FD_UNLIKELY( 0!=fd_ssarchive_parse_fast_boot_filename( cstr, &slot, hash ) ) ) return ULONG_MAX;
   *name_slot = slot;
 
-  for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
-    if( ctx->fast_boot_slot[ i ]==slot && !memcmp( ctx->fast_boot_hash[ i ], hash, 32UL ) ) return i;
+  for( ulong i=0UL; i<ctx->fast_boot.max; i++ ) {
+    if( ctx->fast_boot.slot[ i ]==slot && !memcmp( ctx->fast_boot.hash[ i ], hash, 32UL ) ) return i;
   }
   return ULONG_MAX;
 }
@@ -1983,7 +1985,7 @@ handle_peek( fd_snapsv_t *       ctx,
      from its end or past it has finished it and is sent on to the
      stream after it.  So is a peer resuming a stream whose file was recycled,
      which a Range header tells apart from a first read. */
-  if( FD_UNLIKELY( ctx->fast_boot_max && path_len>17UL && !memcmp( path, "fast-boot-stream-", 17UL ) ) ) {
+  if( FD_UNLIKELY( ctx->fast_boot.max && path_len>17UL && !memcmp( path, "fast-boot-stream-", 17UL ) ) ) {
     ulong fast_boot_idx = match_fast_boot_stream_path( ctx, path, path_len, &conn->stream.slot );
     if( FD_UNLIKELY( fast_boot_idx==ULONG_MAX && ( conn->stream.slot==ULONG_MAX || !range ) ) ) goto not_found;
     FD_MCNT_INC( SNAPSV, FAST_BOOT_REQUEST_SERVED, 1UL );
@@ -1991,7 +1993,7 @@ handle_peek( fd_snapsv_t *       ctx,
     if( FD_LIKELY( fast_boot_idx!=ULONG_MAX ) ) {
       ulong sz       = fast_boot_file_sz( ctx, fast_boot_idx );
       int   finished = 0;
-      if( ctx->fast_boot_closed[ fast_boot_idx ] ) {
+      if( ctx->fast_boot.closed[ fast_boot_idx ] ) {
         conn_begin_file( conn, sz, range, range_len );
         finished = conn->state==CONN_STATE_RES_WRITE_ERR && conn->res.status==416U;
       } else {
@@ -2274,15 +2276,15 @@ after_credit_pre( fd_snapsv_t *       ctx,
   }
 
   /* Send what the fast boot streams grew by. */
-  if( FD_UNLIKELY( ctx->stream_conn && now>=ctx->stream_next ) ) {
-    ctx->stream_conn = 0;
+  if( FD_UNLIKELY( ctx->fast_boot.conn && now>=ctx->fast_boot.next ) ) {
+    ctx->fast_boot.conn = 0;
     for( uint i=0U; i<ctx->conn_max; i++ ) {
       snapsv_conn_t * conn = &ctx->conn0[ i ];
       if( conn->state!=CONN_STATE_RES_SHOVEL || !conn->stream.active ) continue;
-      ctx->stream_conn = 1;
+      ctx->fast_boot.conn = 1;
       shovel( ctx, stem, i, now );
     }
-    ctx->stream_next = now+FD_SNAPSV_WAKE_PERIOD;
+    ctx->fast_boot.next = now+FD_SNAPSV_WAKE_PERIOD;
   }
 
   /* Prepare for sleep.  Only sleep if no input link has a frag ready. */
@@ -2491,16 +2493,16 @@ msg_strmk( fd_snapsv_t *          ctx,
            fd_strmk_msg_t const * msg,
            ulong                  msg_sz ) {
   FD_CHECK_CRIT( msg_sz==sizeof(fd_strmk_msg_t), "ABI mismatch" );
-  FD_CHECK_CRIT( msg->idx<ctx->fast_boot_max, "invalid fast boot stream index" );
+  FD_CHECK_CRIT( msg->idx<ctx->fast_boot.max, "invalid fast boot stream index" );
   if( msg_type==FD_STRMK_MSG_OPEN ) {
-    ctx->fast_boot_slot  [ msg->idx ] = msg->slot;
-    ctx->fast_boot_closed[ msg->idx ] = 0;
-    memcpy( ctx->fast_boot_hash[ msg->idx ], msg->hash, 32UL );
+    ctx->fast_boot.slot  [ msg->idx ] = msg->slot;
+    ctx->fast_boot.closed[ msg->idx ] = 0;
+    memcpy( ctx->fast_boot.hash[ msg->idx ], msg->hash, 32UL );
   } else {
     /* The next stream goes into the next pool file: stop serving the
        closed stream still in it. */
-    ctx->fast_boot_slot  [ (msg->idx+1UL)%ctx->fast_boot_max ] = ULONG_MAX;
-    ctx->fast_boot_closed[ msg->idx ] = 1;
+    ctx->fast_boot.slot  [ (msg->idx+1UL)%ctx->fast_boot.max ] = ULONG_MAX;
+    ctx->fast_boot.closed[ msg->idx ] = 1;
   }
 }
 
@@ -2550,8 +2552,8 @@ metrics_write( fd_snapsv_t * ctx ) {
   FD_MGAUGE_SET( SNAPSV, SNAPSHOT_AVAILABLE_INCREMENTAL,  ctx->snap_cnt_incr );
   FD_MGAUGE_SET( SNAPSV, CONN_OPEN,                       ctx->conn_cnt      );
   ulong fast_boot_cnt = 0UL;
-  for( ulong i=0UL; i<ctx->fast_boot_max; i++ ) {
-    fast_boot_cnt += ctx->fast_boot_slot[ i ]!=ULONG_MAX && !ctx->fast_boot_closed[ i ];
+  for( ulong i=0UL; i<ctx->fast_boot.max; i++ ) {
+    fast_boot_cnt += ctx->fast_boot.slot[ i ]!=ULONG_MAX && !ctx->fast_boot.closed[ i ];
   }
   FD_MGAUGE_SET( SNAPSV, FAST_BOOT_STREAM_AVAILABLE, fast_boot_cnt );
 }

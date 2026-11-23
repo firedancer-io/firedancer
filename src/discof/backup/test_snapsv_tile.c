@@ -392,7 +392,7 @@ snapsv_env_create( void ) {
     int fd = memfd_create( "boot", 0U );
     FD_TEST( fd>=0 );
     FD_TEST( !ftruncate( fd, (long)FAST_BOOT_FILE_SZ ) );
-    ctx->fast_boot_fd[ i ] = fd;
+    ctx->fast_boot.fd[ i ] = fd;
   }
 
   snapsv_env_t * env = aligned_alloc(
@@ -460,7 +460,7 @@ snapsv_env_del_snap( snapsv_env_t * env,
 static void
 snapsv_env_destroy( snapsv_env_t * env ) {
   fd_snapsv_t * ctx = env->ctx;
-  for( ulong i=0UL; i<FAST_BOOT_MAX; i++ ) FD_TEST( !close( ctx->fast_boot_fd[ i ] ) );
+  for( ulong i=0UL; i<FAST_BOOT_MAX; i++ ) FD_TEST( !close( ctx->fast_boot.fd[ i ] ) );
   free( ctx->ring->cq->cqes  );
   free( ctx->ring->cq->khead );
   free( ctx->ring->sq->sqes  );
@@ -1515,7 +1515,7 @@ FD_UNIT_TEST( fast_boot_stream_range_past_end_open ) {
 FD_UNIT_TEST( fast_boot_stream_body ) {
   snapsv_env_t * env = fast_boot_env( 100UL );
   fd_snapsv_t *  ctx = env->ctx;
-  FD_TEST( !ftruncate( ctx->fast_boot_fd[ 0 ], 300L ) );
+  FD_TEST( !ftruncate( ctx->fast_boot.fd[ 0 ], 300L ) );
   char name[ 128 ];
   char req[ 256 ];
   fd_cstr_printf( req, sizeof(req), NULL,
@@ -1542,14 +1542,14 @@ FD_UNIT_TEST( fast_boot_stream_body ) {
   FD_TEST( ctx->conn_cnt==1UL );
 
   /* the stream grows */
-  FD_TEST( !ftruncate( ctx->fast_boot_fd[ 0 ], 500L ) );
+  FD_TEST( !ftruncate( ctx->fast_boot.fd[ 0 ], 500L ) );
   for( ; iter<128U; iter++ ) snapsv_step( env, &fake, iter );
   FD_TEST( fake.res_sz==hdr_len+400UL );
   FD_TEST( !memcmp( fake.res+hdr_len, fast_boot_file+100, 400UL ) );
   FD_TEST( ctx->conn_cnt==1UL );
 
   /* the stream closes after a last write */
-  FD_TEST( !ftruncate( ctx->fast_boot_fd[ 0 ], 600L ) );
+  FD_TEST( !ftruncate( ctx->fast_boot.fd[ 0 ], 600L ) );
   fast_boot_msg( env, FD_STRMK_MSG_CLOSE, 100UL );
   for( ; iter<192U; iter++ ) snapsv_step( env, &fake, iter );
   FD_TEST( fake.res_sz==hdr_len+500UL );
