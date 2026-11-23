@@ -16,7 +16,6 @@
 #include <net/if.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <time.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -43,11 +42,6 @@
 
 #define FD_MLX5_TX_FLUSH_TIMEOUT_NS (20000L)  /* 20us */
 #define FD_MLX5_LO_TX_TIMEOUT_NS    (500000L) /* 500us */
-
-/* Recent RX packets or TX submissions defer RX CQ rearming and cause
-   a timed repoll before the tile returns to epoll. */
-#define FD_MLX5_REPOLL_TIMEOUT_NS (    200000L) /* 200us */
-#define FD_MLX5_NS_PER_SEC        (1000000000L)
 
 /* Linux names these UAR offsets MLX5_CQ_DOORBELL and MLX5_BF_OFFSET. */
 #define FD_MLX5_UAR_CQ_DB_OFFSET (0x20UL)
@@ -142,47 +136,40 @@ typedef struct fd_mlx5_tile_rx_comp fd_mlx5_tile_rx_comp_t;
 
 /* fd_mlx5_tile_t is private tile state */
 struct __attribute__((aligned(64UL))) fd_mlx5_tile {
-  fd_mlx5_rwq_t    rwq;
-  uint             batch_size; /* used for both SQ/RQ and TX/RX CQ batching */
-  fd_mlx5_cq_t     rx_cq;
-  uint             lo_tx_cnt;
-  uint             rq_pending_cnt;
-  long             sq_flush_deadline_ticks;
-  fd_mlx5_tx_qp_t  tx_qp;
-  long             lo_tx_deadline_ticks;
-  int              rx_comp_channel_fd;    /* completion channel of rx_cq, -1 if not efficient mode */
-  uint             has_out_credit;
-  long             repoll_deadline_ticks; /* LONG_MAX when no repoll is scheduled */
+  fd_net_tile_t   net;
+  uint            batch_size; /* used for both SQ/RQ and TX/RX CQ batching */
+  ulong           netdev_seq; /* netdev_shared seqlock value of the net.router.netdev_tbl copy */
+  uint            prepared;
+  uint            lkey;
+  fd_uverbs_ctx_t uverbs;
 
-  long             sq_flush_timeout_ticks;
-  long             lo_tx_timeout_ticks;
-  int              lo_tx_sock;
-  uint             lkey;
-  uint             prepared;
-  fd_uverbs_ctx_t  uverbs;
-  fd_mlx5_cq_t     tx_cq;
-  fd_mlx5_rss_qp_t outer_rss_qp;
-  fd_mlx5_rss_qp_t gre_rss_qp;
+  /* RX */
+  fd_mlx5_rwq_t rwq;
+  fd_mlx5_cq_t  rx_cq;
+  uint          rq_pending_cnt;
+  uint          rq_pending_chunk[ FD_MLX5_BATCH_SIZE ];
 
-  /* Packet buffer addressing */
-  uint *  sq_wqe_buf_chunk; /* maps SQ WQEs to packet buffers */
+  /* TX */
+  fd_mlx5_tx_qp_t tx_qp;
+  fd_mlx5_cq_t    tx_cq;
+  uint *          sq_wqe_buf_chunk; /* maps SQ WQEs to packet buffers */
+  long            sq_flush_deadline_ticks;
+  long            sq_flush_timeout_ticks;
 
-  fd_net_tile_t net;
+  /* Efficient mode only */
+  uint has_out_credit;
+  int  epoll_fd;
+  int  rx_comp_channel_fd; /* completion channel of rx_cq, -1 if not efficient mode */
 
-  /* RQ batching */
-  uint rq_pending_chunk[ FD_MLX5_BATCH_SIZE ];
-
-  /* Local socket TX, used only by mlx5:0. */
+  /* Loopback socket TX, used only by mlx5:0 */
+  uint               lo_tx_cnt;
+  int                lo_tx_sock;
+  long               lo_tx_deadline_ticks;
+  long               lo_tx_timeout_ticks;
   struct mmsghdr     lo_tx_msg [ FD_MLX5_BATCH_SIZE ];
   struct iovec       lo_tx_iov [ FD_MLX5_BATCH_SIZE ];
   struct sockaddr_in lo_tx_addr[ FD_MLX5_BATCH_SIZE ];
   uchar              lo_tx_buf [ FD_MLX5_BATCH_SIZE ][ FD_NET_MTU ];
-
-  /* Efficient mode only */
-  int  epoll_fd;
-  long repoll_timeout_ticks;
-
-  ulong netdev_seq; /* netdev_shared seqlock value of the net.router.netdev_tbl copy */
 
   /* Metric tracking */
   struct {
@@ -686,17 +673,6 @@ fd_mlx5_tile_drain_rx_comp_channel( fd_mlx5_tile_t * ctx ) {
 }
 
 static inline void
-fd_mlx5_tile_repoll_deadline_update( fd_mlx5_tile_t * ctx,
-                                     int              work_done,
-                                     long             now ) {
-  if( FD_LIKELY( work_done ) ) {
-    ctx->repoll_deadline_ticks = now + ctx->repoll_timeout_ticks;
-  } else if( FD_UNLIKELY( now>=ctx->repoll_deadline_ticks ) ) {
-    ctx->repoll_deadline_ticks = LONG_MAX;
-  }
-}
-
-static inline void
 before_credit( fd_mlx5_tile_t *    ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
@@ -728,11 +704,7 @@ after_credit( fd_mlx5_tile_t *    ctx,
               int *               charge_busy ) {
   (void)poll_in;
   ctx->has_out_credit = 1U;
-  int rx_busy = fd_mlx5_tile_poll_rx( ctx, stem );
-  if( FD_UNLIKELY( ctx->rx_comp_channel_fd>=0 ) ) {
-    fd_mlx5_tile_repoll_deadline_update( ctx, rx_busy, fd_tickcount() );
-  }
-  *charge_busy |= rx_busy;
+  *charge_busy |= fd_mlx5_tile_poll_rx( ctx, stem );
 }
 
 static void
@@ -768,8 +740,7 @@ prevent_park( fd_mlx5_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->lo_tx_cnt ) ) fd_mlx5_tile_lo_tx_flush( ctx );
   if( FD_UNLIKELY( !ctx->has_out_credit ) ) return 0;
   fd_mlx5_cq_t * rx_cq = &ctx->rx_cq;
-  if( FD_UNLIKELY( !rx_cq->comp_channel_armed &&
-                   ctx->repoll_deadline_ticks==LONG_MAX ) ) {
+  if( FD_UNLIKELY( !rx_cq->comp_channel_armed ) ) {
     fd_mlx5_hw_request_rx_notification( rx_cq );
   }
   uint const cq_cons_idx = rx_cq->cons_idx;
@@ -783,26 +754,6 @@ park_wait( fd_mlx5_tile_t * ctx,
            ulong *          word,
            long             deadline,
            double           tick_per_ns ) {
-  if( FD_UNLIKELY( ctx->has_out_credit && ctx->repoll_deadline_ticks!=LONG_MAX ) ) {
-    struct timespec timeout;
-    clock_gettime( CLOCK_MONOTONIC, &timeout );
-    long const remaining_ns = (long)((double)(ctx->repoll_deadline_ticks-fd_tickcount())/tick_per_ns);
-    if( FD_UNLIKELY( remaining_ns<=0L ) ) return FD_SLEEP_UNPARK_DEADLINE;
-    timeout.tv_sec  += remaining_ns/FD_MLX5_NS_PER_SEC;
-    timeout.tv_nsec += remaining_ns%FD_MLX5_NS_PER_SEC;
-    if( timeout.tv_nsec>=FD_MLX5_NS_PER_SEC ) {
-      timeout.tv_sec++;
-      timeout.tv_nsec -= FD_MLX5_NS_PER_SEC;
-    }
-    for(;;) {
-      int const err = clock_nanosleep( CLOCK_MONOTONIC, TIMER_ABSTIME, &timeout, NULL );
-      if( FD_LIKELY( !err ) ) return FD_SLEEP_UNPARK_DEADLINE;
-      if( FD_UNLIKELY( err!=EINTR ) ) {
-        FD_LOG_ERR(( "clock_nanosleep() failed (%i-%s)", err, fd_io_strerror( err ) ));
-      }
-    }
-  }
-
   struct epoll_event evs[ 3 ];
   int ev_cnt;
   int cause = fd_sleep_park_wait_epoll( ctx->epoll_fd, word, evs, 3, &ev_cnt, deadline, tick_per_ns );
@@ -811,13 +762,6 @@ park_wait( fd_mlx5_tile_t * ctx,
     else if( evs[ i ].data.u64==FD_MLX5_EPOLL_ASYNC            ) fd_mlx5_tile_async_drain( ctx );
   }
   return cause;
-}
-
-static inline long
-next_deadline( fd_mlx5_tile_t * ctx ) {
-  if( !ctx->has_out_credit ) return LONG_MAX; /* If no out credit then don't repoll */
-
-  return ctx->repoll_deadline_ticks; /* LONG_MAX if no repoll */
 }
 
 /* before_frag resolves the TX route and checks SQ capacity */
@@ -965,9 +909,6 @@ after_frag( fd_mlx5_tile_t *    ctx,
     fd_mlx5_tile_sq_flush( ctx );
   } else if( sq_pending_cnt==1U ) {
     ctx->sq_flush_deadline_ticks = fd_tickcount()+ctx->sq_flush_timeout_ticks;
-  }
-  if( FD_UNLIKELY( ctx->rx_comp_channel_fd>=0 ) ) {
-    fd_mlx5_tile_repoll_deadline_update( ctx, 1, fd_tickcount() );
   }
 }
 
@@ -1195,8 +1136,10 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
   }
   FD_LOG_INFO(( "Opening direct mlx5 device `%s` port %u for %lu tiles",
                 rdma_device_name, rdma_port_num, tile_cnt ));
+  fd_mlx5_rss_qp_t outer_rss_qp;
+  fd_mlx5_rss_qp_t gre_rss_qp;
   if( FD_UNLIKELY( !fd_uverbs_init( &first->uverbs, queues, tile_cnt,
-                                    &first->outer_rss_qp, &first->gre_rss_qp,
+                                    &outer_rss_qp, &gre_rss_qp,
                                     rdma_device_name, rdma_port_num ) ) ) {
     FD_LOG_ERR(( "direct mlx5 setup failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -1209,10 +1152,8 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
   }
 
   for( ulong i=0UL; i<tile_cnt; i++ ) {
-    ctxs[ i ]->uverbs       = first->uverbs;
-    ctxs[ i ]->outer_rss_qp = first->outer_rss_qp;
-    ctxs[ i ]->gre_rss_qp   = first->gre_rss_qp;
-    ctxs[ i ]->prepared     = 1U;
+    ctxs[ i ]->uverbs   = first->uverbs;
+    ctxs[ i ]->prepared = 1U;
 
     int const rx_comp_channel_fd = ctxs[ i ]->rx_comp_channel_fd;
     if( rx_comp_channel_fd<0 ) continue;
@@ -1224,12 +1165,12 @@ fd_topo_install_mlx5( fd_topo_t *     topo,
   }
 
   for( ulong flow_idx=0UL; flow_idx<first->net.rx_proto_cnt; flow_idx++ ) {
-    if( FD_UNLIKELY( fd_uverbs_create_udp_flow( &first->uverbs, &first->outer_rss_qp,
+    if( FD_UNLIKELY( fd_uverbs_create_udp_flow( &first->uverbs, &outer_rss_qp,
                                                 first_tile->mlx5.net.bind_address,
                                                 first->net.rx_listen_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    if( FD_UNLIKELY( fd_uverbs_create_gre_udp_flow( &first->uverbs, &first->gre_rss_qp,
+    if( FD_UNLIKELY( fd_uverbs_create_gre_udp_flow( &first->uverbs, &gre_rss_qp,
                                                     first_tile->mlx5.net.bind_address,
                                                     first->net.rx_listen_ports[ flow_idx ] ) ) ) {
       FD_LOG_ERR(( "fd_uverbs_create_gre_udp_flow failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -1324,9 +1265,6 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->batch_size             = tile->mlx5.batch_size;
   ctx->sq_flush_timeout_ticks = (long)( FD_MLX5_TX_FLUSH_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
   ctx->lo_tx_timeout_ticks    = (long)( FD_MLX5_LO_TX_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
-
-  ctx->repoll_timeout_ticks   = (long)( FD_MLX5_REPOLL_TIMEOUT_NS*fd_tempo_tick_per_ns( NULL ) );
-  ctx->repoll_deadline_ticks  = LONG_MAX;
 
   ctx->lo_tx_cnt              = 0U;
   ctx->net.kind_id            = tile->kind_id;
@@ -1470,7 +1408,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_PREVENT_PARK        prevent_park
 #define STEM_CALLBACK_PARK_WAIT           park_wait
-#define STEM_CALLBACK_NEXT_DEADLINE       next_deadline
 #define STEM_BURST                        (FD_MLX5_BATCH_SIZE+1) /* +1 accounts for possible LB TX packet */
 #define STEM_LAZY                         270000UL /* 270us */
 #include "../../stem/fd_stem.c"

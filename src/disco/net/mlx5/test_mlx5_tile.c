@@ -112,14 +112,16 @@ test_hardware( char const * rdma_name,
     };
   }
 
+  fd_mlx5_rss_qp_t outer_rss_qp;
+  fd_mlx5_rss_qp_t gre_rss_qp;
   if( FD_UNLIKELY( !fd_uverbs_init( &tile[ 0 ].uverbs, queues, tile_cnt,
-                                    &tile[ 0 ].outer_rss_qp, &tile[ 0 ].gre_rss_qp,
+                                    &outer_rss_qp, &gre_rss_qp,
                                     rdma_name, port_num ) ) ) {
     FD_LOG_ERR(( "fd_uverbs_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   FD_TEST( tile[ 0 ].uverbs.cmd_fd>=0 && tile[ 0 ].uverbs.async_fd>=0 );
-  FD_TEST( tile[ 0 ].outer_rss_qp.handle!=tile[ 0 ].gre_rss_qp.handle );
+  FD_TEST( outer_rss_qp.handle!=gre_rss_qp.handle );
   FD_TEST( tile[ 0 ].rx_comp_channel_fd>=0 );
   if( tile_cnt>1UL ) FD_TEST( tile[ 1 ].rx_comp_channel_fd==-1 );
   for( ulong i=0UL; i<tile_cnt; i++ ) {
@@ -142,8 +144,8 @@ test_hardware( char const * rdma_name,
   fd_mlx5_hw_request_rx_notification( &tile[ 0 ].rx_cq );
   FD_TEST( tile[ 0 ].rx_cq.comp_channel_armed );
 
-  FD_TEST( !fd_uverbs_create_udp_flow( &tile[ 0 ].uverbs, &tile[ 0 ].outer_rss_qp, 0U, 65535U ) );
-  FD_TEST( !fd_uverbs_create_gre_udp_flow( &tile[ 0 ].uverbs, &tile[ 0 ].gre_rss_qp,
+  FD_TEST( !fd_uverbs_create_udp_flow( &tile[ 0 ].uverbs, &outer_rss_qp, 0U, 65535U ) );
+  FD_TEST( !fd_uverbs_create_gre_udp_flow( &tile[ 0 ].uverbs, &gre_rss_qp,
                                            FD_IP4_ADDR( 192,0,2,1 ), 65535U ) );
 
   FD_LOG_NOTICE(( "initialized `%s` port %u with tile count %lu, RX depth %u and TX depth %u",
@@ -376,7 +378,6 @@ test_rx_cq_arm( void ) {
   fd_mlx5_tile_t tile[1];
   fd_memset( tile, 0, sizeof(tile) );
   tile->has_out_credit = 1U;
-  tile->repoll_deadline_ticks = LONG_MAX;
   fd_mlx5_cqe_t entries[4];
   fd_mlx5_hw_invalidate_cqes( entries, 4U );
   fd_mlx5_cq_control_t control[1] = {{0}};
@@ -408,12 +409,8 @@ test_rx_cq_arm( void ) {
   fd_mlx5_hw_invalidate_cqes( entries, 4U );
   tile->rx_cq.comp_channel_event_seq++;
   tile->rx_cq.comp_channel_armed = 0U;
-  tile->repoll_deadline_ticks = 100L;
   FD_TEST( !prevent_park( tile ) );
-  FD_TEST( !tile->rx_cq.comp_channel_armed );
-
-  tile->repoll_deadline_ticks = LONG_MAX;
-  FD_TEST( !prevent_park( tile ) );
+  FD_TEST( tile->rx_cq.comp_channel_armed );
   FD_TEST( fd_uint_bswap( control->request_notification )==0x20000002U );
 
   tile->rx_cq.comp_channel_armed = 0U;
@@ -422,9 +419,7 @@ test_rx_cq_arm( void ) {
   FD_TEST( !tile->rx_cq.comp_channel_armed );
 }
 
-/* A park attempt rings the SQ doorbell for pending WQEs, so neither the
-   repoll sleep nor the park holds back TX. */
-
+/* test_park_flushes_tx checks that a park attempt submits pending TX. */
 static void
 test_park_flushes_tx( void ) {
   static fd_mlx5_tile_t tile[1];
@@ -440,12 +435,17 @@ test_park_flushes_tx( void ) {
   tile->tx_qp.sq_prod     = 2U;
   tile->tx_qp.sq_posted   = 1U;
   tile->lo_tx_sock        = -1;
-  tile->repoll_deadline_ticks = 1000L; /* repolling */
 
   fd_mlx5_cqe_t entries[4];
   fd_mlx5_hw_invalidate_cqes( entries, 4U );
   fd_mlx5_cq_control_t cq_control[1] = {{0}};
-  tile->rx_cq = (fd_mlx5_cq_t){ .entries = entries, .control = cq_control, .depth = 4U };
+  ulong cq_doorbell = 0UL;
+  tile->rx_cq = (fd_mlx5_cq_t) {
+    .entries                       = entries,
+    .control                       = cq_control,
+    .request_notification_doorbell = (volatile uchar *)&cq_doorbell,
+    .depth                         = 4U
+  };
 
   for( uint credit=0U; credit<2U; credit++ ) {
     tile->has_out_credit = credit;
@@ -453,7 +453,6 @@ test_park_flushes_tx( void ) {
     FD_TEST( !prevent_park( tile ) );
     FD_TEST( tile->tx_qp.sq_posted==tile->tx_qp.sq_prod );
     FD_TEST( fd_uint_bswap( control.sq_prod )==tile->tx_qp.sq_prod );
-    FD_TEST( next_deadline( tile )==(credit ? 1000L : LONG_MAX) );
   }
 }
 
