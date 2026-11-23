@@ -81,7 +81,8 @@ FD_FN_PURE uint
 fd_topob_tile_class( char const * name );
 
 /* Automatically layout the tiles onto CPUs in the topology for a
-   best effort.  fd_topob_auto_layout reads CPU topology from the OS.
+   best effort.  fd_topob_auto_layout reads CPU topology from the OS
+   and restricts placement to the calling thread's inherited affinity.
    fd_topob_auto_layout_cpus takes a pre-built CPU topology, useful
    for testing. */
 

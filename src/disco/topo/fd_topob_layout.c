@@ -3,6 +3,7 @@
 #include "../../util/tile/fd_tile_private.h" /* fd_tile_private_sibling_idx */
 
 #include <ctype.h>
+#include <errno.h>
 
 #define SET_NAME cpu_bv
 #define SET_MAX  FD_TILE_MAX
@@ -299,7 +300,7 @@ offline_note( fd_topo_cpus_t const * cpus,
     core_cnt    += (ulong)( cpu->online && ( cpu->sibling==ULONG_MAX || cpu->sibling>i ) );
   }
   if( FD_LIKELY( !offline_cnt ) ) return "";
-  return fd_cstr_printf( buf, 128UL, NULL, " (%lu CPUs are offline, leaving %lu online physical cores; reduce tile counts)", offline_cnt, core_cnt );
+  return fd_cstr_printf( buf, 128UL, NULL, " (%lu CPUs are offline or outside launch affinity; %lu usable cores remain; reduce tile counts)", offline_cnt, core_cnt );
 }
 
 /* iso tier test: 3 wants an isolated CPU with a non-isolated
@@ -1151,5 +1152,9 @@ void
 fd_topob_auto_layout( fd_topo_t * topo ) {
   fd_topo_cpus_t cpus[1];
   fd_topo_cpus_init( cpus );
+  FD_CPUSET_DECL( allowed );
+  if( FD_UNLIKELY( fd_cpuset_getaffinity( 0UL, allowed ) ) )
+    FD_LOG_ERR(( "sched_getaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_topo_cpus_restrict( cpus, allowed );
   fd_topob_auto_layout_cpus( topo, cpus );
 }
