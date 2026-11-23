@@ -33,9 +33,6 @@ struct fd_sshttp_private {
   char  location[ PATH_MAX ];
   ulong location_len;
 
-  char  path[ PATH_MAX ]; /* the path the request was created with, location follows redirects */
-  ulong path_len;
-
   fd_ip4_port_t addr;
   char          hostname[ FD_FQDN_BUF_MAX ];
   int           is_https;
@@ -65,6 +62,7 @@ struct fd_sshttp_private {
 
   ulong content_len;
   ulong content_read;
+  ulong stream_avail; /* bytes between the peer's position at request and tip of the stream at server response */
 
   ulong rx_lowat;  /* SO_RCVLOWAT set on a plaintext body socket, 0 until set */
   int   rx_parked; /* last plaintext body read found the socket empty */

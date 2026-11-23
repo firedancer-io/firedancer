@@ -33,8 +33,18 @@ fd_sshttp_load_ca_store( fd_sshttp_t * http );
 char const *
 fd_sshttp_snapshot_name( fd_sshttp_t const * http );
 
+/* fd_sshttp_content_len returns the length of the response body.  The
+   body of a fast boot stream has no length: this is how many bytes of
+   it the server had when it answered. */
+
 ulong
 fd_sshttp_content_len( fd_sshttp_t const * http );
+
+/* fd_sshttp_stream_caught_up returns 1 once the bytes a fast boot
+   stream had when the server answered were all read. */
+
+int
+fd_sshttp_stream_caught_up( fd_sshttp_t const * http );
 
 ulong
 fd_sshttp_resolved_slot( fd_sshttp_t const * http );
@@ -68,15 +78,6 @@ fd_sshttp_init( fd_sshttp_t * http,
                 ulong         range_start,
                 int           is_stream );
 
-/* fd_sshttp_resume asks for the file of the last request again, from
-   byte range_start, following any redirect that request took.  The
-   connection must be idle. */
-
-int
-fd_sshttp_resume( fd_sshttp_t * http,
-                  long          now,
-                  ulong         range_start );
-
 /* fd_sshttp_request asks the server of the last request for path,
    from byte range_start, following redirects.  A redirect to another
    file reads that file from its start.  The connection must be idle. */
@@ -101,11 +102,7 @@ fd_sshttp_deadline( fd_sshttp_t const * http );
 #define FD_SSHTTP_ADVANCE_AGAIN         ( 0) /* nothing to report yet */
 #define FD_SSHTTP_ADVANCE_DATA          ( 1) /* body bytes in data */
 #define FD_SSHTTP_ADVANCE_DONE          ( 2) /* file: the whole body arrived */
-#define FD_SSHTTP_ADVANCE_NOT_FOUND     ( 3) /* file: 404 */
-#define FD_SSHTTP_ADVANCE_STREAM_CHUNK  ( 4) /* stream: this poll's bytes all arrived */
-#define FD_SSHTTP_ADVANCE_STREAM_IDLE   ( 5) /* stream: 416, nothing past range_start yet */
-#define FD_SSHTTP_ADVANCE_STREAM_ENDED  ( 6) /* stream: 404 to a ranged request, it ended and nothing follows it yet */
-#define FD_SSHTTP_ADVANCE_STREAM_ABSENT ( 7) /* stream: 404 to an unranged request, the stream is not served */
+#define FD_SSHTTP_ADVANCE_NOT_FOUND     ( 3) /* 404 */
 
 /* fd_sshttp_advance drives the connection.  Body bytes fill iov
    front to back; on ADVANCE_DATA *data_len is the total written.

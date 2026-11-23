@@ -1441,14 +1441,16 @@ FD_UNIT_TEST( fast_boot_stream_res ) {
       "HTTP/1.1 200 OK\r\n"
       "Content-Type: application/zstd\r\n"
       "Accept-Ranges: bytes\r\n"
-      "Content-Length: %lu\r\n"
+      "Stream-Offset: 0\r\n"
+      "Stream-Size: %lu\r\n"
+      "Connection: close\r\n"
       "\r\n", FAST_BOOT_FILE_SZ );
   expect_res_env( env, req, expected );
   snapsv_env_destroy( env );
 }
 
-/* A stream grows while it is served, so a range that starts at the end
-   of the file is not satisfiable yet. */
+/* An open stream has no end yet, so a range that starts at the end of
+   the file is answered and waits there for more. */
 
 FD_UNIT_TEST( fast_boot_stream_range_past_end ) {
   snapsv_env_t * env = fast_boot_env( 100UL );
@@ -1460,44 +1462,132 @@ FD_UNIT_TEST( fast_boot_stream_range_past_end ) {
       "\r\n", fast_boot_name( name, 100UL ), FAST_BOOT_FILE_SZ );
   char expected[ 256 ];
   fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Stream-Offset: %lu\r\n"
+      "Stream-Size: %lu\r\n"
+      "Connection: close\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ, FAST_BOOT_FILE_SZ );
+  expect_res_env( env, req, expected );
+  snapsv_env_destroy( env );
+}
+
+/* A range that starts past the end of an open stream is not
+   satisfiable: no peer can have read that far.  A HEAD still gets the
+   size of the stream so far, and the conn stays open. */
+
+FD_UNIT_TEST( fast_boot_stream_range_past_end_open ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  char name[ 128 ];
+  char req[ 256 ];
+  char expected[ 256 ];
+  fd_cstr_printf( expected, sizeof(expected), NULL,
       "HTTP/1.1 416 Range Not Satisfiable\r\n"
       "Content-Range: bytes */%lu\r\n"
       "Content-Length: 0\r\n"
+      "\r\n", FAST_BOOT_FILE_SZ );
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=%lu-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ), FAST_BOOT_FILE_SZ+1UL );
+  expect_res_env( env, req, expected );
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=-500\r\n"
+      "\r\n", fast_boot_name( name, 100UL ) );
+  expect_res_env( env, req, expected );
+
+  fd_cstr_printf( req, sizeof(req), NULL, "HEAD /%s HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
+  fd_cstr_printf( expected, sizeof(expected), NULL,
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Content-Length: %lu\r\n"
       "\r\n", FAST_BOOT_FILE_SZ );
   expect_res_env( env, req, expected );
   snapsv_env_destroy( env );
 }
 
+/* The response holds what the stream has, then what it grows by, and
+   ends when the stream closes: the conn closes with it. */
+
 FD_UNIT_TEST( fast_boot_stream_body ) {
   snapsv_env_t * env = fast_boot_env( 100UL );
+  fd_snapsv_t *  ctx = env->ctx;
+  FD_TEST( !ftruncate( ctx->fast_boot_fd[ 0 ], 300L ) );
+  char name[ 128 ];
+  char req[ 256 ];
+  fd_cstr_printf( req, sizeof(req), NULL,
+      "GET /%s HTTP/1.1\r\n"
+      "Range: bytes=100-\r\n"
+      "\r\n", fast_boot_name( name, 100UL ) );
+  fake_client_t fake;
+  fake_client_req( &fake, req );
+  uint iter = 0U;
+  for( ; iter<64U; iter++ ) snapsv_step( env, &fake, iter );
+
+  char const * expected_hdr =
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: application/zstd\r\n"
+      "Accept-Ranges: bytes\r\n"
+      "Stream-Offset: 100\r\n"
+      "Stream-Size: 300\r\n"
+      "Connection: close\r\n"
+      "\r\n";
+  ulong hdr_len = strlen( expected_hdr );
+  FD_TEST( fake.res_sz==hdr_len+200UL );
+  FD_TEST( !memcmp( fake.res, expected_hdr, hdr_len ) );
+  FD_TEST( !memcmp( fake.res+hdr_len, fast_boot_file+100, 200UL ) );
+  FD_TEST( ctx->conn_cnt==1UL );
+
+  /* the stream grows */
+  FD_TEST( !ftruncate( ctx->fast_boot_fd[ 0 ], 500L ) );
+  for( ; iter<128U; iter++ ) snapsv_step( env, &fake, iter );
+  FD_TEST( fake.res_sz==hdr_len+400UL );
+  FD_TEST( !memcmp( fake.res+hdr_len, fast_boot_file+100, 400UL ) );
+  FD_TEST( ctx->conn_cnt==1UL );
+
+  /* the stream closes after a last write */
+  FD_TEST( !ftruncate( ctx->fast_boot_fd[ 0 ], 600L ) );
+  fast_boot_msg( env, FD_STRMK_MSG_CLOSE, 100UL );
+  for( ; iter<192U; iter++ ) snapsv_step( env, &fake, iter );
+  FD_TEST( fake.res_sz==hdr_len+500UL );
+  FD_TEST( !memcmp( fake.res+hdr_len, fast_boot_file+100, 500UL ) );
+  FD_TEST( !ctx->conn_cnt );
+  FD_TEST( ctx->iobuf_free_cnt==2U*CONN_MAX );
+  snapsv_env_destroy( env );
+}
+
+/* A closed stream is sent from where the peer asks to its end, then
+   the conn closes.  The end of a range is ignored. */
+
+FD_UNIT_TEST( fast_boot_stream_closed_body ) {
+  snapsv_env_t * env = fast_boot_env( 100UL );
+  fd_snapsv_t *  ctx = env->ctx;
+  fast_boot_msg( env, FD_STRMK_MSG_CLOSE, 100UL );
   char name[ 128 ];
   char req[ 256 ];
   fd_cstr_printf( req, sizeof(req), NULL,
       "GET /%s HTTP/1.1\r\n"
       "Range: bytes=100-199\r\n"
       "\r\n", fast_boot_name( name, 100UL ) );
-  static char res[ SNAP_RES_MAX ];
-  ulong res_len = sizeof(res);
-  curl_session( env, res, &res_len, req );
-
+  fake_client_t fake;
+  fake_client_req( &fake, req );
+  for( uint iter=0U; iter<64U; iter++ ) snapsv_step( env, &fake, iter );
   char expected_hdr[ 256 ];
   fd_cstr_printf( expected_hdr, sizeof(expected_hdr), NULL,
-      "HTTP/1.1 206 Partial Content\r\n"
+      "HTTP/1.1 200 OK\r\n"
       "Content-Type: application/zstd\r\n"
       "Accept-Ranges: bytes\r\n"
-      "Content-Range: bytes 100-199/%lu\r\n"
-      "Content-Length: 100\r\n"
+      "Stream-Offset: 100\r\n"
+      "Stream-Size: %lu\r\n"
+      "Connection: close\r\n"
       "\r\n", FAST_BOOT_FILE_SZ );
-  FD_TEST( res_len>strlen( expected_hdr ) );
-  FD_TEST( !memcmp( res, expected_hdr, strlen( expected_hdr ) ) );
-
-  ulong        body_len;
-  char const * body = res_body( res, res_len, &body_len );
-  FD_TEST( body_len==100UL );
-  FD_TEST( !memcmp( body, fast_boot_file+100, 100UL ) );
-
-  FD_TEST( !env->ctx->conn_cnt );
-  FD_TEST( env->ctx->iobuf_free_cnt==2U*CONN_MAX );
+  FD_TEST( fake.res_sz==strlen( expected_hdr )+FAST_BOOT_FILE_SZ-100UL );
+  FD_TEST( !memcmp( fake.res, expected_hdr, strlen( expected_hdr ) ) );
+  FD_TEST( !memcmp( fake.res+strlen( expected_hdr ), fast_boot_file+100, FAST_BOOT_FILE_SZ-100UL ) );
+  FD_TEST( !ctx->conn_cnt );
   snapsv_env_destroy( env );
 }
 
@@ -1511,7 +1601,7 @@ FD_UNIT_TEST( fast_boot_stream_closed_mid_download ) {
   char req[ 256 ];
   fd_cstr_printf( req, sizeof(req), NULL,
       "GET /%s HTTP/1.1\r\n"
-      "Range: bytes=100-199\r\n"
+      "Range: bytes=100-\r\n"
       "\r\n", fast_boot_name( name, 100UL ) );
   fake_client_t fake;
   fake_client_req( &fake, req );
@@ -1526,15 +1616,17 @@ FD_UNIT_TEST( fast_boot_stream_closed_mid_download ) {
   FD_TEST( closed );
   char expected_hdr[ 256 ];
   fd_cstr_printf( expected_hdr, sizeof(expected_hdr), NULL,
-      "HTTP/1.1 206 Partial Content\r\n"
+      "HTTP/1.1 200 OK\r\n"
       "Content-Type: application/zstd\r\n"
       "Accept-Ranges: bytes\r\n"
-      "Content-Range: bytes 100-199/%lu\r\n"
-      "Content-Length: 100\r\n"
+      "Stream-Offset: 100\r\n"
+      "Stream-Size: %lu\r\n"
+      "Connection: close\r\n"
       "\r\n", FAST_BOOT_FILE_SZ );
-  FD_TEST( fake.res_sz==strlen( expected_hdr )+100UL );
+  FD_TEST( fake.res_sz==strlen( expected_hdr )+FAST_BOOT_FILE_SZ-100UL );
   FD_TEST( !memcmp( fake.res, expected_hdr, strlen( expected_hdr ) ) );
-  FD_TEST( !memcmp( fake.res+strlen( expected_hdr ), fast_boot_file+100, 100UL ) );
+  FD_TEST( !memcmp( fake.res+strlen( expected_hdr ), fast_boot_file+100, FAST_BOOT_FILE_SZ-100UL ) );
+  FD_TEST( !ctx->conn_cnt );
   snapsv_env_destroy( env );
 }
 

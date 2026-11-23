@@ -165,8 +165,10 @@ http_recv_tls( fd_sshttp_t *        http,
   int err = fd_tlsrec_sock_rx( http->tls_sock, &http->tls_conn, http->sockfd, &tcp_rx_sz );
   if( FD_UNLIKELY( err ) ) {
     if( err==FD_TLSREC_SOCK_ERR_EOF ) {
-      FD_LOG_WARNING(( "peer " FD_IP4_ADDR_FMT ":%hu closed the connection mid-response",
-                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      if( FD_UNLIKELY( !fd_sshttp_stream_caught_up( http ) ) ) {
+        FD_LOG_WARNING(( "peer " FD_IP4_ADDR_FMT ":%hu closed the connection mid-response",
+                         FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      }
     } else if( err==FD_TLSREC_SOCK_ERR_RECV ) {
       FD_LOG_WARNING(( "recv() failed (%d-%s) from " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
                        FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
@@ -236,11 +238,12 @@ fd_sshttp_new( void * shmem,
   sshttp->state    = FD_SSHTTP_STATE_INIT;
   sshttp->sockfd   = -1;
   sshttp->epoll_fd = epoll_fd;
-  sshttp->content_len = 0UL;
-  sshttp->rx_lowat    = 0UL;
-  sshttp->rx_parked   = 0;
-  sshttp->range_start = 0UL;
-  sshttp->is_stream   = 0;
+  sshttp->content_len  = 0UL;
+  sshttp->stream_avail = 0UL;
+  sshttp->rx_lowat     = 0UL;
+  sshttp->rx_parked    = 0;
+  sshttp->range_start  = 0UL;
+  sshttp->is_stream    = 0;
   fd_cstr_fini( sshttp->snapshot_name );
   sshttp->resolved_slot = 0UL;
   fd_memset( sshttp->resolved_hash, 0, FD_HASH_FOOTPRINT );
@@ -332,7 +335,7 @@ fd_sshttp_init( fd_sshttp_t * http,
     FD_LOG_WARNING(( "snapshot hostname too long" ));
     return -1;
   }
-  /* Redirects and resumes reinitialize using our own buffers. */
+  /* Redirects reinitialize using our own buffers. */
   memmove( http->hostname, hostname, hostname_len+1UL );
   http->is_https = is_https;
   if( FD_UNLIKELY( path_len>=sizeof(http->location) ) ) {
@@ -354,10 +357,6 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   if( hops!=ULONG_MAX ) {
     http->hops = hops;
-    if( !range_start ) {
-      memmove( http->path, http->location, path_len+1UL );
-      http->path_len = path_len;
-    }
     fd_cstr_fini( http->snapshot_name );
     http->resolved_slot = 0UL;
     fd_memset( http->resolved_hash, 0, FD_HASH_FOOTPRINT );
@@ -441,18 +440,7 @@ fd_sshttp_request( fd_sshttp_t * http,
                    char const *  path,
                    ulong         path_len,
                    ulong         range_start ) {
-  if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, path, path_len, 4UL, now, range_start, http->is_stream ) ) ) return -1;
-  memmove( http->path, http->location, http->location_len+1UL );
-  http->path_len = http->location_len;
-  return 0;
-}
-
-int
-fd_sshttp_resume( fd_sshttp_t * http,
-                  long          now,
-                  ulong         range_start ) {
-  if( FD_UNLIKELY( !range_start ) ) return fd_sshttp_request( http, now, http->path, http->path_len, 0UL );
-  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, 4UL, now, range_start, http->is_stream );
+  return fd_sshttp_init( http, http->addr, http->hostname, http->is_https, path, path_len, 4UL, now, range_start, http->is_stream );
 }
 
 void
@@ -520,8 +508,10 @@ http_recv( fd_sshttp_t *        http,
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   } else if( FD_UNLIKELY( !read ) ) {
-    FD_LOG_WARNING(( "peer " FD_IP4_ADDR_FMT ":%hu closed the connection mid-response",
-                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+    if( FD_UNLIKELY( !fd_sshttp_stream_caught_up( http ) ) ) {
+      FD_LOG_WARNING(( "peer " FD_IP4_ADDR_FMT ":%hu closed the connection mid-response",
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+    }
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
@@ -710,13 +700,15 @@ follow_redirect( fd_sshttp_t *        http,
 /* rx_lowat_update lowers the socket's SO_RCVLOWAT to the body bytes
    still to arrive, capped at FD_SSHTTP_SO_RCVLOWAT, so the socket
    turns readable once a full low-water mark is queued or the rest of
-   the body is.  Plaintext only: TLS reads go through record
-   buffering. */
+   the body is.  A fast boot stream that was read as far as the
+   server had it wakes on every byte.  Plaintext only: TLS reads go
+   through record buffering. */
 
 static void
 rx_lowat_update( fd_sshttp_t * http ) {
   if( FD_UNLIKELY( http->is_https ) ) return;
   ulong pending = http->content_len - http->content_read - http->response_len;
+  if( http->is_stream ) pending = fd_ulong_max( 1UL, fd_ulong_sat_sub( http->stream_avail, http->content_read + http->response_len ) );
   ulong lowat   = fd_ulong_min( FD_SSHTTP_SO_RCVLOWAT, pending );
   if( FD_LIKELY( !lowat || ( http->rx_lowat && lowat>=http->rx_lowat ) ) ) return;
   int so_rcvlowat = (int)lowat;
@@ -724,6 +716,24 @@ rx_lowat_update( fd_sshttp_t * http ) {
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVLOWAT,%i) failed (%i-%s)", so_rcvlowat, errno, fd_io_strerror( errno ) ));
   }
   http->rx_lowat = lowat;
+}
+
+/* header_ulong returns the header called name as a number, or
+   ULONG_MAX if it is missing or is not a number. */
+
+static ulong
+header_ulong( struct phr_header const * headers,
+              ulong                     header_cnt,
+              char const *              name ) {
+  ulong name_len = strlen( name );
+  for( ulong i=0UL; i<header_cnt; i++ ) {
+    if( FD_LIKELY( headers[i].name_len!=name_len ) ) continue;
+    if( FD_LIKELY( strncasecmp( headers[i].name, name, name_len ) ) ) continue;
+    ulong val = ULONG_MAX;
+    fd_http_parse_content_len( headers[i].value, (ulong)headers[i].value_len, &val );
+    return val;
+  }
+  return ULONG_MAX;
 }
 
 static int
@@ -780,24 +790,7 @@ read_response( fd_sshttp_t *        http,
     return follow_redirect( http, headers, header_cnt, now );
   }
 
-  if( http->is_stream ) {
-    /* Code 416 means no new stream data has arrived past the requested
-       offset yet. */
-    if( FD_UNLIKELY( status==416 && http->range_start ) ) {
-      fd_sshttp_cancel( http );
-      *data_len = 0UL;
-      return FD_SSHTTP_ADVANCE_STREAM_IDLE;
-    }
-
-    /* Code 404 to a ranged request means the stream ended and nothing
-       follows it yet.  The first request for a stream has no offset,
-       and a 404 to it means the stream is not served. */
-    if( FD_UNLIKELY( status==404 ) ) {
-      fd_sshttp_cancel( http );
-      *data_len = 0UL;
-      return http->range_start ? FD_SSHTTP_ADVANCE_STREAM_ENDED : FD_SSHTTP_ADVANCE_STREAM_ABSENT;
-    }
-  } else if( FD_UNLIKELY( status==404 ) ) {
+  if( FD_UNLIKELY( status==404 ) ) {
     /* The file does not exist. */
     fd_sshttp_cancel( http );
     *data_len = 0UL;
@@ -805,8 +798,10 @@ read_response( fd_sshttp_t *        http,
   }
 
   /* A 200 to a ranged request means the server ignored the range and
-     is about to resend the whole body. */
-  if( FD_UNLIKELY( status!=(http->range_start ? 206 : 200) ) ) {
+     is about to resend the whole body.  A fast boot stream says where
+     its body starts itself. */
+  int ranged = http->range_start && !http->is_stream;
+  if( FD_UNLIKELY( status!=(ranged ? 206 : 200) ) ) {
     FD_LOG_WARNING(( "unexpected response status %d %.*s from " FD_IP4_ADDR_FMT ":%hu", status, (int)message_len, message,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
@@ -814,30 +809,29 @@ read_response( fd_sshttp_t *        http,
   }
 
   http->content_read = 0UL;
-  http->content_len = ULONG_MAX;
-  for( ulong i=0UL; i<header_cnt; i++ ) {
-    if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
-    if( FD_LIKELY( strncasecmp( headers[i].name, "content-length", 14UL ) ) ) continue;
-
-    ulong val = 0UL;
-    if( FD_UNLIKELY( fd_http_parse_content_len( headers[i].value, (ulong)headers[i].value_len, &val ) || val==0UL ) ) {
-      FD_LOG_WARNING(( "invalid content-length in response from " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+  if( http->is_stream ) {
+    ulong off = header_ulong( headers, header_cnt, "stream-offset" );
+    ulong sz  = header_ulong( headers, header_cnt, "stream-size"   );
+    if( FD_UNLIKELY( off!=http->range_start || !sz || sz==ULONG_MAX || sz<off ) ) {
+      FD_LOG_WARNING(( "response from " FD_IP4_ADDR_FMT ":%hu is not a fast boot stream from byte %lu",
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ), http->range_start ));
       fd_sshttp_cancel( http );
       return FD_SSHTTP_ADVANCE_ERROR;
     }
-    http->content_len = val;
-    break;
-  }
-
-  if( FD_UNLIKELY( http->content_len==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "no content-length header in response from " FD_IP4_ADDR_FMT ":%hu",
-                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
-    fd_sshttp_cancel( http );
-    return FD_SSHTTP_ADVANCE_ERROR;
+    http->content_len  = ULONG_MAX;
+    http->stream_avail = sz-off;
+  } else {
+    http->content_len = header_ulong( headers, header_cnt, "content-length" );
+    if( FD_UNLIKELY( !http->content_len || http->content_len==ULONG_MAX ) ) {
+      FD_LOG_WARNING(( "missing or invalid content-length in response from " FD_IP4_ADDR_FMT ":%hu",
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      fd_sshttp_cancel( http );
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
   }
 
   /* A ranged reply must resume where the request asked. */
-  if( FD_UNLIKELY( http->range_start ) ) {
+  if( FD_UNLIKELY( ranged ) ) {
     char  expected[ 48 ];
     ulong expected_len;
     FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), &expected_len, "bytes %lu-", http->range_start ) );
@@ -894,7 +888,7 @@ read_body( fd_sshttp_t *        http,
     } else {
       fd_sshttp_cancel( http );
       http->state = FD_SSHTTP_STATE_INIT;
-      return http->is_stream ? FD_SSHTTP_ADVANCE_STREAM_CHUNK : FD_SSHTTP_ADVANCE_DONE;
+      return FD_SSHTTP_ADVANCE_DONE;
     }
   }
 
@@ -936,7 +930,12 @@ fd_sshttp_snapshot_name( fd_sshttp_t const * http ) {
 
 ulong
 fd_sshttp_content_len( fd_sshttp_t const * http ) {
-  return http->content_len;
+  return http->is_stream ? http->stream_avail : http->content_len;
+}
+
+int
+fd_sshttp_stream_caught_up( fd_sshttp_t const * http ) {
+  return http->is_stream && http->state==FD_SSHTTP_STATE_DL && http->content_read>=http->stream_avail;
 }
 
 ulong
@@ -969,7 +968,7 @@ fd_sshttp_advance( fd_sshttp_t *        http,
     case FD_SSHTTP_STATE_DONE:
       fd_sshttp_cancel( http );
       http->state = FD_SSHTTP_STATE_INIT;
-      return http->is_stream ? FD_SSHTTP_ADVANCE_STREAM_CHUNK : FD_SSHTTP_ADVANCE_DONE;
+      return FD_SSHTTP_ADVANCE_DONE;
     default:                       return FD_SSHTTP_ADVANCE_ERROR;
   }
 

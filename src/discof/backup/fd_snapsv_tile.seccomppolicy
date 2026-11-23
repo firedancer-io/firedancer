@@ -34,8 +34,8 @@ fcntl: (and (>= (arg 0) pool_min_fd)
             (<= (arg 0) pool_max_fd)
             (eq (arg 1) "F_SETLK"))
 
-# fast boot: a stream grows while it is served, so its size is read on
-# every request.  The range is empty unless fast boot streams are
+# fast boot: a stream grows while it is served, so its size is read
+# again and again.  The range is empty unless fast boot streams are
 # served.
 fstat: (and (>= (arg 0) fast_boot_min_fd)
             (<= (arg 0) fast_boot_max_fd))

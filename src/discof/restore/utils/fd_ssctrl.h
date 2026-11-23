@@ -126,7 +126,7 @@
 
 /* snapld -> snapct (via snapld_dc) */
 #define FD_SNAPSHOT_MSG_STREAM_INIT           (11UL) /* snapct -> snapct: the fast boot stream being read, a fd_ssctrl_stream_init_t */
-#define FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP      (12UL) /* snapld read the fast boot stream up to the server's current end */
+#define FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP      (12UL) /* snapld read the fast boot stream as far as the server had it */
 #define FD_SNAPSHOT_MSG_STREAM_STOP           (13UL) /* snapin -> snapct: the snapshots behind the fast boot stream are done loading, shut the stream pipeline down */
 #define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (14UL) /* snapld finished reading/downloading all data */
 

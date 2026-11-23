@@ -26,7 +26,7 @@
    - sig: FD_SNAPSV_MSG_*
    - tspub: unix nanosecond timestamp of event (**not tickcount**) */
 
-#define FD_SNAPSV_WAKE_PERIOD ((long)50e6) /*   50 ms */
+#define FD_SNAPSV_WAKE_PERIOD ((long) 1e6) /*    1 ms */
 #define FD_SNAPSV_SYNC_PERIOD ((long)50e6) /*   50 ms */
 #define FD_SNAPSV_SYNC_EXPIRY ((long) 1e9) /* 1000 ms */
 

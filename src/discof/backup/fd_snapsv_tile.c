@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <linux/futex.h>
@@ -239,6 +240,8 @@ struct fd_snapsv {
   uchar fast_boot_hash  [ FD_STRMK_POOL_MAX ][ 32 ];
   int   fast_boot_fd    [ FD_STRMK_POOL_MAX ];
   int   fast_boot_closed[ FD_STRMK_POOL_MAX ];
+  int   stream_conn; /* a conn is being sent a fast boot stream */
+  long  stream_next; /* when to look at those conns again */
 
   /* tango input links */
   ulong in_cnt;
@@ -362,6 +365,11 @@ snapsv_listen( fd_ip6_addr_t const * listen_addr,
   optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( sock_fd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(int) ) ) ) {
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_REUSEPORT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  /* a fast boot stream is sent in small pieces as it grows */
+  optval = 1;
+  if( FD_UNLIKELY( -1==setsockopt( sock_fd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(IPPROTO_TCP,TCP_NODELAY) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   /* TCP urgent meaningless for snapshot protocol */
   optval = 1;
@@ -1058,9 +1066,23 @@ conn_snap_entry( fd_snapsv_t *   ctx,
 static int
 snap_lock( snap_entry_t * entry );
 
+/* fast_boot_file_sz returns the current size of a fast boot file.  A
+   stream file grows while it is served, so its size cannot be
+   cached. */
+
+static ulong
+fast_boot_file_sz( fd_snapsv_t const * ctx,
+                   ulong               fast_boot_idx ) {
+  struct stat st;
+  if( FD_UNLIKELY( 0!=syscall( SYS_fstat, ctx->fast_boot_fd[ fast_boot_idx ], &st ) ) ) {
+    FD_LOG_ERR(( "fstat(fast boot file %lu) failed (%i-%s)", fast_boot_idx, errno, fd_io_strerror( errno ) ));
+  }
+  return (ulong)st.st_size;
+}
+
 /* conn_file_fd_idx returns the io_uring file index of the file that a
    request is streaming, or ULONG_MAX if that file is gone: the
-   snapshot was recycled, or the fast boot stream was closed. */
+   snapshot was recycled, or the fast boot stream's file was reused. */
 
 static ulong
 conn_file_fd_idx( fd_snapsv_t *   ctx,
@@ -1180,6 +1202,18 @@ shovel( fd_snapsv_t *       ctx,
                    conn->rdbuf_idx==UINT_MAX &&
                    !conn->disk_inflight &&
                    !conn->net_inflight ) ) {
+    /* A fast boot stream is sent until it closes.  Send what it grew
+       by, or wait for more. */
+    if( conn->stream.active && conn_file_fd_idx( ctx, conn )!=ULONG_MAX ) {
+      ulong sz = fast_boot_file_sz( ctx, conn->stream.idx );
+      if( sz>conn->snap.req_off1 ) {
+        conn->snap.file_sz  = sz;
+        conn->snap.req_off1 = sz;
+        shovel( ctx, stem, conn_idx, now );
+        return;
+      }
+      if( !ctx->fast_boot_closed[ conn->stream.idx ] ) return;
+    }
     conn->res.close_kind = FD_SNAPSV_CLOSE_DONE;
     event_snap( ctx, stem, conn_idx, now, 0, 1 ); /* eom */
     conn->req.get_snap = 0;
@@ -1353,6 +1387,7 @@ build_snap_res_hdr( char  out[ static RES_HDR_MAX ],
                     ulong range0,
                     ulong range1,
                     ulong object_sz,
+                    int   stream,     /* body runs until the conn closes? */
                     int   sick ) {    /* set 'Connection: close'? */
   char * p = fd_cstr_init( out );
   if( range ) {
@@ -1375,9 +1410,16 @@ build_snap_res_hdr( char  out[ static RES_HDR_MAX ],
     p = fd_cstr_append_ulong_as_text( p, 0, 0, object_sz, fd_ulong_base10_dig_cnt( object_sz ) );
     p = fd_cstr_append_cstr( p, "\r\n" );
   }
-  p = fd_cstr_append_cstr( p, "Content-Length: " );
-  ulong content_len = range1 - range0;
-  p = fd_cstr_append_ulong_as_text( p, 0, 0, content_len, fd_ulong_base10_dig_cnt( content_len ) );
+  if( stream ) {
+    p = fd_cstr_append_cstr( p, "Stream-Offset: " );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, range0, fd_ulong_base10_dig_cnt( range0 ) );
+    p = fd_cstr_append_cstr( p, "\r\nStream-Size: " );
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, object_sz, fd_ulong_base10_dig_cnt( object_sz ) );
+  } else {
+    p = fd_cstr_append_cstr( p, "Content-Length: " );
+    ulong content_len = range1 - range0;
+    p = fd_cstr_append_ulong_as_text( p, 0, 0, content_len, fd_ulong_base10_dig_cnt( content_len ) );
+  }
   p = fd_cstr_append_cstr( p, "\r\n" );
   if( sick ) {
     p = fd_cstr_append_cstr( p, "Connection: close\r\n" );
@@ -1401,7 +1443,7 @@ serve_snap_res_hdr( fd_snapsv_t *       ctx,
   /* a fast boot stream is always Zstandard */
   int is_zstd = 1;
   if( FD_UNLIKELY( conn->stream.active ) ) {
-    /* the stream closed just after the peer asked for it */
+    /* the stream's file was reused just after the peer asked for it */
     if( FD_UNLIKELY( conn_file_fd_idx( ctx, conn )==ULONG_MAX ) ) {
       conn_close( ctx, stem, conn_idx, now );
       return;
@@ -1421,6 +1463,11 @@ serve_snap_res_hdr( fd_snapsv_t *       ctx,
     }
     is_zstd = snap->is_zstd;
   }
+
+  /* the body of a fast boot stream ends when the conn closes */
+  int stream = conn->stream.active && !conn->req.head;
+  if( stream ) conn->sick = 1U;
+
   /* return response header */
   FD_CHECK_ERR( conn->iobuf_idx==UINT_MAX, "conn has stale iobuf" );
   iobuf_alloc( ctx, &conn->iobuf_idx );
@@ -1428,10 +1475,11 @@ serve_snap_res_hdr( fd_snapsv_t *       ctx,
   conn->res.sent   = 0;
   conn->res.len    = (uint)build_snap_res_hdr(
       (char *)iobuf,
-      conn->snap.range,
+      conn->snap.range && !stream,
       is_zstd,
       conn->snap.req_off0, conn->snap.req_off1,
       conn->snap.file_sz,
+      stream,
       conn->sick );
   conn->res.hdr_ts = now;
   prep_write_hdr( ctx, conn_idx );
@@ -1615,6 +1663,7 @@ handle_write_hdr_comp( fd_snapsv_t *       ctx,
       return;
     }
     /* now serve the snapshot body */
+    ctx->stream_conn |= (int)conn->stream.active;
     conn->req.get_snap = 1; /* streaming begin */
     event_snap( ctx, stem, conn_idx, now, 1, 0 ); /* som */
     conn->state = CONN_STATE_RES_SHOVEL;
@@ -1648,20 +1697,6 @@ match_snapshot_path( char const * path,
     .base_slot = incremental_slot!=ULONG_MAX ? full_slot : ULONG_MAX
   };
   return out;
-}
-
-/* fast_boot_file_sz returns the current size of a fast boot file.  A
-   stream file grows while it is served, so its size cannot be
-   cached. */
-
-static ulong
-fast_boot_file_sz( fd_snapsv_t const * ctx,
-                   ulong               fast_boot_idx ) {
-  struct stat st;
-  if( FD_UNLIKELY( 0!=syscall( SYS_fstat, ctx->fast_boot_fd[ fast_boot_idx ], &st ) ) ) {
-    FD_LOG_ERR(( "fstat(fast boot file %lu) failed (%i-%s)", fast_boot_idx, errno, fd_io_strerror( errno ) ));
-  }
-  return (ulong)st.st_size;
 }
 
 /* match_fast_boot_stream_path parses the name a fast boot stream is
@@ -1944,19 +1979,30 @@ handle_peek( fd_snapsv_t *       ctx,
     path++; path_len--;
   }
 
-  /* A fast boot stream by name?  Its size is read on every request,
-     because a stream grows while it is served.  A peer that reads a
-     closed stream past its end has finished it and is sent on to the
-     stream after it.  So is a peer resuming a stream whose file was
-     recycled, which a Range header tells apart from a first read. */
+  /* A fast boot stream by name?  A peer that reads a closed stream
+     from its end or past it has finished it and is sent on to the
+     stream after it.  So is a peer resuming a stream whose file was recycled,
+     which a Range header tells apart from a first read. */
   if( FD_UNLIKELY( ctx->fast_boot_max && path_len>17UL && !memcmp( path, "fast-boot-stream-", 17UL ) ) ) {
     ulong fast_boot_idx = match_fast_boot_stream_path( ctx, path, path_len, &conn->stream.slot );
     if( FD_UNLIKELY( fast_boot_idx==ULONG_MAX && ( conn->stream.slot==ULONG_MAX || !range ) ) ) goto not_found;
     FD_MCNT_INC( SNAPSV, FAST_BOOT_REQUEST_SERVED, 1UL );
 
     if( FD_LIKELY( fast_boot_idx!=ULONG_MAX ) ) {
-      conn_begin_file( conn, fast_boot_file_sz( ctx, fast_boot_idx ), range, range_len );
-      int finished = conn->res.status==416U && conn->state==CONN_STATE_RES_WRITE_ERR && ctx->fast_boot_closed[ fast_boot_idx ];
+      ulong sz       = fast_boot_file_sz( ctx, fast_boot_idx );
+      int   finished = 0;
+      if( ctx->fast_boot_closed[ fast_boot_idx ] ) {
+        conn_begin_file( conn, sz, range, range_len );
+        finished = conn->state==CONN_STATE_RES_WRITE_ERR && conn->res.status==416U;
+      } else {
+        conn_begin_file( conn, ULONG_MAX, range, range_len );
+        conn->snap.file_sz = sz;
+        if( FD_UNLIKELY( conn->state==CONN_STATE_RES_WRITE_HDR && conn->snap.req_off0>sz ) ) {
+          conn->state      = CONN_STATE_RES_WRITE_ERR;
+          conn->res.status = 416U;
+        }
+      }
+      conn->snap.req_off1 = sz;
       if( FD_LIKELY( !finished ) ) {
         conn->stream.active = 1U;
         conn->stream.idx    = (uint)fast_boot_idx;
@@ -2227,6 +2273,18 @@ after_credit_pre( fd_snapsv_t *       ctx,
     }
   }
 
+  /* Send what the fast boot streams grew by. */
+  if( FD_UNLIKELY( ctx->stream_conn && now>=ctx->stream_next ) ) {
+    ctx->stream_conn = 0;
+    for( uint i=0U; i<ctx->conn_max; i++ ) {
+      snapsv_conn_t * conn = &ctx->conn0[ i ];
+      if( conn->state!=CONN_STATE_RES_SHOVEL || !conn->stream.active ) continue;
+      ctx->stream_conn = 1;
+      shovel( ctx, stem, i, now );
+    }
+    ctx->stream_next = now+FD_SNAPSV_WAKE_PERIOD;
+  }
+
   /* Prepare for sleep.  Only sleep if no input link has a frag ready. */
   int waiting = 1;
   for( ulong i=0UL; i<ctx->in_cnt; i++ ) {
@@ -2423,9 +2481,9 @@ msg_snapmk( fd_snapsv_t *           ctx,
 
 /* msg_strmk is called for every strmk_out frag: a fast boot stream
    file is ready to serve, or stopped growing.  The file size is read
-   with fstat on each request because the stream grows while it is
-   served.  A closed stream is served to its end until its file is
-   reused by a later stream. */
+   with fstat because the stream grows while it is served.  A closed
+   stream is served to its end until its file is reused by a later
+   stream. */
 
 static void
 msg_strmk( fd_snapsv_t *          ctx,

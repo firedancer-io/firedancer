@@ -680,7 +680,7 @@ FD_UNIT_TEST( test_build_snap_res_hdr ) {
   char hdr[ RES_HDR_MAX ];
 
   /* whole object, zstd */
-  HDR_EQ( build_snap_res_hdr( hdr, 0, 1, 0UL, 4096UL, 4096UL, 0 ),
+  HDR_EQ( build_snap_res_hdr( hdr, 0, 1, 0UL, 4096UL, 4096UL, 0, 0 ),
           "HTTP/1.1 200 OK\r\n"
           "Content-Type: application/zstd\r\n"
           "Accept-Ranges: bytes\r\n"
@@ -688,7 +688,7 @@ FD_UNIT_TEST( test_build_snap_res_hdr ) {
           "\r\n" );
 
   /* whole object, uncompressed tar */
-  HDR_EQ( build_snap_res_hdr( hdr, 0, 0, 0UL, 4096UL, 4096UL, 0 ),
+  HDR_EQ( build_snap_res_hdr( hdr, 0, 0, 0UL, 4096UL, 4096UL, 0, 0 ),
           "HTTP/1.1 200 OK\r\n"
           "Content-Type: application/x-tar\r\n"
           "Accept-Ranges: bytes\r\n"
@@ -697,7 +697,7 @@ FD_UNIT_TEST( test_build_snap_res_hdr ) {
 
   /* partial content.  The half open [range0,range1) becomes the
      inclusive 'Content-Range: bytes range0-(range1-1)/object_sz'. */
-  HDR_EQ( build_snap_res_hdr( hdr, 1, 1, 0UL, 100UL, 4096UL, 0 ),
+  HDR_EQ( build_snap_res_hdr( hdr, 1, 1, 0UL, 100UL, 4096UL, 0, 0 ),
           "HTTP/1.1 206 Partial Content\r\n"
           "Content-Type: application/zstd\r\n"
           "Accept-Ranges: bytes\r\n"
@@ -706,7 +706,7 @@ FD_UNIT_TEST( test_build_snap_res_hdr ) {
           "\r\n" );
 
   /* a range that runs to the end of the object */
-  HDR_EQ( build_snap_res_hdr( hdr, 1, 0, 4000UL, 4096UL, 4096UL, 0 ),
+  HDR_EQ( build_snap_res_hdr( hdr, 1, 0, 4000UL, 4096UL, 4096UL, 0, 0 ),
           "HTTP/1.1 206 Partial Content\r\n"
           "Content-Type: application/x-tar\r\n"
           "Accept-Ranges: bytes\r\n"
@@ -715,7 +715,7 @@ FD_UNIT_TEST( test_build_snap_res_hdr ) {
           "\r\n" );
 
   /* single byte range */
-  HDR_EQ( build_snap_res_hdr( hdr, 1, 1, 7UL, 8UL, 4096UL, 0 ),
+  HDR_EQ( build_snap_res_hdr( hdr, 1, 1, 7UL, 8UL, 4096UL, 0, 0 ),
           "HTTP/1.1 206 Partial Content\r\n"
           "Content-Type: application/zstd\r\n"
           "Accept-Ranges: bytes\r\n"
@@ -724,7 +724,7 @@ FD_UNIT_TEST( test_build_snap_res_hdr ) {
           "\r\n" );
 
   /* an empty object still advertises range support */
-  HDR_EQ( build_snap_res_hdr( hdr, 0, 1, 0UL, 0UL, 0UL, 0 ),
+  HDR_EQ( build_snap_res_hdr( hdr, 0, 1, 0UL, 0UL, 0UL, 0, 0 ),
           "HTTP/1.1 200 OK\r\n"
           "Content-Type: application/zstd\r\n"
           "Accept-Ranges: bytes\r\n"
@@ -732,11 +732,22 @@ FD_UNIT_TEST( test_build_snap_res_hdr ) {
           "\r\n" );
 
   /* 'Connection: close' when conn is sick */
-  HDR_EQ( build_snap_res_hdr( hdr, 0, 1, 0UL, 4096UL, 4096UL, 1 ),
+  HDR_EQ( build_snap_res_hdr( hdr, 0, 1, 0UL, 4096UL, 4096UL, 0, 1 ),
           "HTTP/1.1 200 OK\r\n"
           "Content-Type: application/zstd\r\n"
           "Accept-Ranges: bytes\r\n"
           "Content-Length: 4096\r\n"
+          "Connection: close\r\n"
+          "\r\n" );
+
+  /* a fast boot stream has no length: where the body starts and the
+     size of the stream so far instead */
+  HDR_EQ( build_snap_res_hdr( hdr, 0, 1, 100UL, 300UL, 300UL, 1, 1 ),
+          "HTTP/1.1 200 OK\r\n"
+          "Content-Type: application/zstd\r\n"
+          "Accept-Ranges: bytes\r\n"
+          "Stream-Offset: 100\r\n"
+          "Stream-Size: 300\r\n"
           "Connection: close\r\n"
           "\r\n" );
 
@@ -745,7 +756,7 @@ FD_UNIT_TEST( test_build_snap_res_hdr ) {
   {
     ulong r0, r1;
     FD_TEST( 0==parse_range_header( "bytes=-500", 10UL, 1000UL, &r0, &r1 ) );
-    HDR_EQ( build_snap_res_hdr( hdr, 1, 1, r0, r1, 1000UL, 0 ),
+    HDR_EQ( build_snap_res_hdr( hdr, 1, 1, r0, r1, 1000UL, 0, 0 ),
             "HTTP/1.1 206 Partial Content\r\n"
             "Content-Type: application/zstd\r\n"
             "Accept-Ranges: bytes\r\n"
@@ -755,7 +766,8 @@ FD_UNIT_TEST( test_build_snap_res_hdr ) {
   }
 
   /* worst case sizes fit the buffer */
-  FD_TEST( build_snap_res_hdr( hdr, 1, 1, 0UL, ULONG_MAX, ULONG_MAX, 1 )<RES_HDR_MAX );
+  FD_TEST( build_snap_res_hdr( hdr, 1, 1, 0UL, ULONG_MAX, ULONG_MAX, 0, 1 )<RES_HDR_MAX );
+  FD_TEST( build_snap_res_hdr( hdr, 0, 1, ULONG_MAX, ULONG_MAX, ULONG_MAX, 1, 1 )<RES_HDR_MAX );
 }
 
 FD_UNIT_TEST( test_build_redirect_hdr ) {
