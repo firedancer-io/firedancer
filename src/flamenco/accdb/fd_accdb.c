@@ -4837,8 +4837,31 @@ fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
      to disk first. */
 
   fd_accdb_cache_line_t * lines[ 8 ] = {0};
+  ulong reserved[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
   if( FD_UNLIKELY( cache_records ) ) {
     FD_TEST( mode==FD_ACCDB_RESTORE_MODE_STREAM );
+
+    /* Reserve the lines like acquire does, so the cache always has a
+       line to give. */
+    for( ulong i=0UL; i<cnt; i++ ) {
+      ulong size_class = fd_accdb_cache_class( data_lens[ i ] );
+      if( FD_UNLIKELY( res_tracked( accdb, size_class ) ) ) reserved[ size_class ]++;
+    }
+    for(;;) {
+      ulong failed = ULONG_MAX;
+      for( ulong i=0UL; i<FD_ACCDB_CACHE_CLASS_CNT; i++ ) {
+        if( FD_LIKELY( !reserved[ i ] ) ) continue;
+        if( FD_UNLIKELY( !res_take( accdb, i, reserved[ i ] ) ) ) { failed = i; break; }
+      }
+      if( FD_LIKELY( failed==ULONG_MAX ) ) break;
+      for( ulong j=0UL; j<failed; j++ ) {
+        if( reserved[ j ] ) res_give( accdb, j, reserved[ j ] );
+      }
+      res_steal( accdb, failed );
+      fd_racesan_hook( "accdb_restore_write:reservation_retry" );
+      FD_SPIN_PAUSE();
+    }
+
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
     FD_HW_MFENCE();
@@ -5034,6 +5057,9 @@ fd_accdb_restore_write_batch( fd_accdb_t *                       accdb,
 fini:
   for( ulong i=acquired_used; i<cnt; i++ ) {
     acc_pool_release( accdb->acc_pool_join, acquired[ i ] );
+  }
+  for( ulong i=0UL; i<FD_ACCDB_CACHE_CLASS_CNT; i++ ) {
+    if( FD_UNLIKELY( reserved[ i ] ) ) res_give( accdb, i, reserved[ i ] );
   }
 
   accdb->write_stats.disk_used_added      += used_bytes_added;

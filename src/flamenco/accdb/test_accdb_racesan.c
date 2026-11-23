@@ -3853,6 +3853,46 @@ test_res_trim_vs_steal( void ) {
   test_shmem_delete();
 }
 
+/* test_restore_write_reserves: a stream record kept in the cache
+   reserves its line first.  With every class-0 line reserved by
+   others the loader waits at accdb_restore_write:reservation_retry,
+   holding no line, and finishes once a line is given back. */
+
+static void
+test_restore_write_reserves( void ) {
+  test_shmem_new_tiny();
+  fd_accdb_t * ctl = join_new();
+  fd_accdb_t * jl  = join_new();
+  fd_accdb_fork_id_t root   = fd_accdb_attach_child( ctl, SENTINEL );
+  fd_accdb_fork_id_t stream = fd_accdb_attach_child( ctl, root );
+  fd_accdb_snapshot_load_begin( ctl );
+
+  ulong * used  = &g_shmem->cache_class_used[ 0 ].val;
+  ulong   limit = g_shmem->cache_class_max[ 0 ];
+  FD_TEST( *used!=ULONG_MAX );
+  ulong used0 = *used;
+  ulong free0 = free_cnt_total( 0UL );
+  *used = limit;
+
+  uchar key[ 32UL ]; mk_key( 620500UL, key );
+  fd_racesan_async_t * a = fiber_restore_write( &g_fiber[0], jl, stream, key, 10UL, 123UL, 1 );
+  FD_TEST( fd_racesan_async_step_until( a, "accdb_restore_write:reservation_retry", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( *used==limit && free_cnt_total( 0UL )==free0 );
+
+  *used = used0;
+  async_finish( a );
+  fiber_done( &g_fiber[0] );
+  FD_TEST( fd_accdb_lamports( ctl, stream, key )==123UL );
+  ulong cred = 0UL;
+  for( ulong j=0UL; j<T_JOINER_CNT; j++ ) cred += g_shmem->join_cred[ j ].val[ 0 ];
+  FD_TEST( *used==used0+cred );
+
+  fd_accdb_snapshot_load_end( ctl );
+  join_delete( jl );
+  join_delete( ctl );
+  test_shmem_delete();
+}
+
 /* test_release_take_vs_reader: when release_take_line gets a line from
    CLOCK with a dirty victim V, it writes V back before reusing the
    line.  V's offset stays INVAL until that write is published, so a
@@ -5034,6 +5074,7 @@ main( int     argc,
     TEST( test_release_take_vs_reader ),
     TEST( test_release_vs_restore_write ),
     TEST( test_release_vs_restore_write_cached ),
+    TEST( test_restore_write_reserves ),
     TEST( test_acquire_vs_restore_write_cached_tiny ),
     {0}
   };
