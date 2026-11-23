@@ -53,14 +53,6 @@ fsync: (eq (arg 0) logfile_fd)
 read: (or (eq (arg 0) async_fd)
           (eq (arg 0) rx_comp_channel_fd))
 
-# power saving: sleep until the repoll deadline
-#
-# arg 0 is CLOCK_MONOTONIC, arg 1 requests an absolute timeout, and arg 3
-# is the unused remainder pointer.
-clock_nanosleep: (and (eq (arg 0) CLOCK_MONOTONIC)
-                      (eq (arg 1) TIMER_ABSTIME)
-                      (eq (arg 3) 0))
-
 # power saving: park until RX work, an async event, a ring, or the
 # next deadline
 #
