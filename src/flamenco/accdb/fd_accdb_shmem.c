@@ -393,6 +393,7 @@ fd_accdb_shmem_new( void * shmem,
   accdb->deferred_free_dlist_off = (ulong)_deferred_free_dlist - (ulong)shmem;
 
   accdb->deferred_acc_head    = UINT_MAX;
+  accdb->deferred_acc_tail    = UINT_MAX;
   accdb->deferred_epoch       = 0UL;
   accdb->deferred_fork_head   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   accdb->deferred_fork_tail   = (fd_accdb_fork_id_t){ .val = USHORT_MAX };

@@ -205,9 +205,10 @@ struct __attribute__((aligned(64))) fd_accdb_accmeta {
 
   /* The account's data word: the line its bytes are cached in (cidx,
      meaningful while VALID is set) and its size word es (length, exec,
-     pd_write, VALID).  Changed only by a single store, CAS or swap of
-     the whole word (fd_accdb.c "Data word").  While a snapshot loads,
-     cidx holds the record's snapshot slot (VALID clear). */
+     pd_write, VALID, unlinked).  Changed only by a single store, CAS,
+     swap or OR of the whole word (fd_accdb.c "Data word").  While a
+     snapshot loads, cidx holds the record's snapshot slot (VALID
+     clear). */
   union {
     struct {
       uint cache_idx;
@@ -703,10 +704,12 @@ struct fd_accdb_shmem_private {
      FD_ACCDB_SIZE_UNLINKED_BIT first, see fd_accdb_acc_unlinked).  Its
      links are acc_pool links, so once the pass's epoch drains,
      drain_deferred_frees releases it with one acc_pool_release_chain.
-     T2 is the sole writer, so the fields are plain.  head is UINT_MAX
-     when empty. */
+     T2 is the sole writer, so the fields are plain.  head and tail are
+     UINT_MAX when empty; tail is the first acc pushed, so the drain needs
+     no walk to find it. */
 
   uint  deferred_acc_head;
+  uint  deferred_acc_tail;
   ulong deferred_epoch; /* epoch tag of the retired batch (accs and fork slots) */
 
   /* T2-only chain (through pool.next) of fork pool slots retired with
