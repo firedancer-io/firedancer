@@ -2367,22 +2367,22 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, validator_location_registration)>>3,
-    .id                        = {"\x07\x51\x97\x01\x74\x48\xf2\xdb\xa0\x39\x9c\x5b\xd8\x1a\xaf\x58\xd9\xbd\x19\x27\xab\xa5\xed\x80\xd2\x89\xe4\x3d\xea\x0e\x40\x00"},
-                                 /* Va1idatorLocat1onRegistrat1on11111111111111 */
+    .id                        = {"\x0d\xaa\x2c\xd0\x42\x3e\x08\x79\xdf\x99\xe7\x77\x67\xea\xf2\x61\xcb\xeb\x53\x33\xd4\x63\x58\xaf\x63\x7c\x90\x78\x3f\x46\x80\x1b"},
+                                 /* vLocpKXpP5RsPRMnXBhZ9GRisnL3KrsJ8ENEyBTVDfG */
     .name                      = "validator_location_registration",
     .implemented               = 1,
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, enforce_validator_location_registration)>>3,
-    .id                        = {"\x03\x88\x30\x50\xef\xa6\x06\xee\xcd\x5f\xba\x36\xf7\x57\xd7\xee\xb3\x71\x16\x40\xb2\x21\xc3\xc1\x29\x3e\x1e\x58\x55\x11\xaa\x80"},
-                                 /* EnforceVa1idatorLocat1onRegistrat1on1111111 */
+    .id                        = {"\xcc\xda\x95\xea\xeb\x28\x1d\xc4\x41\xd1\x93\x94\x2c\x3a\x63\x05\xa3\x96\x84\x38\x71\xd9\x3a\x26\xa2\xb4\x1e\x28\xc4\x71\xa4\x89"},
+                                 /* EnfVLYshe3VXSRCyD3d1sLoHAwqkJnS9hZNVFPUgz2Me */
     .name                      = "enforce_validator_location_registration",
     .implemented               = 1,
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, geo_aware_leader_schedule)>>3,
-    .id                        = {"\x04\x02\x72\xc2\x34\x3e\x3f\x36\x27\xcf\x7c\xb9\x8b\x16\x9a\x66\x26\x24\x3d\x8c\xd6\x5b\x15\x99\x7a\x8b\x7c\x56\x58\x20\x00\x00"},
-                                 /* GeoAwareLeaderSchedu1e111111111111111111111 */
+    .id                        = {"\xe8\x8e\x31\x98\xab\xd3\x73\x70\xb1\x52\x34\x38\x4c\x07\x76\x0e\xa4\xd1\x3e\xed\x25\x98\x57\x26\xda\x91\x6c\x2e\x5c\xb7\x7b\xc5"},
+                                 /* GeoLsyxnqHP4P1k9EfnA1oJhM3Rsur19EqA54QBMmhxG */
     .name                      = "geo_aware_leader_schedule",
     .implemented               = 1,
     .cleaned_up                = 0 },
@@ -2774,9 +2774,9 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_298 0x351933dc20486107UL, .val = &ids[298]
 #define MAP_PERFECT_299 0x7b717607817b2451UL, .val = &ids[299]
 #define MAP_PERFECT_300 0x0aa7b29de47f96cbUL, .val = &ids[300]
-#define MAP_PERFECT_301 0xdbf2487401975107UL, .val = &ids[301]
-#define MAP_PERFECT_302 0xee06a6ef50308803UL, .val = &ids[302]
-#define MAP_PERFECT_303 0x363f3e34c2720204UL, .val = &ids[303]
+#define MAP_PERFECT_301 0x79083e42d02caa0dUL, .val = &ids[301]
+#define MAP_PERFECT_302 0xc41d28ebea95daccUL, .val = &ids[302]
+#define MAP_PERFECT_303 0x7073d3ab98318ee8UL, .val = &ids[303]
 #define MAP_PERFECT_304 0x663c696babd69106UL, .val = &ids[304]
 #define MAP_PERFECT_305 0xcb2d7ae31276d40cUL, .val = &ids[305]
 #define MAP_PERFECT_306 0x30641c596cbeb55bUL, .val = &ids[306]
