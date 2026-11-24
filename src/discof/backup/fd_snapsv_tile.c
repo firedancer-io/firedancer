@@ -2031,6 +2031,16 @@ handle_peek( fd_snapsv_t *       ctx,
       conn->req.incremental = 1;
       return;
     }
+  } else if( path_len==24 && ctx->fast_boot.max && !memcmp( path, "fast-boot-stream.tar.zst", 24UL ) ) {
+    /* Redirect to the stream at the newest snapshot: the first stream
+       after the slot before it. */
+    snap_entry_t * snap = newest_snap( ctx, 1 );
+    if( !snap ) snap = newest_snap( ctx, 0 );
+    if( FD_UNLIKELY( !snap ) ) goto not_found;
+    conn->state         = CONN_STATE_RES_REDIRECT;
+    conn->req.fast_boot = 1;
+    conn->stream.slot   = snap->key.slot-1UL;
+    return;
   }
 
   /* found a snapshot? */

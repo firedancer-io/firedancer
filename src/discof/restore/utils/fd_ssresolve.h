@@ -34,11 +34,15 @@ fd_ssresolve_new( void * shmem );
 fd_ssresolve_t *
 fd_ssresolve_join( void * ssresolve );
 
+/* A resolve asks the server for its newest full snapshot, or for its
+   newest incremental if full is 0.  With stream set it first asks for
+   the server's fast boot stream, and fails if the server has none. */
 void
 fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    fd_ip4_port_t    addr,
                    int              sockfd,
                    int              full,
+                   int              stream,
                    char const *     hostname );
 
 void
@@ -46,6 +50,7 @@ fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
                          fd_ip4_port_t              addr,
                          int                        sockfd,
                          int                        full,
+                         int                        stream,
                          char const *               hostname,
                          fd_tls_t const *           tls,
                          fd_x509_ca_store_t const * ca_store );

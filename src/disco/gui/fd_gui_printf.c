@@ -1873,6 +1873,7 @@ peers_printf_node( fd_gui_peers_ctx_t *  peers,
             case FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC:          tag = "tvu_quic";          break;
             case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC:     tag = "tpu_vote_quic";     break;
             case FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW:         tag = "alpenglow";         break;
+            case FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT:         tag = "fast_boot";         break;
             default:                                       tag = "unknown";           break;
           }
           uint   ip4  = peer->row.contact_info.sockets[ j ].is_ipv6 ? 0U : peer->row.contact_info.sockets[ j ].ip4;

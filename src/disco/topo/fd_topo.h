@@ -322,6 +322,7 @@ struct fd_topo_tile {
         ushort rserve;
         ushort votor;
         ushort rpc;
+        ushort fast_boot;
       } ports;
     } gossip;
 

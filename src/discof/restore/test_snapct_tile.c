@@ -421,6 +421,15 @@ test_background_snapshot_instance( void ) {
   stream->full_slot   = 100UL;
   memset( stream->stream_hash, 0x11, FD_HASH_FOOTPRINT );
   memset( stream->full_hash,   0x22, FD_HASH_FOOTPRINT );
+  /* It also names the server.  The name and scheme are looked up
+     among the resolved servers, as for any snapshot download. */
+  stream->server_key.is_url = 1;
+  strcpy( stream->server_key.url.hostname, "server" );
+  stream->server_key.url.resolved_addr = test_addr( 0x0A000001U, 8899 );
+  stream->server_addr                  = test_addr( 0x0A000001U, 8899 );
+  ctx->resolved_servers[ 0 ].addr      = test_addr( 0x0A000001U, 8899 );
+  ctx->resolved_servers[ 0 ].is_https  = 1;
+  strcpy( ctx->resolved_servers[ 0 ].hostname, "server" );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->fast_boot.stream_hash[ 31 ]==0x11 );
   FD_TEST( ctx->fast_boot.full_slot==100UL && ctx->fast_boot.full_hash[ 0 ]==0x22 && ctx->fast_boot.full_hash[ 31 ]==0x22 );
@@ -459,6 +468,7 @@ test_background_snapshot_instance( void ) {
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START && !strcmp( test_start.path, "/snapshot-100-3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3.tar.zst" ) );
   FD_TEST( !strcmp( ctx->http_full_snapshot_name, "snapshot-100-3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3.tar.zst" ) );
+  FD_TEST( test_start.addr.l==test_addr( 0x0A000001U, 8899 ).l && !strcmp( test_start.hostname, "server" ) && test_start.is_https );
 
   /* Its META carries no resolved name: the request name is kept. */
   fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)input;
@@ -687,23 +697,17 @@ test_stream_instance_init( void ) {
   ctx->snapld_in_mem                = input;
   test_output                       = output;
 
-  /* Nothing moves until the server has said what it has.  Only the
-     server not resolving in time is fatal. */
+  /* Nothing moves until a server has said what it has: wait, however
+     long, saying so now and then. */
   int   busy      = 0;
   ulong published = test_publish_cnt;
-  ctx->resolved_servers_cnt = 0UL;
-  ctx->deadline_nanos       = 0L;
-  pid_t pid = fork(); FD_TEST( pid>=0 );
-  if( !pid ) { after_credit( ctx, NULL, NULL, &busy ); _exit( 0 ); }
-  int status; FD_TEST( waitpid( pid, &status, 0 )==pid );
-  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
-  ctx->resolved_servers_cnt = 1UL;
+  ctx->deadline_nanos = 0L;
   after_credit( ctx, NULL, NULL, &busy );
   long now = fd_clock_tile_now( ctx->clock );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && ctx->deadline_nanos>now && test_publish_cnt==published );
 
   /* The resolver lists the server before it knows its snapshots:
-     wait, however long, saying so now and then. */
+     keep waiting. */
   fd_sspeer_key_t key = { .is_url = 1 };
   strcpy( key.url.hostname, "server" );
   key.url.resolved_addr = ctx->resolved_servers[ 0 ].addr;
@@ -714,14 +718,8 @@ test_stream_instance_init( void ) {
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && ctx->deadline_nanos>now && test_publish_cnt==published );
 
-  /* A gossip peer with newer snapshots is not the server. */
-  fd_sspeer_key_t other = test_key( 0xF0 );
   uchar full_hash[ FD_HASH_FOOTPRINT ]; memset( full_hash, 0x22, FD_HASH_FOOTPRINT );
   uchar incr_hash[ FD_HASH_FOOTPRINT ]; memset( incr_hash, 0x11, FD_HASH_FOOTPRINT );
-  fd_sspeer_selector_add( ctx->selector, &other, test_addr( 0x0A000002U, 8899 ), 1000UL, 300UL, 350UL, full_hash, incr_hash );
-  fd_sspeer_selector_process_cluster_slot( ctx->selector );
-  after_credit( ctx, NULL, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT );
 
   /* The server has a full at slot 100 with an incremental at slot
      150 on it: the stream at 150 is asked for by name, with its slot
@@ -854,6 +852,87 @@ test_stream_instance_init( void ) {
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && test_publish_cnt==published+2UL );
 
   free( sel );
+  free( scratch );
+}
+
+/* With no server in the config a fast boot finds its server on
+   gossip: the peer's fast boot socket and its snapshot hashes.  The
+   snapct reading the stream picks it and names it to the snapct
+   loading the snapshots. */
+static void
+test_fast_boot_gossip_server( fd_ssping_t * ssping ) {
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  fd_gossip_update_message_t msg[1] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  fd_snapct_tile_t * ctx;
+  setup_full_snapct( scratch, ssping, &ctx, msg );
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar ct_out[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  static uchar input [ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  ctx->state                   = FD_SNAPCT_STATE_INIT;
+  ctx->config.fast_boot        = 1;
+  ctx->config.fast_boot_stream = 1;
+  ctx->fast_boot.stream_slot   = ULONG_MAX;
+  ctx->deadline_nanos          = LONG_MAX;
+  ctx->flush_ack_cnt           = 1;
+  ctx->config.sources.gossip.allow_any        = 0;
+  ctx->config.sources.gossip.allow_list_cnt   = 1UL;
+  ctx->config.sources.gossip.allow_list[ 0 ]  = test_pubkey( 0x66 );
+  ctx->out_ld.mem              = (fd_wksp_t *)output;
+  ctx->out_ld.wmark            = 128UL;
+  ctx->out_ct.mem              = (fd_wksp_t *)ct_out;
+  ctx->out_ct.wmark            = 128UL;
+  ctx->snapld_in_mem           = input;
+  test_output                  = output;
+
+  /* The rpc socket is not the server: only the fast boot socket is. */
+  ulong const   idx       = 3UL;
+  fd_pubkey_t   peer      = test_pubkey( 0x66 );
+  fd_ip4_port_t rpc       = test_addr( 0x08080808 /* 8.8.8.8 */, 8899 );
+  fd_ip4_port_t fast_boot = test_addr( 0x08080808 /* 8.8.8.8 */, 8902 );
+  send_contact_info_with_rpc( ctx, msg, idx, &peer, rpc );
+  FD_TEST( !ctx->gossip.ci_table[ idx ].rpc_addr.l );
+  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+  int busy = 0;
+
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->tag = FD_GOSSIP_UPDATE_TAG_CONTACT_INFO;
+  fd_memcpy( msg->origin, peer.uc, sizeof(fd_pubkey_t) );
+  msg->contact_info->idx = idx;
+  msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT ].ip4  = fast_boot.addr;
+  msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT ].port = fast_boot.port;
+  gossip_frag( ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO, 0UL );
+  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==fast_boot.l );
+
+  /* Its snapshot hashes name the stream. */
+  fd_memset( msg, 0, sizeof(*msg) );
+  msg->tag = FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES;
+  fd_memcpy( msg->origin, peer.uc, sizeof(fd_pubkey_t) );
+  msg->snapshot_hashes->full_slot             = 100UL;
+  msg->snapshot_hashes->incremental_len       = 1UL;
+  msg->snapshot_hashes->incremental[ 0 ].slot = 150UL;
+  memset( msg->snapshot_hashes->full_hash,             0x22, FD_HASH_FOOTPRINT );
+  memset( msg->snapshot_hashes->incremental[ 0 ].hash, 0x11, FD_HASH_FOOTPRINT );
+  gossip_frag( ctx, FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES, 0UL, 0UL );
+  ctx->ssping = NULL; after_credit( ctx, NULL, NULL, &busy ); ctx->ssping = ssping; /* no ping goes out */
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
+  FD_TEST( ctx->peer.addr.l==fast_boot.l && !ctx->peer.key.is_url && fd_pubkey_eq( ctx->peer.key.pubkey, &peer ) );
+  FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->fast_boot.full_slot==100UL && ctx->fast_boot.full_hash[ 0 ]==0x22 );
+
+  /* The stream is asked for over plain HTTP by address. */
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, 0UL, NULL );
+  ctx->ssping = NULL; after_credit( ctx, NULL, NULL, &busy ); ctx->ssping = ssping; /* no ping goes out */
+  FD_TEST( ctx->start_sent && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
+  FD_TEST( test_start.addr.l==fast_boot.l && !test_start.is_https && !test_start.hostname[ 0 ] );
+  FD_TEST( !strcmp( test_start.path, "/fast-boot-stream-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
+
+  /* The stream opened: the other snapct is told the server. */
+  fd_ssctrl_meta_t meta = { .total_sz = 1000UL };
+  stream_meta( ctx, NULL, &meta );
+  fd_ssctrl_stream_init_t const * stream = fd_chunk_to_laddr_const( ct_out, test_publish_chunk );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_STREAM_INIT && stream->stream_slot==150UL && stream->full_slot==100UL );
+  FD_TEST( stream->server_addr.l==fast_boot.l && !stream->server_key.is_url && fd_pubkey_eq( stream->server_key.pubkey, &peer ) );
+
+  fd_ssping_remove( ctx->ssping, fast_boot );
   free( scratch );
 }
 
@@ -2503,6 +2582,7 @@ main( int     argc,
   test_blacklist_pool_exhaustion( ssping );
   test_predict_incremental_wfs_gate( ssping );
   test_log_download_peer_churn( ssping );
+  test_fast_boot_gossip_server( ssping );
   test_wfs_init_no_download();
   test_flushing_full_file_done_incremental_source();
   test_incremental_failure_no_peer();

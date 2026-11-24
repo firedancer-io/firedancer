@@ -345,8 +345,10 @@ fd_topo_initialize( config_t * config ) {
   int failover_enabled    = 1;
 
   if( FD_UNLIKELY( config->firedancer.snapshots.fast_boot.enabled ) ) {
-    FD_CHECK_ERR( config->firedancer.snapshots.sources.servers_cnt,
-                  "[snapshots.fast_boot.enabled] requires a stream server in [snapshots.sources.servers]" );
+    FD_CHECK_ERR( config->firedancer.snapshots.sources.servers_cnt ||
+                  config->firedancer.snapshots.sources.gossip.allow_any ||
+                  config->firedancer.snapshots.sources.gossip.allow_list_cnt,
+                  "[snapshots.fast_boot.enabled] requires a stream server in [snapshots.sources.servers] or [snapshots.sources.gossip]" );
     FD_CHECK_ERR( snapin_tile_cnt>=2UL,
                   "[snapshots.fast_boot.enabled] requires at least two snapin tiles in [layout.snapin_tile_count]" );
     FD_CHECK_ERR( config->firedancer.snapshots.incremental_snapshots,
@@ -1729,24 +1731,34 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     /* Peers download snapshots through the rpc port, which redirects
        to the snapshot server.  We advertise an IPv4 address, so both
        must take IPv4 connections from other hosts. */
-    tile->gossip.ports.rpc = 0;
+    tile->gossip.ports.rpc       = 0;
+    tile->gossip.ports.fast_boot = 0;
     int snapsv_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
-    if( config->tiles.rpc.enabled && snapsv_enabled ) {
+    if( snapsv_enabled ) {
       char const * rpc_address    = config->tiles.rpc.rpc_listen_address;
       char const * snapsv_address = config->firedancer.snapshots.server.http_listen_address;
       if( !snapsv_address[0] ) snapsv_address = rpc_address;
 
-      fd_ip6_addr_t rpc_addr;
       fd_ip6_addr_t snapsv_addr;
-      parse_listen_addr( rpc_address,    "tiles.rpc.rpc_listen_address",         &rpc_addr    );
       parse_listen_addr( snapsv_address, "snapshots.server.http_listen_address", &snapsv_addr );
 
       /* An IPv4 address or the IPv6 wildcard takes IPv4 connections. */
-      int rpc_takes_ip4    = fd_ip6_addr_is_ip4_mapped( rpc_addr.addr    ) || fd_ip6_addr_is_unspecified( rpc_addr.addr    );
       int snapsv_takes_ip4 = fd_ip6_addr_is_ip4_mapped( snapsv_addr.addr ) || fd_ip6_addr_is_unspecified( snapsv_addr.addr );
-      int any_loopback     = fd_ip6_addr_is_loopback( rpc_addr.addr ) || fd_ip6_addr_is_loopback( snapsv_addr.addr );
-      if( rpc_takes_ip4 && snapsv_takes_ip4 && !any_loopback ) {
-        tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
+      int snapsv_public    = snapsv_takes_ip4 && !fd_ip6_addr_is_loopback( snapsv_addr.addr );
+
+      if( config->tiles.rpc.enabled && snapsv_public ) {
+        fd_ip6_addr_t rpc_addr;
+        parse_listen_addr( rpc_address, "tiles.rpc.rpc_listen_address", &rpc_addr );
+
+        int rpc_takes_ip4 = fd_ip6_addr_is_ip4_mapped( rpc_addr.addr ) || fd_ip6_addr_is_unspecified( rpc_addr.addr );
+        if( rpc_takes_ip4 && !fd_ip6_addr_is_loopback( rpc_addr.addr ) ) {
+          tile->gossip.ports.rpc = (ushort)config->tiles.rpc.rpc_listen_port;
+        }
+      }
+
+      /* Peers read the fast boot stream from the snapshot server. */
+      if( config->firedancer.snapshots.fast_boot.serve.enabled && snapsv_public ) {
+        tile->gossip.ports.fast_boot = (ushort)config->firedancer.snapshots.server.http_listen_port;
       }
     }
 

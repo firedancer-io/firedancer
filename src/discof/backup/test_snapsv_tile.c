@@ -1713,6 +1713,26 @@ FD_UNIT_TEST( fast_boot_stream_ended ) {
   snapsv_env_destroy( env );
 }
 
+/* The generic stream name redirects to the stream at the newest
+   snapshot, like the generic snapshot names.  A server with no stream
+   there, or with fast boot serving off, says not found. */
+
+FD_UNIT_TEST( fast_boot_generic_name ) {
+  snapsv_env_t * env = snapsv_env_create();
+  uchar hash[ 32 ]; memset( hash, 0xb2, sizeof(hash) );
+  char name[ 128 ];
+  expect_res_env( env, "HEAD /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
+  snapsv_env_add_snap( env, 100UL, ULONG_MAX, 4096UL, hash, 1 );
+  expect_res_env( env, "HEAD /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
+  fast_boot_msg( env, FD_STRMK_MSG_OPEN, 100UL );
+  expect_redirect( env, "HEAD /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", fast_boot_name( name, 100UL ) );
+  snapsv_env_add_snap( env, 200UL, 100UL, 4096UL, hash, 1 );
+  expect_res_env( env, "HEAD /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", RES_404_KEEPALIVE );
+  fast_boot_msg_idx( env, FD_STRMK_MSG_OPEN, 200UL, 1U );
+  expect_redirect( env, "HEAD /fast-boot-stream.tar.zst HTTP/1.1\r\n\r\n", fast_boot_name( name, 200UL ) );
+  snapsv_env_destroy( env );
+}
+
 /* A name with the wrong hash, a bad slot, or a bad shape is not a
    stream. */
 

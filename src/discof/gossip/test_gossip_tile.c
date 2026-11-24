@@ -368,6 +368,31 @@ test_snapshot_hashes( void ) {
   free( mem );
 }
 
+/* A contact info keeps its fast boot socket over the wire. */
+
+static void
+test_fast_boot_socket( void ) {
+  static fd_gossip_value_t value[1];
+  memset( value, 0, sizeof(fd_gossip_value_t) );
+  value->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
+  value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP    ] = (fd_gossip_socket_t){ .ip4 = 0x04030201U, .port = fd_ushort_bswap( 8001 ) };
+  value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT ] = (fd_gossip_socket_t){ .ip4 = 0x04030201U, .port = fd_ushort_bswap( 8902 ) };
+
+  uchar buf[ 1232UL ];
+  ulong hdr = 4UL+32UL+8UL;
+  FD_STORE( uint,  buf, FD_GOSSIP_MESSAGE_PUSH );
+  memset( buf+4UL, 0, 32UL );
+  FD_STORE( ulong, buf+36UL, 1UL );
+  long sz = fd_gossip_value_serialize( value, buf+hdr, sizeof(buf)-hdr );
+  FD_TEST( sz>0L );
+
+  static fd_gossip_message_t message[1];
+  memset( message, 0, sizeof(fd_gossip_message_t) );
+  FD_TEST( fd_gossip_message_deserialize( message, buf, hdr+(ulong)sz ) );
+  fd_gossip_socket_t const * socket = &message->push->values[ 0 ].contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT ];
+  FD_TEST( !socket->is_ipv6 && socket->ip4==0x04030201U && socket->port==fd_ushort_bswap( 8902 ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -379,6 +404,7 @@ main( int     argc,
   test_wfs_state_transitions();
   test_wfs_stake_list();
   test_snapshot_hashes();
+  test_fast_boot_socket();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

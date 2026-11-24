@@ -1833,6 +1833,7 @@ getClusterNodes( fd_rpc_tile_t *         ctx,
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TVU_QUIC:          name = NULL; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC:     name = NULL; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_ALPENGLOW:         name = NULL; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT:         name = NULL; break;
         default: FD_LOG_ERR(( "unreachable "));
       }
       if( FD_UNLIKELY( !name ) ) continue;

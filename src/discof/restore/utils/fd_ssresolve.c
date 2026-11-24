@@ -29,6 +29,7 @@ struct fd_ssresolve_private {
   fd_ip4_port_t addr;
   int           sockfd;
   int           full;
+  int           stream; /* ask for the fast boot stream first */
   int           is_https;
   int           tcp_connected;
   char const *  hostname;
@@ -118,10 +119,12 @@ fd_ssresolve_init( fd_ssresolve_t * ssresolve,
                    fd_ip4_port_t    addr,
                    int              sockfd,
                    int              full,
+                   int              stream,
                    char const *     hostname ) {
   ssresolve->addr   = addr;
   ssresolve->sockfd = sockfd;
   ssresolve->full   = full;
+  ssresolve->stream = stream;
 
   ssresolve->state           = FD_SSRESOLVE_STATE_REQ;
   ssresolve->request_sent    = 0UL;
@@ -137,12 +140,14 @@ fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
                          fd_ip4_port_t              addr,
                          int                        sockfd,
                          int                        full,
+                         int                        stream,
                          char const *               hostname,
                          fd_tls_t const *           tls,
                          fd_x509_ca_store_t const * ca_store ) {
   ssresolve->addr   = addr;
   ssresolve->sockfd = sockfd;
   ssresolve->full   = full;
+  ssresolve->stream = stream;
 
   ssresolve->state         = FD_SSRESOLVE_CONNECT;
   ssresolve->tcp_connected = 0;
@@ -179,6 +184,7 @@ fd_ssresolve_init_https( fd_ssresolve_t *           ssresolve,
 static void
 fd_ssresolve_render_req( fd_ssresolve_t * ssresolve ) {
   char const * path = ssresolve->full ? "/snapshot.tar.bz2" : "/incremental-snapshot.tar.bz2";
+  if( ssresolve->stream ) path = "/fast-boot-stream.tar.zst";
 
   if( FD_LIKELY( ssresolve->hostname && ssresolve->hostname[ 0 ]!='\0' ) ) {
     FD_TEST( fd_cstr_printf_check( ssresolve->request, sizeof(ssresolve->request), &ssresolve->request_len,
@@ -405,6 +411,19 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
   }
 
   int is_redirect = (status==301) | (status==302) | (status==303) | (status==307) | (status==308);
+
+  /* The server has a fast boot stream when it redirects to one.  Ask
+     for the snapshot next, on the same connection. */
+  if( FD_UNLIKELY( ssresolve->stream ) ) {
+    if( FD_UNLIKELY( !is_redirect ) ) return FD_SSRESOLVE_ADVANCE_ERROR;
+    ssresolve->stream       = 0;
+    ssresolve->state        = FD_SSRESOLVE_STATE_REQ;
+    ssresolve->request_sent = 0UL;
+    ssresolve->request_len  = 0UL;
+    ssresolve->response_len = 0UL;
+    return FD_SSRESOLVE_ADVANCE_AGAIN;
+  }
+
   if( FD_UNLIKELY( is_redirect ) ) {
     return fd_ssresolve_parse_redirect( ssresolve, headers, header_cnt, result );
   }

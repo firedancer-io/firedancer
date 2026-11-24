@@ -792,7 +792,8 @@ log_download( fd_snapct_tile_t * ctx,
               int                full,
               int                is_https ) {
   fd_sspeer_t const * peer = &ctx->peer;
-  char const *        what = full ? "full" : "incremental";
+  char const *        what = full ? "full snapshot" : "incremental snapshot";
+  if( ctx->config.fast_boot_stream ) what = "the fast boot stream";
   ulong               slot;
   if( ctx->config.fast_boot ) slot = full ? ctx->fast_boot.full_slot             : ctx->fast_boot.stream_slot;
   else                        slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
@@ -800,14 +801,14 @@ log_download( fd_snapct_tile_t * ctx,
   if( peer->key.is_url ) {
     char const * scheme = is_https ? "https" : "http";
     if( peer->key.url.hostname[ 0 ] ) {
-      FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://%s:%hu%s",
+      FD_LOG_NOTICE(( "downloading %s from %s%s://%s:%hu%s",
                       what, fd_log_style_bold(), scheme, peer->key.url.hostname, fd_ushort_bswap( peer->addr.port ), fd_log_style_normal() ));
-      FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server %s://%s:%hu at " FD_IP4_ADDR_FMT,
+      FD_LOG_INFO(( "downloading %s at slot %lu from configured server %s://%s:%hu at " FD_IP4_ADDR_FMT,
                     what, slot, scheme, peer->key.url.hostname, fd_ushort_bswap( peer->addr.port ), FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ) ));
     } else {
-      FD_LOG_NOTICE(( "downloading %s snapshot from %s%s://" FD_IP4_ADDR_FMT ":%hu%s",
+      FD_LOG_NOTICE(( "downloading %s from %s%s://" FD_IP4_ADDR_FMT ":%hu%s",
                       what, fd_log_style_bold(), scheme, FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), fd_log_style_normal() ));
-      FD_LOG_INFO(( "downloading %s snapshot at slot %lu from configured server %s://" FD_IP4_ADDR_FMT ":%hu",
+      FD_LOG_INFO(( "downloading %s at slot %lu from configured server %s://" FD_IP4_ADDR_FMT ":%hu",
                     what, slot, scheme, FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
     }
     return;
@@ -821,9 +822,9 @@ log_download( fd_snapct_tile_t * ctx,
   if( FD_UNLIKELY( is_entrypoint ) ) kind = "entrypoint gossip peer";
 
   FD_BASE58_ENCODE_32_BYTES( peer->key.pubkey->uc, pubkey_b58 );
-  FD_LOG_NOTICE(( "downloading %s snapshot from %s %s%s%s",
+  FD_LOG_NOTICE(( "downloading %s from %s %s%s%s",
                   what, kind, fd_log_style_bold(), pubkey_b58, fd_log_style_normal() ));
-  FD_LOG_INFO(( "downloading %s snapshot at slot %lu from %s %s at " FD_IP4_ADDR_FMT ":%hu",
+  FD_LOG_INFO(( "downloading %s at slot %lu from %s %s at " FD_IP4_ADDR_FMT ":%hu",
                 what, slot, kind, pubkey_b58,
                 FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
 }
@@ -967,24 +968,6 @@ next_deadline( fd_snapct_tile_t * ctx ) {
   return fd_clock_tile_wallclock_to_tickcount( ctx->clock, next );
 }
 
-/* fast_boot_server points ctx->peer at the first server in the config
-   and returns 1, or 0 while that server has not resolved yet. */
-
-static int
-fast_boot_server( fd_snapct_tile_t * ctx ) {
-  ulong i = 0UL;
-  while( i<ctx->resolved_servers_cnt && strcmp( ctx->resolved_servers[ i ].hostname, ctx->dns_servers[ 0 ].hostname ) ) i++;
-  if( FD_UNLIKELY( i==ctx->resolved_servers_cnt ) ) return 0;
-  if( FD_UNLIKELY( !ctx->peer.key.is_url || ctx->peer.addr.l!=ctx->resolved_servers[ i ].addr.l ) ) {
-    ctx->peer.addr = ctx->resolved_servers[ i ].addr;
-    memset( &ctx->peer.key.url, 0, sizeof(ctx->peer.key.url) );
-    strncpy( ctx->peer.key.url.hostname, ctx->resolved_servers[ i ].hostname, sizeof(ctx->peer.key.url.hostname)-1UL );
-    ctx->peer.key.url.resolved_addr = ctx->peer.addr;
-    ctx->peer.key.is_url            = 1;
-  }
-  return 1;
-}
-
 /* stream_init_load asks snapld for the fast boot stream by name. */
 
 static void
@@ -1008,19 +991,36 @@ stream_init_load( fd_snapct_tile_t *  ctx,
   FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "fast-boot-stream-%lu-%s.tar.zst", ctx->fast_boot.stream_slot, hash_b58 ) );
 }
 
-/* stream_start sends snapld the stream's path on the configured
-   server. */
+/* start_server sets the address, hostname and scheme snapld uses to
+   reach ctx->peer.  Peers outside the config list use HTTP without a
+   hostname. */
+
+static void
+start_server( fd_snapct_tile_t *  ctx,
+              fd_ssctrl_start_t * out ) {
+  out->addr        = ctx->peer.addr;
+  out->is_https    = 0;
+  out->hostname[0] = '\0';
+  for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
+    if( FD_UNLIKELY( ctx->peer.key.is_url &&
+                     ctx->peer.key.url.resolved_addr.l==ctx->resolved_servers[ i ].addr.l &&
+                     !strcmp( ctx->peer.key.url.hostname, ctx->resolved_servers[ i ].hostname ) ) ) {
+      fd_cstr_ncpy( out->hostname, ctx->resolved_servers[ i ].hostname, sizeof(out->hostname) );
+      out->is_https = ctx->resolved_servers[ i ].is_https;
+      break;
+    }
+  }
+}
+
+/* stream_start sends snapld the stream's path on the server. */
 
 static void
 stream_start( fd_snapct_tile_t *  ctx,
               fd_stem_context_t * stem ) {
   fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
-  out->addr     = ctx->peer.addr;
-  out->is_https = ctx->dns_servers[ 0 ].is_https;
-  fd_cstr_ncpy( out->hostname, ctx->dns_servers[ 0 ].hostname, sizeof(out->hostname) );
+  start_server( ctx, out );
   FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", ctx->http_full_snapshot_name ) );
-  FD_LOG_NOTICE(( "downloading the fast boot stream from %s://" FD_IP4_ADDR_FMT ":%hu", out->is_https ? "https" : "http",
-                  FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+  log_download( ctx, 0, out->is_https );
   fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sizeof(fd_ssctrl_start_t), 0UL, 0UL, 0UL );
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_start_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->start_sent   = 1;
@@ -1054,15 +1054,17 @@ stream_meta( fd_snapct_tile_t *       ctx,
     out->full_slot   = ctx->fast_boot.full_slot;
     fd_memcpy( out->stream_hash, ctx->fast_boot.stream_hash, FD_HASH_FOOTPRINT );
     fd_memcpy( out->full_hash,   ctx->fast_boot.full_hash,   FD_HASH_FOOTPRINT );
+    out->server_key  = ctx->peer.key;
+    out->server_addr = ctx->peer.addr;
     fd_stem_publish( stem, ctx->out_ct.idx, FD_SNAPSHOT_MSG_STREAM_INIT, ctx->out_ct.chunk, sizeof(fd_ssctrl_stream_init_t), 0UL, 0UL, 0UL );
     ctx->out_ct.chunk = fd_dcache_compact_next( ctx->out_ct.chunk, sizeof(fd_ssctrl_stream_init_t), ctx->out_ct.chunk0, ctx->out_ct.wmark );
   }
 }
 
 /* stream_after_credit runs the snapct instance that reads the fast
-   boot stream: it asks the configured server for the stream at its
-   newest snapshot and follows it until snapin says the snapshots
-   behind it are done loading. */
+   boot stream: it asks the best server for the stream at its newest
+   snapshot and follows it until snapin says the snapshots behind it
+   are done loading. */
 
 static void
 stream_after_credit( fd_snapct_tile_t *  ctx,
@@ -1070,27 +1072,20 @@ stream_after_credit( fd_snapct_tile_t *  ctx,
                      long                now ) {
   switch( ctx->state ) {
     case FD_SNAPCT_STATE_INIT: {
-      if( FD_UNLIKELY( !fast_boot_server( ctx ) ) ) {
+      ctx->peer = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
+      if( FD_UNLIKELY( !ctx->peer.addr.l ) ) {
         if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) {
-          FD_LOG_ERR(( "timed out resolving [snapshots.sources.servers] for fast boot." ));
-        }
-        break;
-      }
-
-      fd_sspeer_t server = fd_sspeer_selector_query( ctx->selector, &ctx->peer.key );
-      if( FD_UNLIKELY( !server.addr.l ) ) {
-        if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) {
-          FD_LOG_NOTICE(( "the server in [snapshots.sources.servers] offers no snapshot "
+          FD_LOG_NOTICE(( "no server in [snapshots.sources] offers a snapshot "
                           "for the fast boot yet, waiting" ));
           ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
         }
         break;
       }
-      int has_incremental = server.incr_slot!=FD_SSPEER_SLOT_UNKNOWN;
-      ctx->fast_boot.stream_slot = has_incremental ? server.incr_slot : server.full_slot;
-      ctx->fast_boot.full_slot   = server.full_slot;
-      fd_memcpy( ctx->fast_boot.stream_hash, has_incremental ? server.incr_hash : server.full_hash, FD_HASH_FOOTPRINT );
-      fd_memcpy( ctx->fast_boot.full_hash,   server.full_hash, FD_HASH_FOOTPRINT );
+      int has_incremental = ctx->peer.incr_slot!=FD_SSPEER_SLOT_UNKNOWN;
+      ctx->fast_boot.stream_slot = has_incremental ? ctx->peer.incr_slot : ctx->peer.full_slot;
+      ctx->fast_boot.full_slot   = ctx->peer.full_slot;
+      fd_memcpy( ctx->fast_boot.stream_hash, has_incremental ? ctx->peer.incr_hash : ctx->peer.full_hash, FD_HASH_FOOTPRINT );
+      fd_memcpy( ctx->fast_boot.full_hash,   ctx->peer.full_hash, FD_HASH_FOOTPRINT );
       ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
       set_state( ctx, FD_SNAPCT_STATE_READING_STREAM );
       stream_init_load( ctx, stem );
@@ -1124,7 +1119,7 @@ stream_after_credit( fd_snapct_tile_t *  ctx,
 
     case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET:
       if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
-      ctx->deadline_nanos = now+ctx->config.wait_for_peers_timeout_nanos;
+      ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
       set_state( ctx, FD_SNAPCT_STATE_INIT );
       break;
 
@@ -1187,7 +1182,6 @@ after_credit( fd_snapct_tile_t *  ctx,
     int full = ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE || ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP;
     if( !file ) {
       fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
-      out->addr = ctx->peer.addr;
       if( ctx->config.fast_boot ) {
         FD_BASE58_ENCODE_32_BYTES( full ? ctx->fast_boot.full_hash : ctx->fast_boot.stream_hash, hash_b58 );
         if( full ) FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", ctx->fast_boot.full_slot, hash_b58 ) );
@@ -1203,18 +1197,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", ctx->http_incr_snapshot_name ) );
       }
 
-      /* Peers outside the config list use HTTP without a hostname. */
-      out->is_https    = 0;
-      out->hostname[0] = '\0';
-      for( ulong i=0UL; i<ctx->resolved_servers_cnt; i++ ) {
-        if( FD_UNLIKELY( ctx->peer.key.is_url &&
-                         ctx->peer.key.url.resolved_addr.l==ctx->resolved_servers[ i ].addr.l &&
-                         !strcmp( ctx->peer.key.url.hostname, ctx->resolved_servers[ i ].hostname ) ) ) {
-          fd_cstr_ncpy( out->hostname, ctx->resolved_servers[ i ].hostname, sizeof(out->hostname) );
-          out->is_https = ctx->resolved_servers[ i ].is_https;
-          break;
-        }
-      }
+      start_server( ctx, out );
       log_download( ctx, full, out->is_https );
     }
     ulong sz = file ? 0UL : sizeof(fd_ssctrl_start_t);
@@ -1231,11 +1214,6 @@ after_credit( fd_snapct_tile_t *  ctx,
     /* ============================================================== */
     case FD_SNAPCT_STATE_INIT: {
       if( FD_UNLIKELY( ctx->config.fast_boot ) ) {
-        if( FD_UNLIKELY( !fast_boot_server( ctx ) ) ) {
-          if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) FD_LOG_ERR(( "timed out resolving [snapshots.sources.servers] for fast boot." ));
-          break;
-        }
-
         /* The snapshots wait until replay has caught up on the
            stream, or holds at an epoch boundary, to reduce disk
            write contention. */
@@ -2035,11 +2013,16 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         }
       }
       if( !entry->allowed ) break;
-      /* Maybe update the RPC address of a new or existing allowed gossip peer */
+
+      /* Maybe update the address of a new or existing allowed gossip
+         peer.  This is its RPC socket, or its fast boot socket when
+         fast booting. */
       fd_ip4_port_t cur_addr = entry->rpc_addr;
       fd_ip4_port_t new_addr;
-      new_addr.addr = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].is_ipv6 ? 0 : msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].ip4;
-      new_addr.port = msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ].port;
+      fd_gossip_socket_t const * socket = &msg->contact_info->value->sockets[ ctx->config.fast_boot ? FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT : FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ];
+      new_addr.addr = socket->is_ipv6 ? 0 : socket->ip4;
+      new_addr.port = socket->port;
+
       /* Sanitize non-public/multicast/broadcast addresses to zero so
          they are never stored in entry->rpc_addr or handed to
          downstream code paths (e.g. on_snapshot_hash).  Normalizing
@@ -2601,6 +2584,8 @@ returnable_frag( fd_snapct_tile_t *  ctx,
     fd_memcpy( ctx->fast_boot.stream_hash, stream->stream_hash, FD_HASH_FOOTPRINT );
     fd_memcpy( ctx->fast_boot.full_hash,   stream->full_hash,   FD_HASH_FOOTPRINT );
     ctx->load_incremental = ctx->fast_boot.stream_slot!=ctx->fast_boot.full_slot;
+    ctx->peer.key  = stream->server_key;
+    ctx->peer.addr = stream->server_addr;
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));
   return 0;
 }
@@ -2639,7 +2624,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->ssping = NULL;
   int epoll_fd = FD_WAKER_INNER_FD( tile->waker_client_idx );
   if( FD_LIKELY( download_enabled( tile ) ) )         ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, TOTAL_PEERS_MAX, ctx->ssping_seed, on_ping, ctx, epoll_fd ) );
-  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, snapct_needs_incr( tile ), any_https, on_resolve, ctx, epoll_fd ) );
+  if( FD_LIKELY( tile->snapct.sources.servers_cnt ) ) ctx->ssresolver = fd_http_resolver_join( fd_http_resolver_new( _ssresolver, SERVER_PEERS_MAX, snapct_needs_incr( tile ), tile->snapct.fast_boot_stream, any_https, on_resolve, ctx, epoll_fd ) );
   else                                                ctx->ssresolver = NULL;
 
   ctx->netdb_fds->etc_hosts       = -1;

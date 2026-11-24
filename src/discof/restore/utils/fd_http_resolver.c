@@ -95,6 +95,7 @@ struct fd_http_resolver_private {
   int                              epoll_fd;
 
   int                              incremental_snapshot_fetch;
+  int                              fast_boot; /* only resolve servers with a fast boot stream */
 
   void *                           cb_arg;
   fd_http_resolver_on_resolve_fn_t on_resolve_cb;
@@ -135,6 +136,7 @@ void *
 fd_http_resolver_new( void *                           shmem,
                       ulong                            peers_cnt,
                       int                              incremental_snapshot_fetch,
+                      int                              fast_boot,
                       int                              load_ca_store,
                       fd_http_resolver_on_resolve_fn_t on_resolve_cb,
                       void *                           cb_arg,
@@ -187,6 +189,7 @@ fd_http_resolver_new( void *                           shmem,
   }
 
   resolver->incremental_snapshot_fetch = incremental_snapshot_fetch;
+  resolver->fast_boot                  = fast_boot;
   resolver->cb_arg                     = cb_arg;
   resolver->on_resolve_cb              = on_resolve_cb;
 
@@ -344,10 +347,10 @@ peer_connect( fd_http_resolver_t *  resolver,
   resolver->fds_len++;
 
   if( FD_UNLIKELY( peer->is_https ) ) {
-    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname, &resolver->tls,
+    fd_ssresolve_init_https( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, 0, peer->key.url.hostname, &resolver->tls,
                              &resolver->ca_store );
   } else {
-    fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, peer->key.url.hostname );
+    fd_ssresolve_init( peer->full_ssresolve, peer->addr, resolver->fds[ peer->fd.idx ].fd, 1, 0, peer->key.url.hostname );
   }
 
   if( FD_LIKELY( resolver->incremental_snapshot_fetch ) ) {
@@ -364,10 +367,10 @@ peer_connect( fd_http_resolver_t *  resolver,
     resolver->fds_idx[ resolver->fds_len ] = peer_pool_idx( resolver->pool, peer );
     resolver->fds_len++;
     if( FD_UNLIKELY( peer->is_https ) ) {
-      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname, &resolver->tls,
+      fd_ssresolve_init_https( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, resolver->fast_boot, peer->key.url.hostname, &resolver->tls,
                                &resolver->ca_store );
     } else {
-      fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, peer->key.url.hostname );
+      fd_ssresolve_init( peer->inc_ssresolve, peer->addr, resolver->fds[ peer->fd.idx+1UL ].fd, 0, resolver->fast_boot, peer->key.url.hostname );
     }
   } else {
     resolver->fds[ resolver->fds_len ] = (struct pollfd) {

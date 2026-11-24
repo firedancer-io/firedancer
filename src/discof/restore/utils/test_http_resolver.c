@@ -155,7 +155,7 @@ run_resolve( char const *       full_resp,
   FD_TEST( -1!=epoll_fd );
 
   FD_TEST( fd_http_resolver_footprint( MAX_PEERS )<=sizeof(_resolver) );
-  fd_http_resolver_t * resolver = fd_http_resolver_join( fd_http_resolver_new( _resolver, MAX_PEERS, incremental_fetch, 0, on_resolve, rec, epoll_fd ) );
+  fd_http_resolver_t * resolver = fd_http_resolver_join( fd_http_resolver_new( _resolver, MAX_PEERS, incremental_fetch, 0, 0, on_resolve, rec, epoll_fd ) );
   FD_TEST( resolver );
 
   fd_ip4_port_t addr;
