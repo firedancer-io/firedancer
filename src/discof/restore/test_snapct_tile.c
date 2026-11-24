@@ -890,7 +890,7 @@ test_fast_boot_gossip_server( fd_ssping_t * ssping ) {
   fd_ip4_port_t rpc       = test_addr( 0x08080808 /* 8.8.8.8 */, 8899 );
   fd_ip4_port_t fast_boot = test_addr( 0x08080808 /* 8.8.8.8 */, 8902 );
   send_contact_info_with_rpc( ctx, msg, idx, &peer, rpc );
-  FD_TEST( !ctx->gossip.ci_table[ idx ].rpc_addr.l );
+  FD_TEST( !ctx->gossip.ci_table[ idx ].addr.l );
   FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
   int busy = 0;
 
@@ -901,7 +901,7 @@ test_fast_boot_gossip_server( fd_ssping_t * ssping ) {
   msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT ].ip4  = fast_boot.addr;
   msg->contact_info->value->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT ].port = fast_boot.port;
   gossip_frag( ctx, FD_GOSSIP_UPDATE_TAG_CONTACT_INFO, FD_GOSSIP_UPDATE_SZ_CONTACT_INFO, 0UL );
-  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==fast_boot.l );
+  FD_TEST( ctx->gossip.ci_table[ idx ].addr.l==fast_boot.l );
 
   /* Its snapshot hashes name the stream. */
   fd_memset( msg, 0, sizeof(*msg) );
@@ -1365,7 +1365,7 @@ test_contact_info_public_rpc_address( fd_ssping_t * ssping ) {
   send_contact_info_with_rpc( ctx, msg, idx, &peer, pub );
 
   FD_TEST( ctx->gossip.ci_table[ idx ].allowed );
-  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==pub.l );
+  FD_TEST( ctx->gossip.ci_table[ idx ].addr.l==pub.l );
   FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
 
   /* Clean up ssping state so the shared instance can be reused. */
@@ -1391,7 +1391,7 @@ test_contact_info_invalid_rpc_address_cleared( fd_ssping_t * ssping ) {
   /* The peer is allowed, but its address should have been normalized
      to zero by the sanitizer. */
   FD_TEST( ctx->gossip.ci_table[ idx ].allowed );
-  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==0UL );
+  FD_TEST( ctx->gossip.ci_table[ idx ].addr.l==0UL );
   FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
 
   free( scratch );
@@ -1413,7 +1413,7 @@ test_rpc_flap_to_invalidated_addr_evicts_selector( fd_ssping_t * ssping ) {
   /* Peer arrives with a valid public RPC address.  It should be in both
      the CI table and the selector. */
   send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_a );
-  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr_a.l );
+  FD_TEST( ctx->gossip.ci_table[ idx ].addr.l==addr_a.l );
   FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
 
   /* Simulate addr_b being invalidated by ssping (e.g. another peer at
@@ -1428,7 +1428,7 @@ test_rpc_flap_to_invalidated_addr_evicts_selector( fd_ssping_t * ssping ) {
   send_contact_info_with_rpc( ctx, msg, idx, &peer, addr_b );
 
   /* The CI table must reflect the new address. */
-  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==addr_b.l );
+  FD_TEST( ctx->gossip.ci_table[ idx ].addr.l==addr_b.l );
 
   /* The selector must have evicted the peer so that
      fd_sspeer_selector_best cannot return a stale addr_a entry. */
@@ -1460,7 +1460,7 @@ test_contact_info_public_to_invalid_update( fd_ssping_t * ssping ) {
 
   /* First gossip refresh: public address is accepted. */
   send_contact_info_with_rpc( ctx, msg, idx, &peer, pub );
-  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==pub.l );
+  FD_TEST( ctx->gossip.ci_table[ idx ].addr.l==pub.l );
   FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
 
   /* Second gossip refresh: peer now advertises a private address. */
@@ -1469,7 +1469,7 @@ test_contact_info_public_to_invalid_update( fd_ssping_t * ssping ) {
 
   /* The address should be zeroed and the peer removed from the
      selector.  ssping should have removed the old public address. */
-  FD_TEST( ctx->gossip.ci_table[ idx ].rpc_addr.l==0UL );
+  FD_TEST( ctx->gossip.ci_table[ idx ].addr.l==0UL );
   FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
 
   free( scratch );

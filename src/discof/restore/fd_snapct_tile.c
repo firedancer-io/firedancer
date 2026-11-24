@@ -93,7 +93,7 @@ typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 struct gossip_ci_entry {
   fd_pubkey_t   pubkey;
   int           allowed;
-  fd_ip4_port_t rpc_addr;
+  fd_ip4_port_t addr;
   ulong         map_next;
 };
 typedef struct gossip_ci_entry gossip_ci_entry_t;
@@ -547,7 +547,7 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
   if( FD_UNLIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN && incr_slot>=FD_SSPEER_PLAUSIBLE_MAX_SLOT ) ) return;
 
   if( FD_UNLIKELY( !addr.l ) ) {
-    /* A peer that does not advertise an rpc_addr cannot be added to
+    /* A peer that does not advertise an address cannot be added to
        the selector: if previously added, remove it.  The remove
        operation becomes a no-op if the peer is not found. */
     fd_sspeer_selector_remove( ctx->selector, key );
@@ -920,6 +920,10 @@ dns_advance( fd_snapct_tile_t * ctx,
       ctx->resolved_servers[ k ].addr     = (fd_ip4_port_t){ .addr=res->addrs[ j ], .port=ctx->dns_servers[ i ].port };
       ctx->resolved_servers[ k ].is_https = ctx->dns_servers[ i ].is_https;
       fd_cstr_ncpy( ctx->resolved_servers[ k ].hostname, ctx->dns_servers[ i ].hostname, sizeof(ctx->resolved_servers[ k ].hostname) );
+
+      /* The snapct loading the snapshots behind a fast boot stream is
+         told its server, so it tracks none. */
+      if( FD_UNLIKELY( ctx->config.fast_boot && !ctx->config.fast_boot_stream ) ) continue;
 
       /* The peer needs to be added to resolver and to selector.
          Only if this succeeds, add the peer to ssping list. */
@@ -1958,6 +1962,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
              ulong               sz FD_PARAM_UNUSED,
              ulong               chunk ) {
   FD_TEST( ctx->gossip_enabled );
+  if( FD_UNLIKELY( ctx->config.fast_boot && !ctx->config.fast_boot_stream ) ) return;
 
   if( FD_UNLIKELY( sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED ) ) {
     ctx->gossip.saturated = 1;
@@ -1968,6 +1973,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
          sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
          sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES ) ) return;
 
+  char const * socket_name = ctx->config.fast_boot ? "fast boot" : "RPC";
   fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->gossip_in_mem, chunk );
   switch( msg->tag ) {
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
@@ -1978,7 +1984,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         /* Initialize the new gossip entry, which may or may not be allowed */
         FD_TEST( fd_pubkey_check_zero( &entry->pubkey ) );
         entry->pubkey      = *pubkey;
-        entry->rpc_addr.l  = 0UL;
+        entry->addr.l      = 0UL;
         if( ctx->config.sources.gossip.allow_any ) {
           entry->allowed = 1;
           for( ulong i=0UL; i<ctx->config.sources.gossip.block_list_cnt; i++ ) {
@@ -2017,14 +2023,14 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       /* Maybe update the address of a new or existing allowed gossip
          peer.  This is its RPC socket, or its fast boot socket when
          fast booting. */
-      fd_ip4_port_t cur_addr = entry->rpc_addr;
+      fd_ip4_port_t cur_addr = entry->addr;
       fd_ip4_port_t new_addr;
       fd_gossip_socket_t const * socket = &msg->contact_info->value->sockets[ ctx->config.fast_boot ? FD_GOSSIP_CONTACT_INFO_SOCKET_FAST_BOOT : FD_GOSSIP_CONTACT_INFO_SOCKET_RPC ];
       new_addr.addr = socket->is_ipv6 ? 0 : socket->ip4;
       new_addr.port = socket->port;
 
       /* Sanitize non-public/multicast/broadcast addresses to zero so
-         they are never stored in entry->rpc_addr or handed to
+         they are never stored in entry->addr or handed to
          downstream code paths (e.g. on_snapshot_hash).  Normalizing
          before comparing against cur_addr avoids repeated selector
          removals and log warnings on every gossip refresh. */
@@ -2042,7 +2048,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         if( FD_LIKELY( !!new_addr.l ) ) {
           /* Do not re-add peers that have been permanently blacklisted
              or whose new address is temporarily banned by ssping.
-             Bookkeeping (ssping cleanup, rpc_addr update) still runs
+             Bookkeeping (ssping cleanup, addr update) still runs
              so the CI table and ssping pool stay consistent. */
           if( FD_LIKELY( !blacklist_map_ele_query( ctx->blacklist_map, &entry_key, NULL, ctx->blacklist_pool ) &&
                          !fd_ssping_is_invalidated( ctx->ssping, new_addr ) ) ) {
@@ -2061,21 +2067,21 @@ gossip_frag( fd_snapct_tile_t *  ctx,
           }
         } else {
           if( FD_UNLIKELY( !!unfiltered_addr ) ) {
-            FD_LOG_WARNING(( "filtered non-public RPC address " FD_IP4_ADDR_FMT " from gossip peer", FD_IP4_ADDR_FMT_ARGS( unfiltered_addr ) ));
+            FD_LOG_WARNING(( "filtered non-public %s address " FD_IP4_ADDR_FMT " from gossip peer", socket_name, FD_IP4_ADDR_FMT_ARGS( unfiltered_addr ) ));
           }
           fd_sspeer_selector_remove( ctx->selector, &entry_key );
         }
         if( FD_LIKELY( !!cur_addr.l ) ) {
           fd_ssping_remove( ctx->ssping, cur_addr );
         }
-        entry->rpc_addr = new_addr;
+        entry->addr = new_addr;
         if( !ctx->config.sources.gossip.allow_any ) {
           FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
           if( FD_LIKELY( !!new_addr.l ) ) {
-            FD_LOG_NOTICE(( "allowed gossip peer added with public key `%s` and RPC address `" FD_IP4_ADDR_FMT ":%hu`",
-                            pubkey_b58, FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), fd_ushort_bswap( new_addr.port ) ));
+            FD_LOG_NOTICE(( "allowed gossip peer added with public key `%s` and %s address `" FD_IP4_ADDR_FMT ":%hu`",
+                            pubkey_b58, socket_name, FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), fd_ushort_bswap( new_addr.port ) ));
           } else {
-            FD_LOG_WARNING(( "allowed gossip peer with public key `%s` does not advertise an RPC address", pubkey_b58 ));
+            FD_LOG_WARNING(( "allowed gossip peer with public key `%s` does not advertise a %s address", pubkey_b58, socket_name ));
           }
         }
       }
@@ -2088,7 +2094,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       if( rem_idx!=ULONG_MAX ) {
         FD_TEST( entry->allowed && rem_idx==msg->contact_info_remove->idx );
         ctx->gossip.allowed_cnt--;
-        fd_ip4_port_t addr = entry->rpc_addr;
+        fd_ip4_port_t addr = entry->addr;
         if( FD_LIKELY( !!addr.l ) ) {
           fd_ssping_remove( ctx->ssping, addr );
           fd_sspeer_key_t entry_key = {0};
@@ -2098,8 +2104,8 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         }
         if( !ctx->config.sources.gossip.allow_any ) {
           FD_BASE58_ENCODE_32_BYTES( entry->pubkey.uc, pubkey_b58 );
-          FD_LOG_WARNING(( "allowed gossip peer removed with public key `%s` and RPC address `" FD_IP4_ADDR_FMT ":%hu`",
-                           pubkey_b58, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
+          FD_LOG_WARNING(( "allowed gossip peer removed with public key `%s` and %s address `" FD_IP4_ADDR_FMT ":%hu`",
+                           pubkey_b58, socket_name, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
         }
       }
       fd_memset( entry, 0, sizeof(*entry) );
@@ -2113,7 +2119,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         fd_sspeer_key_t entry_key = {0};
         *entry_key.pubkey = entry->pubkey;
         entry_key.is_url  = 0;
-        on_snapshot_hash( ctx, &entry_key, entry->rpc_addr, msg );
+        on_snapshot_hash( ctx, &entry_key, entry->addr, msg );
       }
       break;
     }
