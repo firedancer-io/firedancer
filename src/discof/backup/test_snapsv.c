@@ -777,27 +777,34 @@ FD_UNIT_TEST( test_build_redirect_hdr ) {
   memset( hash, 0, sizeof(hash) );
 
   /* the all-zero hash encodes as 32 base58 '1's */
-  HDR_EQ( build_redirect_hdr( hdr, 0, 100UL, ULONG_MAX, hash, 1, 0 ),
+  HDR_EQ( build_redirect_hdr( hdr, "snapshot-", 100UL, ULONG_MAX, hash, 1, 0 ),
           "HTTP/1.1 302 Found\r\n"
           "Location: /snapshot-100-11111111111111111111111111111111.tar.zst\r\n"
           "Content-Length: 0\r\n"
           "\r\n" );
 
-  HDR_EQ( build_redirect_hdr( hdr, 0, 100UL, ULONG_MAX, hash, 0, 0 ),
+  HDR_EQ( build_redirect_hdr( hdr, "snapshot-", 100UL, ULONG_MAX, hash, 0, 0 ),
           "HTTP/1.1 302 Found\r\n"
           "Location: /snapshot-100-11111111111111111111111111111111.tar\r\n"
           "Content-Length: 0\r\n"
           "\r\n" );
 
   /* incremental redirects name the base slot first */
-  HDR_EQ( build_redirect_hdr( hdr, 1, 250UL, 100UL, hash, 1, 0 ),
+  HDR_EQ( build_redirect_hdr( hdr, "incremental-snapshot-", 250UL, 100UL, hash, 1, 0 ),
           "HTTP/1.1 302 Found\r\n"
           "Location: /incremental-snapshot-100-250-11111111111111111111111111111111.tar.zst\r\n"
           "Content-Length: 0\r\n"
           "\r\n" );
 
+  /* a fast boot stream is named like a full snapshot */
+  HDR_EQ( build_redirect_hdr( hdr, "fast-boot-stream-", 100UL, ULONG_MAX, hash, 1, 0 ),
+          "HTTP/1.1 302 Found\r\n"
+          "Location: /fast-boot-stream-100-11111111111111111111111111111111.tar.zst\r\n"
+          "Content-Length: 0\r\n"
+          "\r\n" );
+
   /* sick conns get a 'Connection: close' */
-  HDR_EQ( build_redirect_hdr( hdr, 0, 100UL, ULONG_MAX, hash, 1, 1 ),
+  HDR_EQ( build_redirect_hdr( hdr, "snapshot-", 100UL, ULONG_MAX, hash, 1, 1 ),
           "HTTP/1.1 302 Found\r\n"
           "Location: /snapshot-100-11111111111111111111111111111111.tar.zst\r\n"
           "Content-Length: 0\r\n"
@@ -808,7 +815,7 @@ FD_UNIT_TEST( test_build_redirect_hdr ) {
      request path matcher */
   {
     memcpy( hash, test_hash( 11UL ), 32UL );
-    build_redirect_hdr( hdr, 1, 250UL, 100UL, hash, 1, 0 );
+    build_redirect_hdr( hdr, "incremental-snapshot-", 250UL, 100UL, hash, 1, 0 );
     char const * loc = strstr( hdr, "Location: /" );
     FD_TEST( loc );
     loc += strlen( "Location: /" );
@@ -821,7 +828,7 @@ FD_UNIT_TEST( test_build_redirect_hdr ) {
 
   /* worst case sizes fit the buffer */
   memset( hash, 0xff, sizeof(hash) );
-  FD_TEST( build_redirect_hdr( hdr, 1, ULONG_MAX-1UL, ULONG_MAX-1UL, hash, 1, 1 )<RES_HDR_MAX );
+  FD_TEST( build_redirect_hdr( hdr, "incremental-snapshot-", ULONG_MAX-1UL, ULONG_MAX-1UL, hash, 1, 1 )<RES_HDR_MAX );
 }
 
 #undef HDR_EQ

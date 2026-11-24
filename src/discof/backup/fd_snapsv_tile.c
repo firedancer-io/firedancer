@@ -1516,23 +1516,25 @@ newest_snap( fd_snapsv_t * ctx,
   return entry;
 }
 
+/* build_redirect_hdr names a snapshot or a fast boot stream:
+   <prefix>[<base_slot>-]<slot>-<hash>.tar[.zst].  base_slot is
+   ULONG_MAX when the name has none. */
+
 static ulong
-build_redirect_hdr( char        out[ static RES_HDR_MAX ], /* not a cstr */
-                    int         incremental,
-                    ulong       slot,
-                    ulong       base_slot,
-                    uchar const hash[ static 32 ],
-                    int         is_zstd,
-                    int         sick ) {
+build_redirect_hdr( char         out[ static RES_HDR_MAX ], /* not a cstr */
+                    char const * prefix,
+                    ulong        slot,
+                    ulong        base_slot,
+                    uchar const  hash[ static 32 ],
+                    int          is_zstd,
+                    int          sick ) {
   char * p = fd_cstr_init( out );
   p = fd_cstr_append_cstr( p, "HTTP/1.1 302 Found\r\n" );
   p = fd_cstr_append_cstr( p, "Location: /" );
-  if( incremental ) {
-    p = fd_cstr_append_cstr( p, "incremental-snapshot-" );
+  p = fd_cstr_append_cstr( p, prefix );
+  if( base_slot!=ULONG_MAX ) {
     p = fd_cstr_append_ulong_as_text( p, 0, 0, base_slot, fd_ulong_base10_dig_cnt( base_slot ) );
     p = fd_cstr_append_char( p, '-' );
-  } else {
-    p = fd_cstr_append_cstr( p, "snapshot-" );
   }
   p = fd_cstr_append_ulong_as_text( p, 0, 0, slot, fd_ulong_base10_dig_cnt( slot ) );
   p = fd_cstr_append_char( p, '-' );
@@ -1548,27 +1550,6 @@ build_redirect_hdr( char        out[ static RES_HDR_MAX ], /* not a cstr */
   return (ulong)( p - out );
 }
 
-/* build_fast_boot_redirect_hdr names a fast boot stream the way the
-   snapshot redirect names a snapshot. */
-
-static ulong
-build_fast_boot_redirect_hdr( char        out[ static RES_HDR_MAX ], /* not a cstr */
-                              ulong       slot,
-                              uchar const hash[ static 32 ],
-                              int         sick ) {
-  char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
-  fd_base58_encode_32( hash, NULL, hash_b58 );
-  char * p = fd_cstr_init( out );
-  p = fd_cstr_append_cstr( p, "HTTP/1.1 302 Found\r\nLocation: /fast-boot-stream-" );
-  p = fd_cstr_append_ulong_as_text( p, 0, 0, slot, fd_ulong_base10_dig_cnt( slot ) );
-  p = fd_cstr_append_char( p, '-' );
-  p = fd_cstr_append_cstr( p, hash_b58 );
-  p = fd_cstr_append_cstr( p, ".tar.zst\r\nContent-Length: 0\r\n" );
-  if( sick ) p = fd_cstr_append_cstr( p, "Connection: close\r\n" );
-  p = fd_cstr_append_cstr( p, "\r\n" );
-  return (ulong)( p - out );
-}
-
 /* serve_redirect dispatches a RES_WRITE_HDR job for a /snapshot.tar.bz2
    redirect. */
 
@@ -1578,31 +1559,35 @@ serve_redirect( fd_snapsv_t * ctx,
   snapsv_conn_t * conn = &ctx->conn0[ conn_idx ];
   FD_CHECK_ERR( conn->state==CONN_STATE_RES_REDIRECT, "state confusion" );
 
+  char const *  prefix    = conn->req.incremental ? "incremental-snapshot-" : "snapshot-";
+  ulong         base_slot = ULONG_MAX;
+  ulong         slot      = 0UL;
+  uchar const * hash      = NULL;
+  int           is_zstd   = 1;
   if( FD_UNLIKELY( conn->req.fast_boot ) ) {
     /* The first stream after the one the peer finished, closed or
        not, so a peer far behind still reads every stream in order. */
     ulong idx = ULONG_MAX;
     for( ulong i=0UL; i<ctx->fast_boot.max; i++ ) {
-      ulong slot = ctx->fast_boot.slot[ i ];
-      if( slot==ULONG_MAX || slot<=conn->stream.slot ) continue;
-      if( idx==ULONG_MAX || slot<ctx->fast_boot.slot[ idx ] ) idx = i;
+      if( ctx->fast_boot.slot[ i ]==ULONG_MAX || ctx->fast_boot.slot[ i ]<=conn->stream.slot ) continue;
+      if( idx==ULONG_MAX || ctx->fast_boot.slot[ i ]<ctx->fast_boot.slot[ idx ] ) idx = i;
     }
-    if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
-      conn->state      = CONN_STATE_RES_WRITE_ERR;
-      conn->res.status = 404U;
-      serve_http_err( ctx, conn_idx );
-      return;
+    if( FD_LIKELY( idx!=ULONG_MAX ) ) {
+      prefix = "fast-boot-stream-";
+      slot   = ctx->fast_boot.slot[ idx ];
+      hash   = ctx->fast_boot.hash[ idx ];
     }
-    FD_CHECK_ERR( conn->iobuf_idx==UINT_MAX, "conn has stale iobuf" );
-    iobuf_alloc( ctx, &conn->iobuf_idx );
-    conn->res.sent = 0;
-    conn->res.len  = (uint)build_fast_boot_redirect_hdr( (char *)conn_iobuf( ctx, conn ), ctx->fast_boot.slot[ idx ], ctx->fast_boot.hash[ idx ], conn->sick );
-    prep_write_hdr( ctx, conn_idx );
-    return;
+  } else {
+    snap_entry_t * snap = newest_snap( ctx, conn->req.incremental );
+    if( FD_LIKELY( snap ) ) {
+      base_slot = snap->key.base_slot;
+      slot      = snap->key.slot;
+      hash      = snap->hash;
+      is_zstd   = snap->is_zstd;
+    }
   }
 
-  snap_entry_t * snap = newest_snap( ctx, conn->req.incremental );
-  if( FD_UNLIKELY( !snap ) ) {
+  if( FD_UNLIKELY( !hash ) ) {
     conn->state      = CONN_STATE_RES_WRITE_ERR;
     conn->res.status = 404U;
     serve_http_err( ctx, conn_idx );
@@ -1612,15 +1597,8 @@ serve_redirect( fd_snapsv_t * ctx,
   /* return response */
   FD_CHECK_ERR( conn->iobuf_idx==UINT_MAX, "conn has stale iobuf" );
   iobuf_alloc( ctx, &conn->iobuf_idx );
-  uchar * iobuf = conn_iobuf( ctx, conn );
   conn->res.sent = 0;
-  conn->res.len  = (uint)build_redirect_hdr(
-      (char *)iobuf,
-      conn->req.incremental,
-      snap->key.slot, snap->key.base_slot,
-      snap->hash,
-      snap->is_zstd,
-      conn->sick );
+  conn->res.len  = (uint)build_redirect_hdr( (char *)conn_iobuf( ctx, conn ), prefix, slot, base_slot, hash, is_zstd, conn->sick );
   prep_write_hdr( ctx, conn_idx );
 }
 
