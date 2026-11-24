@@ -1010,20 +1010,6 @@ start_server( fd_snapct_tile_t *  ctx,
   }
 }
 
-/* stream_start sends snapld the stream's path on the server. */
-
-static void
-stream_start( fd_snapct_tile_t *  ctx,
-              fd_stem_context_t * stem ) {
-  fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
-  start_server( ctx, out );
-  FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", ctx->http_full_snapshot_name ) );
-  log_download( ctx, 0, out->is_https );
-  fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sizeof(fd_ssctrl_start_t), 0UL, 0UL, 0UL );
-  ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_start_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
-  ctx->start_sent   = 1;
-}
-
 /* stream_meta handles the META snapld sends once the stream request
    got a response: the stream exists.  It cancels any pending re-pick
    and sends STREAM_INIT to the snapct that loads the snapshots. */
@@ -1084,8 +1070,6 @@ stream_after_credit( fd_snapct_tile_t *  ctx,
     }
 
     case FD_SNAPCT_STATE_READING_STREAM: {
-      if( FD_UNLIKELY( !ctx->start_sent && ctx->flush_ack==ctx->flush_ack_cnt ) ) stream_start( ctx, stem );
-
       if( FD_LIKELY( now<=ctx->deadline_nanos ) ) break;
 
       fd_sspeer_t   server          = fd_sspeer_selector_query( ctx->selector, &ctx->peer.key );
@@ -1148,11 +1132,6 @@ after_credit( fd_snapct_tile_t *  ctx,
     FD_LOG_ERR(( "the fast boot failed loading %s", ctx->http_incr_snapshot_name[ 0 ] ? ctx->http_incr_snapshot_name : ctx->http_full_snapshot_name ));
   }
 
-  if( FD_UNLIKELY( ctx->config.fast_boot_stream ) ) {
-    stream_after_credit( ctx, stem, now );
-    return;
-  }
-
   /* send an expected slot message as the predicted incremental
      could have changed as a result of the pinger, resolver, or from
      processing gossip frags in gossip_frag. */
@@ -1165,7 +1144,8 @@ after_credit( fd_snapct_tile_t *  ctx,
      DATA reaches a tile before its INIT completes. */
   if( FD_UNLIKELY( !ctx->start_sent && !ctx->malformed &&
                    ctx->flush_ack==ctx->flush_ack_cnt &&
-                   (ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE        ||
+                   (ctx->state==FD_SNAPCT_STATE_READING_STREAM           ||
+                    ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE        ||
                     ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP        ||
                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ||
                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP) ) ) {
@@ -1173,7 +1153,9 @@ after_credit( fd_snapct_tile_t *  ctx,
     int full = ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE || ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP;
     if( !file ) {
       fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
-      if( ctx->config.fast_boot && full ) {
+      if( ctx->state==FD_SNAPCT_STATE_READING_STREAM ) {
+        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", ctx->http_full_snapshot_name ) );
+      } else if( ctx->config.fast_boot && full ) {
         FD_BASE58_ENCODE_32_BYTES( ctx->peer.full_hash, hash_b58 );
         FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", ctx->peer.full_slot, hash_b58 ) );
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", ctx->http_full_snapshot_name ) );
@@ -1194,6 +1176,11 @@ after_credit( fd_snapct_tile_t *  ctx,
     fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_START, ctx->out_ld.chunk, sz, 0UL, 0UL, 0UL );
     ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sz, ctx->out_ld.chunk0, ctx->out_ld.wmark );
     ctx->start_sent = 1;
+  }
+
+  if( FD_UNLIKELY( ctx->config.fast_boot_stream ) ) {
+    stream_after_credit( ctx, stem, now );
+    return;
   }
 
   /* Note: All state transitions should occur within this switch
