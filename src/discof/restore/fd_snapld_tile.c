@@ -323,19 +323,19 @@ transition_malformed( fd_snapld_tile_t *  ctx,
 }
 
 /* handle_connection_failure asks a fast boot stream for its bytes
-   again from the current offset.  A stream never fails on its own:
-   replay runs on it and it ends once the snapshots behind it are in.
-   A snapshot request that failed before any of its response went
-   downstream is sent again a few times.  Returns 0 otherwise, the
-   caller fails the load then. */
+   again from the current offset.  A stream that has answered never
+   fails on its own: replay runs on it and it ends once the snapshots
+   behind it are in.  A request that failed before any of its response
+   went downstream is sent again a few times.  Returns 0 otherwise,
+   the caller fails the load then. */
 static int
 handle_connection_failure( fd_snapld_tile_t * ctx,
                            long               now ) {
-  if( FD_LIKELY( !ctx->fast_boot_stream.active ) ) {
+  if( FD_LIKELY( !ctx->fast_boot_stream.active || !ctx->sent_meta ) ) {
     if( FD_LIKELY( ctx->sent_meta || !ctx->request_retries ) ) return 0;
     ctx->request_retries--;
-    FD_LOG_NOTICE(( "sending the %s snapshot request again, %u tries left",
-                    ctx->load_full ? "full" : "incremental", ctx->request_retries ));
+    FD_LOG_NOTICE(( "sending the %s request again, %u tries left",
+                    ctx->fast_boot_stream.active ? "fast boot stream" : ctx->load_full ? "full snapshot" : "incremental snapshot", ctx->request_retries ));
   }
   fd_sshttp_cancel( ctx->sshttp );
   ctx->window_deadline       = LONG_MAX;

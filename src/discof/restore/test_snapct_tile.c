@@ -943,6 +943,47 @@ test_fast_boot_gossip_server( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+/* A stream server that never answers is set aside and the pick
+   starts over.  Once the stream answered, an error ends the boot. */
+static void
+test_stream_unanswered( void ) {
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+  test_ctx_wake_init( ctx );
+  static uchar output[ 16384UL ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  void * sel = aligned_alloc( fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) ); FD_TEST( sel );
+  ctx->selector                = fd_sspeer_selector_join( fd_sspeer_selector_new( sel, TOTAL_PEERS_MAX, TEST_SELECTOR_SEED ) );
+  ctx->config.fast_boot        = 1;
+  ctx->config.fast_boot_stream = 1;
+  ctx->flush_ack_cnt           = 1;
+  ctx->out_ld.mem              = (fd_wksp_t *)output;
+  ctx->out_ld.wmark            = 128UL;
+  test_output                  = output;
+
+  test_server( &ctx->peer, 100UL, 0x22, 150UL, 0x11 );
+  fd_sspeer_selector_add( ctx->selector, &ctx->peer.key, ctx->peer.addr, 5000UL, 100UL, 150UL, ctx->peer.full_hash, ctx->peer.incr_hash );
+  ctx->state          = FD_SNAPCT_STATE_READING_STREAM;
+  ctx->start_sent     = 1;
+  ctx->deadline_nanos = LONG_MAX-1L;
+  ctrl_ack_frag( ctx, FD_SNAPSHOT_MSG_CTRL_ERROR );
+  FD_TEST( ctx->malformed );
+  int   busy      = 0;
+  ulong published = test_publish_cnt;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && !ctx->malformed );
+  FD_TEST( test_publish_cnt==published+1UL && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( ctx->selector ) );
+
+  ctx->state          = FD_SNAPCT_STATE_READING_STREAM;
+  ctx->deadline_nanos = LONG_MAX;
+  ctx->malformed      = 1;
+  pid_t pid = fork(); FD_TEST( pid>=0 );
+  if( !pid ) { after_credit( ctx, NULL, NULL, &busy ); _exit( 0 ); }
+  int status; FD_TEST( waitpid( pid, &status, 0 )==pid );
+  FD_TEST( WIFEXITED( status ) && WEXITSTATUS( status )==1 );
+  free( sel );
+}
+
 static void
 test_load_complete_signal( void ) {
   fd_snapct_tile_t ctx[1];
@@ -2556,6 +2597,7 @@ main( int     argc,
   test_snapld_ctrl_frag_matches_ack();
   test_stream_signals();
   test_stream_instance_init();
+  test_stream_unanswered();
   test_background_snapshot_instance();
   test_background_snapshot_full_on_disk();
   test_start_after_init_acks();

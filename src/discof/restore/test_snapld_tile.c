@@ -863,6 +863,17 @@ test_request_retry( void ) {
   }
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR && publish_cnt==1UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && http->state==FD_SSHTTP_STATE_INIT );
 
+  /* A fast boot stream request that never got an answer is given up
+     the same way.  Once the stream answered it is asked again
+     without end. */
+  ctx->fast_boot_stream.active = 1;
+  ctx->sent_meta               = 0;
+  ctx->request_retries         = 1U;
+  FD_TEST( handle_connection_failure( ctx, 0L ) && !ctx->request_retries );
+  FD_TEST( !handle_connection_failure( ctx, 0L ) );
+  ctx->sent_meta = 1;
+  FD_TEST( handle_connection_failure( ctx, 0L ) && handle_connection_failure( ctx, 0L ) );
+
   fd_sshttp_cancel( http );
   FD_TEST( !close( server ) );
 }

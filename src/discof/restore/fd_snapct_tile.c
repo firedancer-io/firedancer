@@ -1070,6 +1070,18 @@ stream_after_credit( fd_snapct_tile_t *  ctx,
     }
 
     case FD_SNAPCT_STATE_READING_STREAM: {
+      if( FD_UNLIKELY( ctx->malformed ) ) {
+        FD_LOG_WARNING(( "the fast boot server at " FD_IP4_ADDR_FMT ":%hu did not answer, picking again",
+                         FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+        ctx->malformed = 0;
+        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_process_cluster_slot( ctx->selector );
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
+        ctx->flush_ack = 0;
+        set_state( ctx, FD_SNAPCT_STATE_FLUSHING_STREAM_RESET );
+        break;
+      }
+
       if( FD_LIKELY( now<=ctx->deadline_nanos ) ) break;
 
       fd_sspeer_t   server          = fd_sspeer_selector_query( ctx->selector, &ctx->peer.key );
@@ -1127,8 +1139,10 @@ after_credit( fd_snapct_tile_t *  ctx,
      No-op when the dirty flag is not set internally. */
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
 
-  /* Fast boot errors are unrecoverable. */
-  if( FD_UNLIKELY( ctx->config.fast_boot && ctx->malformed ) ) {
+  /* Fast boot errors are unrecoverable, except a stream whose server
+     never answered: another server is picked. */
+  int unanswered = ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->deadline_nanos!=LONG_MAX;
+  if( FD_UNLIKELY( ctx->config.fast_boot && ctx->malformed && !unanswered ) ) {
     FD_LOG_ERR(( "the fast boot failed loading %s", ctx->http_incr_snapshot_name[ 0 ] ? ctx->http_incr_snapshot_name : ctx->http_full_snapshot_name ));
   }
 
