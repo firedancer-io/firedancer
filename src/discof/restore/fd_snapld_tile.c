@@ -591,7 +591,12 @@ after_credit( fd_snapld_tile_t *  ctx,
           /* The stream ended and the server sent us on to the next
              one, which must start after it. */
           ctx->fast_boot_stream.redirect_handled = 1;
-          publish_caught_up( ctx, stem );
+          if( FD_UNLIKELY( !ctx->fast_boot_stream.caught_up ) ) {
+            FD_LOG_WARNING(( "the fast boot stream at slot %lu is gone from the server before it was read in full", ctx->fast_boot_stream.slot ));
+            transition_malformed( ctx, stem );
+            fd_sshttp_cancel( ctx->sshttp );
+            break;
+          }
           ulong        slot = fd_sshttp_resolved_slot( ctx->sshttp );
           char const * name = fd_sshttp_snapshot_name( ctx->sshttp );
           if( FD_UNLIKELY( slot<=ctx->fast_boot_stream.slot || strncmp( name, "fast-boot-stream-", 17UL ) ) ) {
@@ -663,7 +668,11 @@ after_credit( fd_snapld_tile_t *  ctx,
           /* The stream has not opened yet, or it ended and nothing
              follows it yet.  The server sends us on once the next
              one opens. */
-          if( ctx->fast_boot_stream.off ) publish_caught_up( ctx, stem );
+          if( FD_UNLIKELY( ctx->fast_boot_stream.off && !ctx->fast_boot_stream.caught_up ) ) {
+            FD_LOG_WARNING(( "the fast boot stream at slot %lu is gone from the server before it was read in full", ctx->fast_boot_stream.slot ));
+            transition_malformed( ctx, stem );
+            break;
+          }
           ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
           break;
         }

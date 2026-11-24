@@ -578,21 +578,38 @@ test_stream( void ) {
   init_stream_download( ctx, input, &sa, 124UL, name );
   FD_TEST( init_cnt==2UL && http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );
 
-  /* A stream that ends before replay caught up on it is complete as
-     of its start: caught up is reported once, then the server is
-     asked again. */
+  /* The server had 12 bytes and the stream is gone after 8: the
+     peer never caught up on it, so the load fails. */
   serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nStream-Offset: 0\r\nStream-Size: 12\r\n\r\nsnapshot" );
   drive_until( ctx, &ctx->fast_boot_stream.off, 8UL );
-  FD_TEST( !ctx->fast_boot_stream.caught_up );
   ulong published = publish_cnt;
   retry_now( ctx );
   serve_one( ctx, server, "Range: bytes=8-\r\n", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
   drive_until( ctx, &publish_cnt, published+1UL );
-  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_STREAM_CAUGHT_UP && ctx->fast_boot_stream.caught_up );
-  FD_TEST( ctx->fast_boot_stream.off==8UL && ctx->fast_boot_stream.wait!=LONG_MAX );
-  ctx->fast_boot_stream.wait = 0L;
-  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
-  FD_TEST( publish_cnt==published+1UL && http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );
+  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR && !ctx->fast_boot_stream.caught_up );
+
+  /* The same when the server sends the peer on to the next stream. */
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  init_stream_download( ctx, input, &sa, 124UL, name );
+  serve_one( ctx, server, get, "HTTP/1.1 200 OK\r\nStream-Offset: 0\r\nStream-Size: 12\r\n\r\nsnapshot" );
+  drive_until( ctx, &ctx->fast_boot_stream.off, 8UL );
+  published = publish_cnt;
+  retry_now( ctx );
+  char name125[ 128 ];
+  char redirect125[ 256 ];
+  char get125[ 160 ];
+  FD_TEST( fd_cstr_printf_check( name125, sizeof(name125), NULL, "fast-boot-stream-125-%s.tar.zst", hash_b58 ) );
+  FD_TEST( fd_cstr_printf_check( redirect125, sizeof(redirect125), NULL, "HTTP/1.1 302 Found\r\nLocation: /%s\r\nContent-Length: 0\r\n\r\n", name125 ) );
+  FD_TEST( fd_cstr_printf_check( get125, sizeof(get125), NULL, "GET /%s HTTP/1.1", name125 ) );
+  serve_one( ctx, server, "Range: bytes=8-\r\n", redirect125 );
+  serve_one( ctx, server, get125, "HTTP/1.1 200 OK\r\nStream-Offset: 0\r\nStream-Size: 4\r\n\r\nnext" );
+  drive_until( ctx, &publish_cnt, published+1UL );
+  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR && !ctx->fast_boot_stream.caught_up );
+  FD_TEST( ctx->fast_boot_stream.slot==124UL && http->state==FD_SSHTTP_STATE_INIT );
+
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  init_stream_download( ctx, input, &sa, 124UL, name );
+  FD_TEST( http->state!=FD_SSHTTP_STATE_INIT && http->sockfd!=-1 );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && publish_sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT && http->sockfd==-1 );
