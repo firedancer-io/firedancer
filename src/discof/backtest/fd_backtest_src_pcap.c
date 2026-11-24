@@ -16,9 +16,14 @@
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
-#define FD_BACKT_ZSTD_WINDOW_SZ (1UL<<21UL)
 
 extern fd_backt_src_vt_t const fd_backt_src_pcap_vt;
+
+/* fd_backt_src_zstd_init (fd_backtest_src.c) initializes the
+   decompressor in opts->zstd_mem, limited to FD_ZSTD_WINDOW_SZ. */
+
+extern ZSTD_DStream *
+fd_backt_src_zstd_init( fd_backtest_src_opts_t const * opts );
 
 struct pcap_msg {
   uint type;
@@ -320,12 +325,10 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
 
   ZSTD_DStream * zstd = NULL;
   if( flags & FD_BACKT_SRC_FLAG_ZSTD ) {
-    zstd = ZSTD_createDStream();
-    if( FD_UNLIKELY( !zstd ) ) FD_LOG_ERR(( "ZSTD_createDStream failed" ));
+    zstd = fd_backt_src_zstd_init( opts );
     FILE * zstd_file = fd_zstd_rstream_open( file, zstd, 128UL<<10 );
     if( FD_UNLIKELY( !zstd_file ) ) {
       FD_LOG_WARNING(( "fd_zstd_rstream_open(%s) failed", opts->path ));
-      ZSTD_freeDStream( zstd );
       fclose( file );
       return NULL;
     }
@@ -385,7 +388,7 @@ fd_backt_src_pcap_destroy( fd_backt_src_t * this ) {
 
   if( src->file ) fclose( src->file );
 
-  if( src->zstd ) ZSTD_freeDStream( src->zstd );
+  /* src->zstd lives in caller-owned memory, nothing to free */
 
   free( src );
 }

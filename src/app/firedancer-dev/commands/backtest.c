@@ -50,6 +50,11 @@ backtest_cmd_args( int *    pargc,
 static void
 backtest_topo( config_t * config ) {
 
+  /* Protobuf dumps create a file per dump from the execrp and replay
+     tiles, which the sandbox does not permit. */
+  if( FD_UNLIKELY( config->development.sandbox && strlen( config->capture.dump_proto_dir ) ) )
+    FD_LOG_ERR(( "[capture.dump_proto_dir] requires [development] sandbox = false, "
+                 "because the sandbox does not allow the execrp and replay tiles to create dump files" ));
   if( FD_UNLIKELY( !config->development.sandbox ) ) config->development.no_clone = 1;
 
   config->firedancer.layout.resolv_tile_count = 0;

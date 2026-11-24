@@ -155,7 +155,9 @@ run_firedancer_watched( config_t * config,
   int pipefd[2];
   if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   initialize_workspaces(config);
-  firedancer_pid = fork();
+  pid_t pid = fork();
+  if( FD_UNLIKELY( pid<0 ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  firedancer_pid = pid;
   if( !firedancer_pid ) {
     if( FD_UNLIKELY( -1==close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( -1==close( STDERR_FILENO ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -173,7 +175,13 @@ run_firedancer_watched( config_t * config,
   watch_args.watch.drain_output_fd = pipefd[0];
   watch_args.watch.full = full_watch;
 
-  watch_pid = fork();
+  pid = fork();
+  if( FD_UNLIKELY( pid<0 ) ) {
+    int err = errno;
+    kill( firedancer_pid, SIGKILL );
+    FD_LOG_ERR(( "fork() failed (%i-%s)", err, fd_io_strerror( err ) ));
+  }
+  watch_pid = pid;
   if( !watch_pid ) watch_cmd_fn( &watch_args, config );
 
   if( FD_UNLIKELY( close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

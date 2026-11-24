@@ -13,8 +13,6 @@
 
 #define NAME "snapdc"
 
-#define ZSTD_WINDOW_SZ (1UL<<25UL) /* 32MiB */
-
 /* The snapdc tile is a state machine that decompresses the full and
    optionally incremental snapshot byte stream that it receives from the
    snapld tile.  In the event that the snapshot is already uncompressed,
@@ -77,7 +75,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t)                   );
-  l = FD_LAYOUT_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
+  l = FD_LAYOUT_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( FD_ZSTD_WINDOW_SZ ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -453,7 +451,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapdc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapdc_tile_t), sizeof(fd_snapdc_tile_t) );
-  void * _zstd           = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
+  void * _zstd           = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                      ZSTD_estimateDStreamSize( FD_ZSTD_WINDOW_SZ ) );
 
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
   ctx->tile_idx = tile->kind_id;
@@ -463,7 +461,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->next_frame_ticket = fd_fseq_join( fd_topo_obj_laddr( topo, ticket_obj->id ) );
   FD_TEST( ctx->next_frame_ticket );
 
-  ctx->zstd = ZSTD_initStaticDStream( _zstd, ZSTD_estimateDStreamSize( ZSTD_WINDOW_SZ ) );
+  ctx->zstd = ZSTD_initStaticDStream( _zstd, ZSTD_estimateDStreamSize( FD_ZSTD_WINDOW_SZ ) );
   FD_TEST( ctx->zstd );
   FD_TEST( ctx->zstd==_zstd );
 

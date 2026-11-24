@@ -16,6 +16,8 @@
 #include <errno.h>
 #include <fcntl.h>  /* open(2) */
 #include <linux/futex.h>
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
 #include "generated/fd_backtest_tile_seccomp.h"
 
 #define SHRED_BUFFER_LEN     (1048576UL)
@@ -158,6 +160,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_backt_tile_t),     sizeof(fd_backt_tile_t)                        );
   l = FD_LAYOUT_APPEND( l, rooted_slots_align(),         rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
+  l = FD_LAYOUT_APPEND( l, 32UL,                         ZSTD_estimateDStreamSize( FD_ZSTD_WINDOW_SZ ) );
 
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -532,7 +535,10 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       int reached_end_slot  = msg->slot>=ctx->end_slot;
       int drained_exhausted = ctx->source_exhausted && !ctx->shreds_cnt && msg->slot>=ctx->prev_slot;
-      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) finish( ctx, msg->slot, msg->completion_time_nanos );
+      if( FD_UNLIKELY( reached_end_slot || drained_exhausted ) ) {
+        finish( ctx, msg->slot, msg->completion_time_nanos );
+        return 0;
+      }
 
       int root_advanced = root_slot!=ctx->prev_root;
       ctx->prev_root    = root_slot;
@@ -586,6 +592,8 @@ privileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t) );
   memset( ctx, 0, sizeof(fd_backt_tile_t) );
+  FD_SCRATCH_ALLOC_APPEND( l, rooted_slots_align(), rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
+  void * zstd_mem = FD_SCRATCH_ALLOC_APPEND( l, 32UL, ZSTD_estimateDStreamSize( FD_ZSTD_WINDOW_SZ ) );
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );
@@ -608,6 +616,8 @@ privileged_init( fd_topo_t const *      topo,
       .format      = tile->backtest.ledger_format,
       .path        = tile->backtest.ledger_path,
       .fd          = ctx->ledger_fd,
+      .zstd_mem    = zstd_mem,
+      .zstd_mem_sz = ZSTD_estimateDStreamSize( FD_ZSTD_WINDOW_SZ ),
       .rooted_only = 1,
       .code_shreds = 0,
     };
@@ -635,6 +645,7 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_backt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_backt_tile_t), sizeof(fd_backt_tile_t)                        );
   void * _rooted_slots  = FD_SCRATCH_ALLOC_APPEND( l, rooted_slots_align(),     rooted_slots_footprint( BANK_HASH_BUFFER_LEN ) );
+  /**/                    FD_SCRATCH_ALLOC_APPEND( l, 32UL,                     ZSTD_estimateDStreamSize( FD_ZSTD_WINDOW_SZ ) ); /* owned by src */
   ctx->source_exhausted = !ctx->src;
 
   ctx->snapshot_done = 0;

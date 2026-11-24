@@ -12,6 +12,8 @@
 #define FD_BACKT_SRC_FMT_MASK    0x07u
 #define FD_BACKT_SRC_FLAG_ZSTD   0x08u
 
+#include "../restore/utils/fd_zstd_frame.h" /* FD_ZSTD_WINDOW_SZ */
+
 struct fd_backt_slot_info {
   ulong     slot;
   fd_hash_t bank_hash;
@@ -59,6 +61,12 @@ struct fd_backtest_src_opts {
   char const * format;
   char const * path; /* for log messages only */
   int          fd;   /* ledger file, the source takes ownership */
+
+  /* zstd_mem is caller-owned memory for the Zstandard decompressor of
+     size zstd_mem_sz, which must outlive the source.  See
+     FD_ZSTD_WINDOW_SZ. */
+  void *       zstd_mem;
+  ulong        zstd_mem_sz;
 
   uint rooted_only : 1;
   uint code_shreds : 1;
