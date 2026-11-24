@@ -2,6 +2,7 @@
 #define _FILE_OFFSET_BITS 64
 #include <stdio.h>
 #include <stdlib.h>
+#define ZSTD_STATIC_LINKING_ONLY /* ZSTD_DCtx_getParameter */
 #include <zstd.h>
 #include "../../util/log/fd_log.h"
 #include "fd_libc_zstd.h"
@@ -45,7 +46,14 @@ rstream_read( void * cookie,
 
     size_t const ret = ZSTD_decompressStream( zs->dstream, &output, &zs->input );
     if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
-      FD_LOG_WARNING(( "ZSTD_decompressStream failed (%u-%s)", ZSTD_getErrorCode( ret ), ZSTD_getErrorName( ret ) ));
+      if( ZSTD_getErrorCode( ret )==ZSTD_error_frameParameter_windowTooLarge ) {
+        int window_log_max = 0;
+        ZSTD_DCtx_getParameter( zs->dstream, ZSTD_d_windowLogMax, &window_log_max );
+        FD_LOG_WARNING(( "cannot decompress: zstd window exceeds %lu MiB allocation and cannot grow",
+                         (1UL<<window_log_max)>>20 ));
+      } else {
+        FD_LOG_WARNING(( "ZSTD_decompressStream failed (%u-%s)", ZSTD_getErrorCode( ret ), ZSTD_getErrorName( ret ) ));
+      }
       return -1;
     }
     zs->mid_frame = ret!=0;

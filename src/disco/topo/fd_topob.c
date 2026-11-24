@@ -529,6 +529,9 @@ fd_topob_finish( fd_topo_t *                topo,
   for( ulong z=0UL; z<topo->tile_cnt; z++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ z ];
 
+    if( FD_UNLIKELY( tile->shutdown_app && !tile->allow_shutdown ) )
+      FD_LOG_ERR(( "tile %s:%lu sets shutdown_app but not allow_shutdown", tile->name, tile->kind_id ));
+
     ulong in_cnt = 0UL;
     for( ulong i=0UL; i<tile->in_cnt; i++ ) {
       if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;

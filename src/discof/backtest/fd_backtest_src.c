@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include "../../util/net/fd_pcapng_private.h"
+#define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 #include "fd_libc_zstd.h"
 
@@ -13,31 +14,36 @@ fd_backt_src_pcap_create( fd_backtest_src_opts_t const * opts,
                           uint                          format,
                           uint                          flags );
 
+ZSTD_DStream *
+fd_backt_src_zstd_init( fd_backtest_src_opts_t const * opts ) {
+  ZSTD_DStream * zstd = ZSTD_initStaticDStream( opts->zstd_mem, opts->zstd_mem_sz );
+  if( FD_UNLIKELY( !zstd ) ) FD_LOG_ERR(( "ZSTD_initStaticDStream failed" ));
+
+  /* Reject a frame needing a larger window up front, so it fails with
+     windowTooLarge instead of failing to allocate. */
+  size_t err = ZSTD_DCtx_setParameter( zstd, ZSTD_d_windowLogMax, fd_ulong_find_msb( FD_ZSTD_WINDOW_SZ ) );
+  if( FD_UNLIKELY( ZSTD_isError( err ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_setParameter failed (%s)", ZSTD_getErrorName( err ) ));
+  return zstd;
+}
+
 static uint
-detect_src_type( char const * path ) {
+detect_src_type( fd_backtest_src_opts_t const * opts ) {
+  int          fd   = opts->fd;
+  char const * path = opts->path;
 
   struct stat st;
-  if( 0==stat( path, &st ) && S_ISDIR( st.st_mode ) ) {
+  if( 0==fstat( fd, &st ) && S_ISDIR( st.st_mode ) ) {
     FD_LOG_WARNING(( "\"%s\" is a directory, expected a pcap/pcapng file; if this is a RocksDB blockstore, convert "
                      "it to a shredcap capture first (blockstore2shredcap --rocksdb %s --out <path>.pcapng.zst --zstd)",
                      path, path ));
     return FD_BACKT_SRC_INVAL;
   }
 
-  int fd = open( path, O_RDONLY );
-  if( FD_UNLIKELY( fd<0 ) ) {
-    FD_LOG_WARNING(( "ledger auto detect failed: open(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    return FD_BACKT_SRC_INVAL;
-  }
-
   uint magic;
-  ulong _sz;
-  if( FD_UNLIKELY( 0!=fd_io_read( fd, &magic, sizeof(uint), sizeof(uint), &_sz ) ) ) {
+  if( FD_UNLIKELY( pread( fd, &magic, sizeof(uint), 0 )!=(long)sizeof(uint) ) ) {
     FD_LOG_WARNING(( "ledger auto detect failed: cannot read file (%i-%s)", errno, fd_io_strerror( errno ) ));
-    close( fd );
     return FD_BACKT_SRC_INVAL;
   }
-  close( fd );
 
   if( magic == 0xa1b2c3d4U || magic == 0xa1b23c4dU ) {
     return FD_BACKT_SRC_FMT_PCAP;
@@ -50,29 +56,40 @@ detect_src_type( char const * path ) {
     return FD_BACKT_SRC_INVAL;
   }
 
-  FILE * file = fopen( path, "rb" );
+  /* The stream owns and closes its own descriptor, and the source
+     rewinds fd before reading it. */
+  int dup_fd = dup( fd );
+  if( FD_UNLIKELY( dup_fd<0 ) ) {
+    FD_LOG_WARNING(( "dup(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    return FD_BACKT_SRC_INVAL;
+  }
+  FILE * file = fdopen( dup_fd, "rb" );
   if( FD_UNLIKELY( !file ) ) {
-    FD_LOG_WARNING(( "fopen(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "fdopen(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    close( dup_fd );
+    return FD_BACKT_SRC_INVAL;
+  }
+  if( FD_UNLIKELY( fseek( file, 0L, SEEK_SET ) ) ) {
+    FD_LOG_WARNING(( "fseek(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+    FD_TEST( 0==fclose( file ) );
     return FD_BACKT_SRC_INVAL;
   }
 
-  ZSTD_DStream * dstream = ZSTD_createDStream();
-  if( FD_UNLIKELY( !dstream ) ) FD_LOG_ERR(( "ZSTD_createDStream failed" ));
+  /* Borrows the source's decompressor memory, the source initializes
+     it again before reading. */
+  ZSTD_DStream * dstream = fd_backt_src_zstd_init( opts );
 
   FILE * zst_file = fd_zstd_rstream_open( file, dstream, 4UL<<20 );
   if( FD_UNLIKELY( !zst_file ) ) {
     FD_LOG_WARNING(( "fd_zstd_rstream_open(%s) failed", path ));
     FD_TEST( 0==fclose( file ) );
-    ZSTD_freeDStream( dstream );
     return FD_BACKT_SRC_INVAL;
   }
 
   ulong nr_read = fread( &magic, sizeof(uint), 1, zst_file );
-  int   err     = ferror( zst_file );
   FD_TEST( 0==fclose( zst_file ) );
-  ZSTD_freeDStream( dstream );
   if( FD_UNLIKELY( nr_read!=1 ) ) {
-    FD_LOG_WARNING(( "fread failed (%i-%s)", err, fd_io_strerror( err ) ));
+    FD_LOG_WARNING(( "ledger auto detect failed: cannot decompress \"%s\"", path ));
     return FD_BACKT_SRC_INVAL;
   }
 
@@ -104,29 +121,33 @@ fd_backtest_src_create( fd_backtest_src_opts_t const * opts ) {
     FD_LOG_WARNING(( "NULL opts" ));
     return NULL;
   }
+  if( FD_UNLIKELY( opts->fd<0 ) ) {
+    FD_LOG_WARNING(( "invalid opts.fd" ));
+    return NULL;
+  }
   if( FD_UNLIKELY( !opts->format ) ) {
     FD_LOG_WARNING(( "NULL opts.format" ));
-    return NULL;
+    goto fail;
   }
   if( FD_UNLIKELY( !opts->path ) ) {
     FD_LOG_WARNING(( "NULL opts.path" ));
-    return NULL;
+    goto fail;
   }
 
-  uint src_type = detect_src_type( opts->path );
+  uint src_type = detect_src_type( opts );
   uint fmt      = src_type & FD_BACKT_SRC_FMT_MASK;
   uint flags    = src_type & (uint)~FD_BACKT_SRC_FMT_MASK;
 
   if( 0==strcmp( opts->format, "auto" ) ) {
-    if( src_type==FD_BACKT_SRC_INVAL ) return NULL;
+    if( src_type==FD_BACKT_SRC_INVAL ) goto fail;
   } else if( 0==strcmp( opts->format, "pcap" ) ) {
     if( !( fmt==FD_BACKT_SRC_FMT_PCAP || fmt==FD_BACKT_SRC_FMT_PCAPNG ) ) {
       FD_LOG_WARNING(( "cannot open ledger" ));
-      return NULL;
+      goto fail;
     }
   } else {
     FD_LOG_WARNING(( "unsupported opts.format \"%s\"", opts->format ));
-    return NULL;
+    goto fail;
   }
 
   switch( fmt ) {
@@ -134,6 +155,10 @@ fd_backtest_src_create( fd_backtest_src_opts_t const * opts ) {
     case FD_BACKT_SRC_FMT_PCAPNG:  return fd_backt_src_pcap_create( opts, fmt, flags );
     default:
       FD_LOG_WARNING(( "unsupported source type" ));
-      return NULL;
+      goto fail;
   }
+
+fail:
+  close( opts->fd );
+  return NULL;
 }

@@ -36,6 +36,11 @@
 #define FD_ZSTD_FRAME_HEADER_MAX      (18UL)
 #define FD_ZSTD_FRAME_BLOCK_HEADER_SZ (3UL)
 
+/* FD_ZSTD_WINDOW_SZ is the largest window a sandboxed decompressor
+   accepts.  It is preallocated, so it cannot grow at runtime. */
+
+#define FD_ZSTD_WINDOW_SZ (1UL<<25UL) /* 32MiB */
+
 struct fd_zstd_frame {
   uchar header      [ FD_ZSTD_FRAME_HEADER_MAX ];
   uchar block_header[ FD_ZSTD_FRAME_BLOCK_HEADER_SZ ];
