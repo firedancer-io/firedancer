@@ -20,10 +20,34 @@ also pays the fee unless you pass --fee-payer.
 
 Example, for a validator in Frankfurt:
 
-    python3 update_validator_location.py \\
-        -u https://api.mainnet-beta.solana.com \\
-        <VOTE_ACCOUNT_ADDRESS> 4051542 618526 4870645 \\
-        ~/validator-keypair.json
+    ECEF_X=4051542 ECEF_Y=618526 ECEF_Z=4870645
+    python3 update_validator_location.py -u http://<rpc> \\
+        SomeVoteAccount1111111111111111111111111111 $ECEF_X $ECEF_Y $ECEF_Z \\
+        /path/to/validator-keypair.json \\
+        --fee-payer /path/to/fee-payer.json
+
+By default the transaction is sent with the RPC's sendTransaction. If
+your RPC doesn't support that (Firedancer's RPC doesn't), you can send
+it straight to the TPU instead.
+
+To send it to the next few leaders' UDP TPU ports:
+
+    ECEF_X=4051542 ECEF_Y=618526 ECEF_Z=4870645
+    python3 update_validator_location.py -u http://<rpc> \\
+        SomeVoteAccount1111111111111111111111111111 $ECEF_X $ECEF_Y $ECEF_Z \\
+        /path/to/validator-keypair.json \\
+        --fee-payer /path/to/fee-payer.json \\
+        --tpu-leaders
+
+To send it to one node, e.g. your own validator on port 9001. It only
+lands when that node is leader, so this is mostly useful for testing:
+
+    ECEF_X=4051542 ECEF_Y=618526 ECEF_Z=4870645
+    python3 update_validator_location.py -u http://<rpc> \\
+        SomeVoteAccount1111111111111111111111111111 $ECEF_X $ECEF_Y $ECEF_Z \\
+        /path/to/validator-keypair.json \\
+        --fee-payer /path/to/fee-payer.json \\
+        --tpu 203.0.113.10:9001
 
 Note that registering your location also upgrades your vote account
 state to a vote state v5.
@@ -33,6 +57,7 @@ import argparse
 import base64
 import hashlib
 import json
+import socket
 import struct
 import sys
 import time
@@ -41,6 +66,9 @@ import urllib.request
 
 VOTE_PROGRAM_ID = "Vote111111111111111111111111111111111111111"
 UPDATE_LOCATION_DISCRIMINANT = 20
+VOTE_STATE_V5 = 4
+VOTE_STATE_V5_LOCATION_OFFSET = 132
+LEADER_FANOUT_SLOTS = 12
 
 COORD_MAX = 6378138
 SURFACE_DIST2 = 40680631590769
@@ -274,6 +302,67 @@ def check_vote_account(url, vote):
         raise UpdateLocationError(f"{b58encode(vote)} is owned by {owner}, not the vote program")
 
 
+def vote_account_location(data):
+    if len(data) < (VOTE_STATE_V5_LOCATION_OFFSET + 12) or int.from_bytes(data[:4], "little") != VOTE_STATE_V5:
+        return None
+    return struct.unpack_from("<iii", data, VOTE_STATE_V5_LOCATION_OFFSET)
+
+
+def fetch_location(url, vote):
+    info = rpc(url, "getAccountInfo", [b58encode(vote), {"encoding": "base64", "commitment": "confirmed"}])
+    if info["value"] is None:
+        return None
+    return vote_account_location(base64.b64decode(info["value"]["data"][0]))
+
+
+def tpu_address(s):
+    host, sep, port = s.rpartition(":")
+    host = host.strip("[]")
+    if not sep or not host or not port.isdigit() or not (0 < int(port) < 65536):
+        raise argparse.ArgumentTypeError(f"expected HOST:PORT, got {s!r}")
+    return host, int(port)
+
+
+def cluster_tpus(url):
+    tpus = {}
+    for node in rpc(url, "getClusterNodes", []):
+        if node.get("tpu"):
+            tpus[node["pubkey"]] = tpu_address(node["tpu"])
+    if not tpus:
+        raise UpdateLocationError("no cluster node advertises a UDP TPU address")
+    return tpus
+
+
+def leader_tpus(url, tpus):
+    slot = rpc(url, "getSlot", [{"commitment": "processed"}])
+    leaders = rpc(url, "getSlotLeaders", [slot, LEADER_FANOUT_SLOTS])
+    return list(dict.fromkeys(tpus[leader] for leader in leaders if leader in tpus))
+
+
+def send_via_tpu(url, tx, vote, location, last_valid_block_height, targets):
+    sig = b58encode(tx[1:65])
+    print(f"Signature: {sig}")
+    seen = set()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        while True:
+            for addr in targets():
+                if addr not in seen:
+                    print(f"Sending to TPU {addr[0]}:{addr[1]}")
+                    seen.add(addr)
+                try:
+                    sock.sendto(tx, addr)
+                except OSError as e:
+                    raise UpdateLocationError(f"cannot send to {addr[0]}:{addr[1]}: {e}")
+            if fetch_location(url, vote) == location:
+                return sig
+            if rpc(url, "getBlockHeight", [{"commitment": "confirmed"}]) > last_valid_block_height:
+                raise UpdateLocationError(
+                    f"location was not registered before the blockhash expired; transaction {sig} "
+                    "may have failed on-chain"
+                )
+            time.sleep(1)
+
+
 def send_and_confirm(url, tx, last_valid_block_height):
     sig = b58encode(tx[1:65])
     rpc(
@@ -308,6 +397,18 @@ def parse_args(argv):
     parser.add_argument("z", metavar="Z", type=int, help="WGS84 ECEF Z coordinate, in whole meters, of the point at height 0 directly below the validator")
     parser.add_argument("authorized_voter", metavar="AUTHORIZED_KEYPAIR", help="Authorized voter keypair file")
     parser.add_argument("--fee-payer", metavar="KEYPAIR", help="Fee payer keypair file (default: the authorized voter)")
+    tpu = parser.add_mutually_exclusive_group()
+    tpu.add_argument(
+        "--tpu",
+        metavar="HOST:PORT",
+        type=tpu_address,
+        help="Send the transaction to this UDP TPU address instead of the RPC's sendTransaction",
+    )
+    tpu.add_argument(
+        "--tpu-leaders",
+        action="store_true",
+        help="Send the transaction to the upcoming leaders' UDP TPU addresses instead of the RPC's sendTransaction",
+    )
     args = parser.parse_args(argv)
     if not is_valid_location(args.x, args.y, args.z):
         parser.error(
@@ -337,8 +438,18 @@ def run(args):
     print(f"Authorized voter: {b58encode(voter)}")
     print(f"Fee payer:        {b58encode(payer)}")
     print(f"Location:         ({args.x}, {args.y}, {args.z})")
-    sig = send_and_confirm(args.url, tx, latest["lastValidBlockHeight"])
-    print(f"Confirmed: {sig}")
+    if args.tpu or args.tpu_leaders:
+        if args.tpu:
+            targets = lambda: [args.tpu]
+        else:
+            tpus = cluster_tpus(args.url)
+            targets = lambda: leader_tpus(args.url, tpus)
+        location = (args.x, args.y, args.z)
+        send_via_tpu(args.url, tx, vote, location, latest["lastValidBlockHeight"], targets)
+        print(f"Location registered: ({args.x}, {args.y}, {args.z})")
+    else:
+        sig = send_and_confirm(args.url, tx, latest["lastValidBlockHeight"])
+        print(f"Confirmed: {sig}")
 
 
 def main(argv=None):
