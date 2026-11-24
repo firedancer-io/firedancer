@@ -82,8 +82,8 @@ fd_accdb_footprint( ulong max_live_slots,
 
    sleep, if non-NULL, is the sleep object the accdb tile parks on and
    sleep_tile_id its tile id there.  The join rings it whenever it hands
-   the tile work (a command, or the cache free list crossing its low
-   water mark).  NULL when the accdb tile spins.
+   the tile work (a command, or a size class running out of free line
+   hints for this join).  NULL when the accdb tile spins.
 
    compaction must match the value given to fd_accdb_footprint. */
 
@@ -473,9 +473,12 @@ fd_accdb_probe_pd_this_fork( fd_accdb_t *       accdb,
    point at a buffer of at least FD_RUNTIME_ACC_SZ_MAX (10 MiB) bytes,
    the maximum account data size; the function does not bound-check
    against the account's actual length.  On a cache hit the bytes are
-   memcpy'd from the cache slot using a try-read-test (ABA) loop; on a miss the owner
-   and data are preadv2'd from the disk fd passed at join time, scattered
-   into out_owner and out_data via iovec (looping on short reads).
+   memcpy'd from the cache line without holding it, and the copy is
+   kept only if the account stayed bound to the line and the line's seq
+   was even and unchanged across it; otherwise the owner and data are
+   preadv2'd from the disk fd passed at join time (looping on short
+   reads).  A version whose only copy is in the cache (not yet written
+   back) and whose copy failed is retried until one of the two works.
 
    If out_data is NULL, only account metadata is read: no account data
    is copied or read from disk.  out_data_len still reports the full

@@ -257,6 +257,9 @@ main( int     argc,
 
   FD_TEST(  ulong_config_is_valid( config, &config->development.accdb.partition_size_gib, 1UL ) );
   FD_TEST( !ulong_config_is_valid( config, &config->development.accdb.partition_size_gib, 0UL ) );
+  FD_TEST(  ulong_config_is_valid( config, &config->development.accdb.partition_size_gib, 1UL<<17 ) );
+  FD_TEST( !ulong_config_is_valid( config, &config->development.accdb.partition_size_gib, (1UL<<17)+1UL ) );
+  FD_TEST( !ulong_config_is_valid( config, &config->development.accdb.partition_size_gib, 1UL<<34 ) );
 
   FD_TEST(  failover_is_valid( config, 1, 0, "0.0.0.0",   8010, "vote.json" ) );
   FD_TEST(  failover_is_valid( config, 1, 0, "10.0.0.1",  8010, "vote.json" ) );

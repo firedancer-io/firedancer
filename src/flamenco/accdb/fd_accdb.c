@@ -77,10 +77,11 @@ typedef struct fd_accdb_fork fd_accdb_fork_t;
    the rest stashed, sharing one scan and one writeback. */
 #define RECLAIM_FG (16UL)
 
-/* RECLAIM_FG_LARGE_SZ: classes with slots this large take one line at a
-   time instead, so an exec tile never writes back more than one large
-   line on its own path. */
-#define RECLAIM_FG_LARGE_SZ (128UL<<10)
+/* RECLAIM_LARGE_SZ: classes with slots this large take one line per
+   batch instead (foreground and pre-eviction), so no batch writes back
+   more than one large line, and a new holder of a claimed line waits
+   for at most that one write. */
+#define RECLAIM_LARGE_SZ (128UL<<10)
 
 #define FD_ACCDB_ACQUIRE_STATE_IDLE    (0)
 #define FD_ACCDB_ACQUIRE_STATE_PHASE_A (1)
@@ -1412,27 +1413,30 @@ line_reclaim( fd_accdb_t * accdb,
   }
   if( dirty ) {
     line_writeback( accdb, cidx, line, flag, n );
-    if( !pre ) {
+    if( pre ) {
+      accdb->metrics->accounts_preevicted                += dirty;
+      accdb->metrics->accounts_preevicted_per_class[ c ] += dirty;
+    } else {
       accdb->metrics->accounts_evicted                += dirty;
       accdb->metrics->accounts_evicted_per_class[ c ] += dirty;
     }
   }
 
-  /* Unbind (an orphan has nothing to unbind) and take */
+  /* Unbind (an orphan has nothing to unbind) and take.  The word can
+     change under us (the unlinked mark), so retry until it no longer
+     names the line: a line is never reused while a word still binds it. */
   for( ulong k=0UL; k<n; k++ ) {
     if( FD_UNLIKELY( !line[ k ] ) ) continue;
     fd_accdb_accmeta_t * m = &accdb->acc_pool[ line[ k ]->acc_idx ];
-    ulong                d = FD_VOLATILE_CONST( m->data );
-    if( FD_ACCDB_SIZE_CACHE_VALID( FD_ACCDB_DATA_ES( d ) ) && FD_ACCDB_DATA_CIDX( d )==cidx[ k ] ) {
-      FD_ATOMIC_CAS( &m->data, d, FD_ACCDB_DATA( FD_ACCDB_ACC_CIDX_INVAL, FD_ACCDB_DATA_ES( d ) & ~FD_ACCDB_SIZE_CACHE_VALID_BIT ) );
+    for(;;) {
+      ulong d = FD_VOLATILE_CONST( m->data );
+      if( !( FD_ACCDB_SIZE_CACHE_VALID( FD_ACCDB_DATA_ES( d ) ) && FD_ACCDB_DATA_CIDX( d )==cidx[ k ] ) ) break;
+      fd_racesan_hook( "accdb_reclaim:pre_unbind" );
+      if( FD_LIKELY( FD_ATOMIC_CAS( &m->data, d, FD_ACCDB_DATA( FD_ACCDB_ACC_CIDX_INVAL, FD_ACCDB_DATA_ES( d ) & ~FD_ACCDB_SIZE_CACHE_VALID_BIT ) )==d ) ) break;
     }
     line_seq_open( line[ k ] );
     FD_VOLATILE( line[ k ]->state ) = FD_ACCDB_LINE_OWNED;  /* a waiting holder reloads the word: unbound */
     out[ taken++ ] = cidx[ k ];
-    if( pre ) {
-      accdb->metrics->accounts_preevicted++;
-      accdb->metrics->accounts_preevicted_per_class[ c ]++;
-    }
   }
   return taken;
 }
@@ -1496,7 +1500,7 @@ line_alloc_try( fd_accdb_t * accdb,
 
   /* Our own CLOCK batch: keep one, stash the rest */
   uint  batch[ RECLAIM_MAX ];
-  ulong want = fd_accdb_cache_slot_sz[ c ]<RECLAIM_FG_LARGE_SZ ? RECLAIM_FG : 1UL;
+  ulong want = fd_accdb_cache_slot_sz[ c ]<RECLAIM_LARGE_SZ ? RECLAIM_FG : 1UL;
   ulong n    = line_reclaim( accdb, c, RECLAIM_MAX, want, batch, 0 );
   if( FD_UNLIKELY( !n ) ) return FD_ACCDB_ACC_CIDX_INVAL;
   for( ulong k=1UL; k<n; k++ ) line_free( accdb, batch[ k ] );
@@ -2781,11 +2785,13 @@ release_inner( fd_accdb_t * accdb,
       m->lamports = a->lamports;
       accdb->metrics->accounts_committed_overwrite_per_class[ c ]++;
 
-      /* Rewrite the line in place if no evictor has it, else move */
+      /* Rewrite the line in place if no evictor has it, else move.  The
+         largest class always moves: its staging line is adopted as is
+         (commit_dst), which saves copying up to 10 MiB. */
       uint                    og = a->_cidx;
       fd_accdb_cache_line_t * L  = line_at( accdb, og );
       uint                    D;
-      if( FD_ACCDB_ACC_CIDX_CLASS( og )==c && FD_VOLATILE_CONST( L->state )==FD_ACCDB_LINE_SHARED ) {
+      if( c!=FD_ACCDB_CACHE_CLASS_CNT-1UL && FD_ACCDB_ACC_CIDX_CLASS( og )==c && FD_VOLATILE_CONST( L->state )==FD_ACCDB_LINE_SHARED ) {
         D = og;
         line_seq_open( L );
         fd_memcpy( L->owner, a->owner, 32UL );
@@ -2986,18 +2992,23 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
     goto done;
   }
 
-  /* Fixed fields: stable while another fork can see the version */
-  ulong lamports  = accmeta->lamports;
-  uint  es        = FD_ACCDB_DATA_ES( FD_VOLATILE_CONST( accmeta->data ) );
-  ulong data_len  = FD_ACCDB_SIZE_DATA( es );
-  ulong read_len  = out_data ? data_len : 0UL;
-  accdb->metrics->accounts_acquired_per_class[ fd_accdb_cache_class( data_len ) ]++;
-  if( FD_UNLIKELY( !lamports ) ) goto done;
+  accdb->metrics->accounts_acquired_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( FD_VOLATILE_CONST( accmeta->executable_size ) ) ) ]++;
 
   /* Copy from the line without holding it, else read the disk.  A
-     dirty version has no record yet, so retry until it is clean. */
+     dirty version has no record yet, so retry until it is clean.  The
+     fields are stable while another fork can see the version, but an
+     overwrite on its own fork changes them, so each try reloads them:
+     the lengths are those of the word the copy is checked against. */
+  ulong lamports;
+  uint  es;
+  ulong data_len;
   for(;;) {
+    lamports = FD_VOLATILE_CONST( accmeta->lamports );
+    if( FD_UNLIKELY( !lamports ) ) goto done;
     ulong d = FD_VOLATILE_CONST( accmeta->data );
+    es       = FD_ACCDB_DATA_ES( d );
+    data_len = FD_ACCDB_SIZE_DATA( es );
+    ulong read_len = out_data ? data_len : 0UL;
     FD_COMPILER_MFENCE();  /* the word before the line */
     if( FD_LIKELY( FD_ACCDB_SIZE_CACHE_VALID( FD_ACCDB_DATA_ES( d ) ) &&
                    fd_accdb_line_read_unheld( line_at( accdb, FD_ACCDB_DATA_CIDX( d ) ), &accmeta->data, d, out_owner, out_data, read_len ) ) ) {
@@ -3012,6 +3023,9 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
       FD_SPIN_PAUSE();
       continue;
     }
+    /* A commit retires the offset before it changes the word, so with
+       the word unchanged, the clean offset is the record d sizes */
+    if( FD_UNLIKELY( FD_VOLATILE_CONST( accmeta->data )!=d ) ) continue;
     accdb->metrics->accounts_not_found_per_class[ fd_accdb_cache_class( data_len ) ]++;
     fd_racesan_hook( "accdb_nocache:pre_preadv2" );
     ulong start = off+offsetof( fd_accdb_disk_meta_t, owner );
@@ -3275,11 +3289,12 @@ background_preevict( fd_accdb_t * accdb,
     /* Reclaim in batches, handing each line to the neediest ring */
     ulong budget    = PREEVICT_TICK_BUDGET;
     ulong scans     = scan_max;
+    ulong batch     = fd_accdb_cache_slot_sz[ c ]<RECLAIM_LARGE_SZ ? RECLAIM_MAX : 1UL;
     int   taken_any = 0;
     while( want && budget && scans-- ) {
       uint  got[ RECLAIM_MAX ];
       ulong visit = fd_ulong_min( budget, 2UL*RECLAIM_MAX );
-      ulong n     = line_reclaim( accdb, c, visit, fd_ulong_min( want, RECLAIM_MAX ), got, 1 );
+      ulong n     = line_reclaim( accdb, c, visit, fd_ulong_min( want, batch ), got, 1 );
       budget -= visit;
       want   -= n;
       taken_any |= !!n;
