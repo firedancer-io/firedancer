@@ -733,6 +733,14 @@ test_stream_instance_init( void ) {
      and hash. */
   fd_sspeer_selector_add( ctx->selector, &key, ctx->resolved_servers[ 0 ].addr, 5000UL, 100UL, 150UL, full_hash, incr_hash );
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
+
+  /* As for a snapshot download, the pick waits for gossip to settle,
+     so the best server is taken and not the first one heard of. */
+  after_credit( ctx, NULL, NULL, &busy );
+  now = fd_clock_tile_now( ctx->clock );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS && test_publish_cnt==published );
+  FD_TEST( ctx->deadline_nanos>now && ctx->deadline_nanos<=now+FD_SNAPCT_COLLECTING_PEERS_TIMEOUT );
+  ctx->gossip.saturated = 1;
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
   FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->peer.full_slot==100UL && ctx->peer.full_hash[ 0 ]==0x22 );
@@ -791,6 +799,8 @@ test_stream_instance_init( void ) {
   FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && test_publish_cnt==published+1UL );
   ctx->flush_ack_cnt = 1;
   after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS && test_publish_cnt==published+1UL );
+  after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->deadline_nanos>now && test_publish_cnt==published+2UL );
   FD_TEST( ctx->fast_boot.stream_slot==160UL && ctx->fast_boot.stream_hash[ 0 ]==0x44 && ctx->peer.full_slot==100UL && ctx->peer.full_hash[ 0 ]==0x22 );
   init = fd_chunk_to_laddr_const( output, test_publish_chunk );
@@ -828,6 +838,7 @@ test_stream_instance_init( void ) {
   /* A newer full with no incremental on it yet: the stream at the
      full. */
   ctx->state = FD_SNAPCT_STATE_INIT;
+  after_credit( ctx, NULL, NULL, &busy );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
   FD_TEST( ctx->fast_boot.stream_slot==200UL && ctx->fast_boot.stream_hash[ 0 ]==0x33 && ctx->peer.full_slot==200UL && ctx->peer.full_hash[ 0 ]==0x33 );
@@ -921,6 +932,8 @@ test_fast_boot_gossip_server( fd_ssping_t * ssping ) {
   memset( msg->snapshot_hashes->incremental[ 0 ].hash, 0x11, FD_HASH_FOOTPRINT );
   gossip_frag( ctx, FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES, 0UL, 0UL );
   ctx->ssping = NULL; after_credit( ctx, NULL, NULL, &busy ); ctx->ssping = ssping; /* no ping goes out */
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS && ctx->gossip.saturated );
+  ctx->ssping = NULL; after_credit( ctx, NULL, NULL, &busy ); ctx->ssping = ssping;
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
   FD_TEST( ctx->peer.addr.l==fast_boot.l && !ctx->peer.key.is_url && fd_pubkey_eq( ctx->peer.key.pubkey, &peer ) );
   FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->peer.full_slot==100UL && ctx->peer.full_hash[ 0 ]==0x22 );

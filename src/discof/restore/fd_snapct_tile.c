@@ -1051,13 +1051,29 @@ stream_after_credit( fd_snapct_tile_t *  ctx,
                      long                now ) {
   switch( ctx->state ) {
     case FD_SNAPCT_STATE_INIT: {
-      ctx->peer = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
-      if( FD_UNLIKELY( !ctx->peer.addr.l ) ) {
+      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
+      if( FD_UNLIKELY( !best.addr.l ) ) {
         if( FD_UNLIKELY( now>ctx->deadline_nanos ) ) {
           FD_LOG_NOTICE(( "no server in [snapshots.sources] offers a snapshot "
                           "for the fast boot yet, waiting" ));
           ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
         }
+        break;
+      }
+      ctx->deadline_nanos = now+FD_SNAPCT_COLLECTING_PEERS_TIMEOUT;
+      set_state( ctx, FD_SNAPCT_STATE_COLLECTING_PEERS );
+      break;
+    }
+
+    /* As for a snapshot download, wait for gossip to settle so the
+       best server is picked, not the first one heard of. */
+    case FD_SNAPCT_STATE_COLLECTING_PEERS: {
+      if( FD_UNLIKELY( !ctx->gossip.saturated && now<ctx->deadline_nanos ) ) break;
+
+      ctx->peer = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN, 0UL );
+      if( FD_UNLIKELY( !ctx->peer.addr.l ) ) {
+        ctx->deadline_nanos = now;
+        set_state( ctx, FD_SNAPCT_STATE_INIT );
         break;
       }
       int has_incremental = ctx->peer.incr_slot!=FD_SSPEER_SLOT_UNKNOWN;
