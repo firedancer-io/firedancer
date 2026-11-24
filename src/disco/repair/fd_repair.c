@@ -299,6 +299,7 @@ dedup( fd_repair_t *     self,
   if( FD_UNLIKELY( !notar && meta->final_blk_idx!=null ) ) {
     eager->telemetry.cancelled_ts     = fd_long_if( !eager->telemetry.cancelled_reason, ts, eager->telemetry.cancelled_ts );
     eager->telemetry.cancelled_reason = (uchar)FD_EVENT_BLOCK_RECEIVED_CANCELLED_REASON_NOTARIZED_VERSION;
+    meta->invalidated = 1; /* turbine must not rebuild it */
     prune( self, eager );
     return;
   } /* turbine built a blk the cluster did not finalize */
