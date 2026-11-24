@@ -578,7 +578,6 @@ handle_cert_created( fd_votor_loop_t * self,
       self->highest_final_slot = slot;
       self->highest_final_ts   = self->now;
     }
-    set_timeouts( self, fd_first_slot_in_window( slot ) );
     prune( self );
     break;
 

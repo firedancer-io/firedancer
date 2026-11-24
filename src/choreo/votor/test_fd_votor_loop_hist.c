@@ -290,7 +290,7 @@ test_adopt_equal_anchor_prunes( void ) {
   for( ulong slot=92UL; slot<=100UL; slot++ ) {
     FD_TEST( !slot_state_map_ele_query_const( votor->slot_states->map, &slot, NULL, votor->slot_states->pool ) );
   }
-  FD_TEST( slot_state_pool_free( votor->slot_states->pool )==TEST_SLOT_MAX-FD_VOTOR_SLOTS_PER_WINDOW );
+  FD_TEST( slot_state_pool_free( votor->slot_states->pool )==TEST_SLOT_MAX );
 
   teardown_votor( votor );
   FD_LOG_NOTICE(( "pass: adopt_equal_anchor_prunes" ));
