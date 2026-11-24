@@ -1122,8 +1122,8 @@ stream_after_credit( fd_snapct_tile_t *  ctx,
 
     case FD_SNAPCT_STATE_FLUSHING_STREAM_RESET:
       if( FD_UNLIKELY( ctx->flush_ack<ctx->flush_ack_cnt ) ) break;
-      ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
-      set_state( ctx, FD_SNAPCT_STATE_INIT );
+      ctx->deadline_nanos = 0L;
+      set_state( ctx, FD_SNAPCT_STATE_COLLECTING_PEERS );
       break;
 
     case FD_SNAPCT_STATE_SHUTDOWN:

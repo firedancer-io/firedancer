@@ -796,10 +796,8 @@ test_stream_instance_init( void ) {
   FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && ctx->flush_ack==1 );
   snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, NULL );
   after_credit( ctx, NULL, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && test_publish_cnt==published+1UL );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS && !ctx->deadline_nanos && test_publish_cnt==published+1UL );
   ctx->flush_ack_cnt = 1;
-  after_credit( ctx, NULL, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPCT_STATE_COLLECTING_PEERS && test_publish_cnt==published+1UL );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->deadline_nanos>now && test_publish_cnt==published+2UL );
   FD_TEST( ctx->fast_boot.stream_slot==160UL && ctx->fast_boot.stream_hash[ 0 ]==0x44 && ctx->peer.full_slot==100UL && ctx->peer.full_hash[ 0 ]==0x22 );
