@@ -51,6 +51,7 @@ typedef struct fd_snapld_tile {
   struct {
     char path[ PATH_MAX ];
     uint min_download_speed_mibs;
+    int  fast_boot;
   } config;
 
   int   state;
@@ -240,6 +241,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
   ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
+  ctx->config.fast_boot               = tile->snapld.fast_boot;
 
   ctx->state          = FD_SNAPSHOT_STATE_IDLE;
   ctx->pipeline_ready = 0;
@@ -326,13 +328,15 @@ transition_malformed( fd_snapld_tile_t *  ctx,
    again from the current offset.  A stream that has answered never
    fails on its own: replay runs on it and it ends once the snapshots
    behind it are in.  A request that failed before any of its response
-   went downstream is sent again a few times.  Returns 0 otherwise,
-   the caller fails the load then. */
+   went downstream is sent again a few times.  So is a snapshot
+   request behind a fast boot that failed later: it asks for the rest
+   of the file, since what was loaded cannot be undone.  Returns 0
+   otherwise, the caller fails the load then. */
 static int
 handle_connection_failure( fd_snapld_tile_t * ctx,
                            long               now ) {
   if( FD_LIKELY( !ctx->fast_boot_stream.active || !ctx->sent_meta ) ) {
-    if( FD_LIKELY( ctx->sent_meta || !ctx->request_retries ) ) return 0;
+    if( FD_LIKELY( ( ctx->sent_meta && !ctx->config.fast_boot ) || !ctx->request_retries ) ) return 0;
     ctx->request_retries--;
     FD_LOG_NOTICE(( "sending the %s request again, %u tries left",
                     ctx->fast_boot_stream.active ? "fast boot stream" : ctx->load_full ? "full snapshot" : "incremental snapshot", ctx->request_retries ));

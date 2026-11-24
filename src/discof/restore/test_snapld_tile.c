@@ -863,6 +863,22 @@ test_request_retry( void ) {
   }
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR && publish_cnt==1UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && http->state==FD_SSHTTP_STATE_INIT );
 
+  /* Behind a fast boot, a download that drops after part of the file
+     asks for the rest and finishes. */
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  ctx->config.fast_boot = 1;
+  init_full_download( ctx, input, &sa );
+  publish_cnt = 0UL;
+  serve_one( ctx, server, "GET /snapshot.tar.bz2 HTTP/1.1", "HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nsnap" );
+  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->sent_meta && ctx->fast_boot_stream.off==4UL );
+  FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U && ctx->fast_boot_stream.wait!=LONG_MAX );
+  ctx->fast_boot_stream.wait = 0L;
+  serve_one( ctx, server, "Range: bytes=4-\r\n", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-7/8\r\nContent-Length: 4\r\n\r\nshot" );
+  for( int i=0; i<100000 && ctx->state==FD_SNAPSHOT_STATE_PROCESSING; i++ ) woken_credit( ctx, &busy );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING && publish_sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE && ctx->fast_boot_stream.off==8UL );
+  ctx->config.fast_boot = 0;
+
   /* A fast boot stream request that never got an answer is given up
      the same way.  Once the stream answered it is asked again
      without end. */
