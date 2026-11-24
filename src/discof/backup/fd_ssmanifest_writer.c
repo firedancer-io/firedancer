@@ -1,5 +1,6 @@
 #include "fd_ssmanifest_writer.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../ballet/bls/fd_bls.h"
 
@@ -106,6 +107,8 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
       ele->vote  = vs_ele->pubkey;
       ele->node  = vs_ele->node_account;
       ele->stake = vs_ele->stake;
+
+      if( FD_UNLIKELY( !fd_stakes_vote_account_sz_ok( accdb, accdb_fork_id, &ele->vote ) ) ) continue;
 
       ulong lamports;
       int   executable;

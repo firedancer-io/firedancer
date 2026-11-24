@@ -1,4 +1,5 @@
 #include "fd_vote_stakes.h"
+#include "fd_stakes.h"
 #include "../fd_rwlock.h"
 #include "../accdb/fd_accdb.h"
 #include "../fd_flamenco_base.h"
@@ -896,6 +897,11 @@ fd_vote_stakes_refresh( fd_vote_stakes_t * vote_stakes,
     fd_vote_stakes_ele_t ele[1];
     fd_vote_stakes_iter_ele( vote_stakes, fork_id, FD_VOTE_STAKES_ITER_T_2, iter, ele );
     fd_pubkey_t const * pubkey = &ele->pubkey;
+
+    if( FD_UNLIKELY( !fd_stakes_vote_account_sz_ok( accdb, accdb_fork_id, pubkey ) ) ) {
+      fd_vote_stakes_update_state( vote_stakes, fork_id, pubkey, 0 );
+      continue;
+    }
 
     fd_acc_t acc = fd_accdb_read_one( accdb, accdb_fork_id, pubkey->uc );
     int is_valid = acc.lamports && fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len );
