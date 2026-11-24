@@ -27,6 +27,7 @@ struct fd_snapdc_tile {
   uint full    : 1;
   uint is_zstd : 1;
   uint dirty   : 1;  /* in the middle of a frame? */
+  uint stream  : 1;  /* reads the fast boot stream? */
   int state;
 
   ulong   tile_idx;
@@ -133,12 +134,13 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
   }
 
-  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL && sig!=FD_SNAPSHOT_MSG_CTRL_SHUTDOWN ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL &&
+      !( sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN && ctx->stream ) ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this, and a
-       shutdown applies in any state. */
+       shutdown ends a fast boot stream in any state. */
     return;
   };
 
@@ -214,6 +216,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE || ctx->stream );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       break;
     }
@@ -464,6 +467,7 @@ unprivileged_init( fd_topo_t const *      topo,
 
   ctx->state    = FD_SNAPSHOT_STATE_IDLE;
   ctx->tile_idx = tile->kind_id;
+  ctx->stream   = !!tile->snapdc.fast_boot_stream;
 
   char const * ticket_label = tile->snapdc.fast_boot_stream ? "str_ticket" : "frame_ticket";
   fd_topo_obj_t const * ticket_obj = fd_topo_find_obj( topo, "fseq", ticket_label, ULONG_MAX );

@@ -148,8 +148,6 @@ struct fd_snapct_tile {
   struct {
     ulong stream_slot;
     uchar stream_hash[ FD_HASH_FOOTPRINT ];
-    ulong full_slot;  /* the full snapshot the stream is on */
-    uchar full_hash[ FD_HASH_FOOTPRINT ];
     ulong replay_slot;  /* newest slot replay has completed */
     long  replay_nanos; /* when it completed */
   } fast_boot;
@@ -750,9 +748,6 @@ init_load( fd_snapct_tile_t *  ctx,
     out->slot = full ? ctx->local_in.full_snapshot_slot : ctx->local_in.incremental_snapshot_slot;
     if( full ) fd_memcpy( out->snapshot_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT );
     else       fd_memcpy( out->snapshot_hash, ctx->local_in.incremental_snapshot_hash, FD_HASH_FOOTPRINT );
-  } else if( ctx->config.fast_boot ) {
-    out->slot = full ? ctx->fast_boot.full_slot : ctx->fast_boot.stream_slot;
-    fd_memcpy( out->snapshot_hash, full ? ctx->fast_boot.full_hash : ctx->fast_boot.stream_hash, FD_HASH_FOOTPRINT );
   } else {
     out->slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
     if( full ) fd_memcpy( out->snapshot_hash, ctx->peer.full_hash, FD_HASH_FOOTPRINT );
@@ -794,9 +789,8 @@ log_download( fd_snapct_tile_t * ctx,
   fd_sspeer_t const * peer = &ctx->peer;
   char const *        what = full ? "full snapshot" : "incremental snapshot";
   if( ctx->config.fast_boot_stream ) what = "the fast boot stream";
-  ulong               slot;
-  if( ctx->config.fast_boot ) slot = full ? ctx->fast_boot.full_slot             : ctx->fast_boot.stream_slot;
-  else                        slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
+  ulong               slot = full ? ctx->predicted_incremental.full_slot : ctx->predicted_incremental.slot;
+  if( ctx->config.fast_boot_stream ) slot = ctx->fast_boot.stream_slot;
 
   if( peer->key.is_url ) {
     char const * scheme = is_https ? "https" : "http";
@@ -1054,12 +1048,7 @@ stream_meta( fd_snapct_tile_t *       ctx,
 
   if( FD_LIKELY( !!ctx->out_ct.mem ) ) {
     fd_ssctrl_stream_init_t * out = fd_chunk_to_laddr( ctx->out_ct.mem, ctx->out_ct.chunk );
-    out->stream_slot = ctx->fast_boot.stream_slot;
-    out->full_slot   = ctx->fast_boot.full_slot;
-    fd_memcpy( out->stream_hash, ctx->fast_boot.stream_hash, FD_HASH_FOOTPRINT );
-    fd_memcpy( out->full_hash,   ctx->fast_boot.full_hash,   FD_HASH_FOOTPRINT );
-    out->server_key  = ctx->peer.key;
-    out->server_addr = ctx->peer.addr;
+    out->server = ctx->peer;
     fd_stem_publish( stem, ctx->out_ct.idx, FD_SNAPSHOT_MSG_STREAM_INIT, ctx->out_ct.chunk, sizeof(fd_ssctrl_stream_init_t), 0UL, 0UL, 0UL );
     ctx->out_ct.chunk = fd_dcache_compact_next( ctx->out_ct.chunk, sizeof(fd_ssctrl_stream_init_t), ctx->out_ct.chunk0, ctx->out_ct.wmark );
   }
@@ -1087,9 +1076,7 @@ stream_after_credit( fd_snapct_tile_t *  ctx,
       }
       int has_incremental = ctx->peer.incr_slot!=FD_SSPEER_SLOT_UNKNOWN;
       ctx->fast_boot.stream_slot = has_incremental ? ctx->peer.incr_slot : ctx->peer.full_slot;
-      ctx->fast_boot.full_slot   = ctx->peer.full_slot;
       fd_memcpy( ctx->fast_boot.stream_hash, has_incremental ? ctx->peer.incr_hash : ctx->peer.full_hash, FD_HASH_FOOTPRINT );
-      fd_memcpy( ctx->fast_boot.full_hash,   ctx->peer.full_hash, FD_HASH_FOOTPRINT );
       ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
       set_state( ctx, FD_SNAPCT_STATE_READING_STREAM );
       stream_init_load( ctx, stem );
@@ -1186,11 +1173,10 @@ after_credit( fd_snapct_tile_t *  ctx,
     int full = ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE || ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP;
     if( !file ) {
       fd_ssctrl_start_t * out = fd_chunk_to_laddr( ctx->out_ld.mem, ctx->out_ld.chunk );
-      if( ctx->config.fast_boot ) {
-        FD_BASE58_ENCODE_32_BYTES( full ? ctx->fast_boot.full_hash : ctx->fast_boot.stream_hash, hash_b58 );
-        if( full ) FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", ctx->fast_boot.full_slot, hash_b58 ) );
-        else       FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->fast_boot.full_slot, ctx->fast_boot.stream_slot, hash_b58 ) );
-        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", full ? ctx->http_full_snapshot_name : ctx->http_incr_snapshot_name ) );
+      if( ctx->config.fast_boot && full ) {
+        FD_BASE58_ENCODE_32_BYTES( ctx->peer.full_hash, hash_b58 );
+        FD_TEST( fd_cstr_printf_check( ctx->http_full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", ctx->peer.full_slot, hash_b58 ) );
+        FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/%s", ctx->http_full_snapshot_name ) );
       } else if( full ) {
         FD_TEST( fd_cstr_printf_check( out->path, PATH_MAX, &out->path_len, "/snapshot.tar.bz2" ) );
       } else {
@@ -1223,7 +1209,7 @@ after_credit( fd_snapct_tile_t *  ctx,
            write contention. */
         fd_wait_info_t wait_info;
         if( FD_UNLIKELY( !fd_wait_info_try_read( &wait_info, ctx->wait_info ) ) ) break;
-        if( FD_UNLIKELY( ctx->fast_boot.stream_slot==ULONG_MAX ) ) break;
+        if( FD_UNLIKELY( !ctx->peer.addr.l ) ) break;
 
         if( FD_UNLIKELY( wait_info.reset_slot!=ctx->fast_boot.replay_slot ) ) {
           ctx->fast_boot.replay_slot  = wait_info.reset_slot;
@@ -1238,8 +1224,8 @@ after_credit( fd_snapct_tile_t *  ctx,
 
         /* The snapct behind the stream reads the full from disk when
            it is the one the stream is on. */
-        if( FD_UNLIKELY( ctx->fast_boot.full_slot==ctx->local_in.full_snapshot_slot &&
-                         !memcmp( ctx->fast_boot.full_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT ) ) ) {
+        if( FD_UNLIKELY( ctx->peer.full_slot==ctx->local_in.full_snapshot_slot &&
+                         !memcmp( ctx->peer.full_hash, ctx->local_in.full_snapshot_hash, FD_HASH_FOOTPRINT ) ) ) {
           FD_LOG_NOTICE(( "reading full snapshot from file %s%s%s", fd_log_style_dim(), ctx->local_in.full_snapshot_path, fd_log_style_normal() ));
           set_state( ctx, FD_SNAPCT_STATE_READING_FULL_FILE );
           init_load( ctx, stem, 1, 1 );
@@ -2129,41 +2115,9 @@ gossip_frag( fd_snapct_tile_t *  ctx,
   }
 }
 
-/* stream_ctrl_frag takes a control frag for the fast boot stream, from
-   snapld or from snapin. */
-
 static void
-stream_ctrl_frag( fd_snapct_tile_t * ctx,
-                  ulong              sig ) {
-  switch( sig ) {
-    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-      if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) return;
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPCT_STATE_READING_STREAM ) ) break;
-      ctx->flush_ack++;
-      FD_TEST( ctx->flush_ack<=ctx->flush_ack_cnt );
-      return;
-
-    case FD_SNAPSHOT_MSG_CTRL_FAIL:
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) break;
-      ctx->flush_ack++;
-      FD_TEST( ctx->flush_ack<=ctx->flush_ack_cnt );
-      return;
-
-    case FD_SNAPSHOT_MSG_CTRL_ERROR:
-      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_STREAM ) ) {
-        FD_LOG_WARNING(( "received error for the fast boot stream" ));
-        ctx->malformed = 1;
-      }
-      return;
-
-    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
-      return;
-
-    default:
-      break;
-  }
-  FD_LOG_ERR(( "unexpected control frag %lu (%s) in state %d (%s)", sig, fd_ssctrl_msg_ctrl_str( sig ), ctx->state, fd_snapct_state_str( ctx->state ) ));
-}
+ctrl_ack_frag( fd_snapct_tile_t *  ctx,
+               ulong               sig );
 
 /* stream_snapld_frag takes snapld's frags for the fast boot stream.
    The stream grows while it is read, so its bytes are only counted. */
@@ -2193,7 +2147,7 @@ stream_snapld_frag( fd_snapct_tile_t *  ctx,
       return;
 
     default:
-      stream_ctrl_frag( ctx, sig );
+      ctrl_ack_frag( ctx, sig );
       return;
   }
 }
@@ -2207,7 +2161,7 @@ stream_ack_frag( fd_snapct_tile_t *  ctx,
                  ulong               sig,
                  fd_stem_context_t * stem ) {
   if( FD_LIKELY( sig!=FD_SNAPSHOT_MSG_STREAM_STOP ) ) {
-    stream_ctrl_frag( ctx, sig );
+    ctrl_ack_frag( ctx, sig );
     return;
   }
 
@@ -2227,11 +2181,13 @@ process_ctrl_ack( fd_snapct_tile_t * ctx,
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP ||
-                     ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE ) ) {
+                     ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE ||
+                     ctx->state==FD_SNAPCT_STATE_READING_STREAM ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else if( FD_UNLIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
-                              ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ) ) {
+                              ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ||
+                              ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
         /* Safe to ignore -- stale ack from before RESET. */
       } else return -1;
       return 0;
@@ -2292,10 +2248,6 @@ process_ctrl_ack( fd_snapct_tile_t * ctx,
       return -1;
   }
 }
-
-static void
-ctrl_ack_frag( fd_snapct_tile_t *  ctx,
-               ulong               sig );
 
 static void
 snapld_frag( fd_snapct_tile_t *  ctx,
@@ -2518,7 +2470,8 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ||
-                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ) {
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ||
+                     ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET ) ) {
         ctx->flush_ack++;
         FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else {
@@ -2531,6 +2484,7 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR:
       switch( ctx->state ) {
+        case FD_SNAPCT_STATE_READING_STREAM:
         case FD_SNAPCT_STATE_READING_FULL_FILE:
         case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:
         case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
@@ -2583,15 +2537,13 @@ returnable_frag( fd_snapct_tile_t *  ctx,
     else                                              ctrl_ack_frag( ctx, sig );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_STREAM ) {
     FD_TEST( sig==FD_SNAPSHOT_MSG_STREAM_INIT && sz==sizeof(fd_ssctrl_stream_init_t) );
-    FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && ctx->fast_boot.stream_slot==ULONG_MAX );
+    FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT && !ctx->peer.addr.l );
     fd_ssctrl_stream_init_t const * stream = fd_chunk_to_laddr_const( ctx->stream_in_mem, chunk );
-    ctx->fast_boot.stream_slot = stream->stream_slot;
-    ctx->fast_boot.full_slot   = stream->full_slot;
-    fd_memcpy( ctx->fast_boot.stream_hash, stream->stream_hash, FD_HASH_FOOTPRINT );
-    fd_memcpy( ctx->fast_boot.full_hash,   stream->full_hash,   FD_HASH_FOOTPRINT );
-    ctx->load_incremental = ctx->fast_boot.stream_slot!=ctx->fast_boot.full_slot;
-    ctx->peer.key  = stream->server_key;
-    ctx->peer.addr = stream->server_addr;
+    ctx->peer                            = stream->server;
+    ctx->predicted_incremental.full_slot = ctx->peer.full_slot;
+    ctx->predicted_incremental.slot      = ctx->peer.incr_slot;
+    ctx->predicted_incremental.committed = 1;
+    ctx->load_incremental                = ctx->peer.incr_slot!=FD_SSPEER_SLOT_UNKNOWN;
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));
   return 0;
 }

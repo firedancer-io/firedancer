@@ -146,6 +146,27 @@ test_addr( uint ip, ushort port ) {
   return addr;
 }
 
+/* test_server fills in a listed server with a full snapshot and, when
+   incr_slot is known, an incremental on it.  The hashes are a
+   repeated byte. */
+
+static void
+test_server( fd_sspeer_t * server,
+             ulong         full_slot,
+             uchar         full_hash,
+             ulong         incr_slot,
+             uchar         incr_hash ) {
+  memset( server, 0, sizeof(fd_sspeer_t) );
+  server->key.is_url = 1;
+  strcpy( server->key.url.hostname, "server" );
+  server->key.url.resolved_addr = test_addr( 0x0A000001U, 8899 );
+  server->addr                  = test_addr( 0x0A000001U, 8899 );
+  server->full_slot             = full_slot;
+  server->incr_slot             = incr_slot;
+  memset( server->full_hash, full_hash, FD_HASH_FOOTPRINT );
+  memset( server->incr_hash, incr_hash, FD_HASH_FOOTPRINT );
+}
+
 static void
 on_ping_stub( void * _ctx, fd_ip4_port_t addr, ulong latency ) {
   (void)_ctx; (void)addr; (void)latency;
@@ -377,7 +398,6 @@ test_background_snapshot_instance( void ) {
   ctx->state                             = FD_SNAPCT_STATE_INIT;
   ctx->config.fast_boot                  = 1;
   ctx->config.incremental_snapshots      = 1;
-  ctx->fast_boot.stream_slot             = ULONG_MAX;
   ctx->load_incremental                  = 1;
   ctx->resolved_servers_cnt              = 1UL;
   ctx->out_ld.mem                        = (fd_wksp_t *)output;
@@ -406,8 +426,8 @@ test_background_snapshot_instance( void ) {
   FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT );
 
   /* Replay holds at an epoch boundary, but nothing moves until the
-     stream's snapct names the stream it follows: start slot and
-     hash, and the full it is on, arrive on the snapct_ct link. */
+     stream's snapct names its server and the snapshots it has, on
+     the snapct_ct link. */
   fd_wait_info_write_begin( ctx->wait_info );
   ctx->wait_info->info.epoch_boundary_hold = 1;
   fd_wait_info_write_end( ctx->wait_info );
@@ -417,22 +437,16 @@ test_background_snapshot_instance( void ) {
   fd_ssctrl_stream_init_t * stream = (fd_ssctrl_stream_init_t *)input;
   ctx->in_kind[ 0 ]  = IN_KIND_STREAM;
   ctx->stream_in_mem = input;
-  stream->stream_slot = 150UL;
-  stream->full_slot   = 100UL;
-  memset( stream->stream_hash, 0x11, FD_HASH_FOOTPRINT );
-  memset( stream->full_hash,   0x22, FD_HASH_FOOTPRINT );
-  /* It also names the server.  The name and scheme are looked up
-     among the resolved servers, as for any snapshot download. */
-  stream->server_key.is_url = 1;
-  strcpy( stream->server_key.url.hostname, "server" );
-  stream->server_key.url.resolved_addr = test_addr( 0x0A000001U, 8899 );
-  stream->server_addr                  = test_addr( 0x0A000001U, 8899 );
-  ctx->resolved_servers[ 0 ].addr      = test_addr( 0x0A000001U, 8899 );
-  ctx->resolved_servers[ 0 ].is_https  = 1;
+  test_server( &stream->server, 100UL, 0x22, 150UL, 0x11 );
+  /* The name and scheme are looked up among the resolved servers, as
+     for any snapshot download. */
+  ctx->resolved_servers[ 0 ].addr     = test_addr( 0x0A000001U, 8899 );
+  ctx->resolved_servers[ 0 ].is_https = 1;
   strcpy( ctx->resolved_servers[ 0 ].hostname, "server" );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
-  FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->fast_boot.stream_hash[ 31 ]==0x11 );
-  FD_TEST( ctx->fast_boot.full_slot==100UL && ctx->fast_boot.full_hash[ 0 ]==0x22 && ctx->fast_boot.full_hash[ 31 ]==0x22 );
+  FD_TEST( ctx->peer.incr_slot==150UL && ctx->peer.incr_hash[ 0 ]==0x11 && ctx->peer.incr_hash[ 31 ]==0x11 );
+  FD_TEST( ctx->peer.full_slot==100UL && ctx->peer.full_hash[ 0 ]==0x22 && ctx->peer.full_hash[ 31 ]==0x22 );
+  FD_TEST( ctx->predicted_incremental.full_slot==100UL && ctx->predicted_incremental.slot==150UL && ctx->predicted_incremental.committed );
   FD_TEST( ctx->load_incremental );
 
   /* The stream is named once, before its full. */
@@ -498,12 +512,9 @@ test_background_snapshot_instance( void ) {
 
   /* A stream starting at its full: the full alone, by name, then
      done without an incremental. */
-  ctx->state                 = FD_SNAPCT_STATE_INIT;
-  ctx->fast_boot.stream_slot = ULONG_MAX;
-  stream->stream_slot = 200UL;
-  stream->full_slot   = 200UL;
-  memset( stream->stream_hash, 0x33, FD_HASH_FOOTPRINT );
-  memset( stream->full_hash,   0x33, FD_HASH_FOOTPRINT );
+  ctx->state       = FD_SNAPCT_STATE_INIT;
+  ctx->peer.addr.l = 0UL;
+  test_server( &stream->server, 200UL, 0x33, FD_SSPEER_SLOT_UNKNOWN, 0x00 );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( !ctx->load_incremental );
   after_credit( ctx, NULL, NULL, &busy );
@@ -562,7 +573,6 @@ test_background_snapshot_full_on_disk( void ) {
   ctx->state                        = FD_SNAPCT_STATE_INIT;
   ctx->config.fast_boot             = 1;
   ctx->config.incremental_snapshots = 1;
-  ctx->fast_boot.stream_slot        = ULONG_MAX;
   ctx->load_incremental             = 1;
   ctx->resolved_servers_cnt         = 1UL;
   ctx->out_ld.mem                   = (fd_wksp_t *)output;
@@ -600,25 +610,29 @@ test_background_snapshot_full_on_disk( void ) {
   FD_TEST( ctx->state==FD_SNAPCT_STATE_INIT );
 
   /* A stream on another full: download it by name. */
-  ctx->fast_boot.stream_slot = 150UL;
-  ctx->fast_boot.full_slot   = 90UL;
-  memset( ctx->fast_boot.stream_hash, 0x11, FD_HASH_FOOTPRINT );
-  memset( ctx->fast_boot.full_hash,   0x22, FD_HASH_FOOTPRINT );
+  fd_ssctrl_stream_init_t * stream = (fd_ssctrl_stream_init_t *)input;
+  ctx->in_kind[ 0 ]  = IN_KIND_STREAM;
+  ctx->stream_in_mem = input;
+  test_server( &stream->server, 90UL, 0x22, 150UL, 0x11 );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START && !strcmp( test_start.path, "/snapshot-90-3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3.tar.zst" ) );
 
   /* The same slot with another hash: download. */
-  ctx->state = FD_SNAPCT_STATE_INIT;
-  ctx->fast_boot.full_slot = 100UL;
-  memset( ctx->fast_boot.full_hash, 0x33, FD_HASH_FOOTPRINT );
+  ctx->state       = FD_SNAPCT_STATE_INIT;
+  ctx->peer.addr.l = 0UL;
+  test_server( &stream->server, 100UL, 0x33, 150UL, 0x11 );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP );
 
   /* The same full: read it from disk, with its slot. */
-  ctx->state = FD_SNAPCT_STATE_INIT;
-  memset( ctx->fast_boot.full_hash,   0x22, FD_HASH_FOOTPRINT );
+  ctx->state       = FD_SNAPCT_STATE_INIT;
+  ctx->peer.addr.l = 0UL;
+  test_server( &stream->server, 100UL, 0x22, 150UL, 0x11 );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE );
   fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, test_publish_chunk );
@@ -634,15 +648,9 @@ test_background_snapshot_full_on_disk( void ) {
 
   /* A stream starting at the full on disk: the full alone, then
      done. */
-  ctx->state                 = FD_SNAPCT_STATE_INIT;
-  ctx->fast_boot.stream_slot = ULONG_MAX;
-  fd_ssctrl_stream_init_t * stream = (fd_ssctrl_stream_init_t *)input;
-  ctx->in_kind[ 0 ]  = IN_KIND_STREAM;
-  ctx->stream_in_mem = input;
-  stream->stream_slot = 100UL;
-  stream->full_slot   = 100UL;
-  memset( stream->stream_hash, 0x22, FD_HASH_FOOTPRINT );
-  memset( stream->full_hash,   0x22, FD_HASH_FOOTPRINT );
+  ctx->state       = FD_SNAPCT_STATE_INIT;
+  ctx->peer.addr.l = 0UL;
+  test_server( &stream->server, 100UL, 0x22, FD_SSPEER_SLOT_UNKNOWN, 0x00 );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_STREAM_INIT, 0UL, sizeof(*stream), 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( !ctx->load_incremental );
   after_credit( ctx, NULL, NULL, &busy );
@@ -682,7 +690,6 @@ test_stream_instance_init( void ) {
   ctx->config.fast_boot             = 1;
   ctx->config.fast_boot_stream      = 1;
   ctx->config.incremental_snapshots = 1;
-  ctx->fast_boot.stream_slot        = ULONG_MAX;
   ctx->load_incremental             = 1;
   ctx->deadline_nanos               = LONG_MAX;
   ctx->flush_ack_cnt                = 1;
@@ -728,7 +735,7 @@ test_stream_instance_init( void ) {
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
-  FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->fast_boot.full_slot==100UL && ctx->fast_boot.full_hash[ 0 ]==0x22 );
+  FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->peer.full_slot==100UL && ctx->peer.full_hash[ 0 ]==0x22 );
   fd_ssctrl_init_t const * init = fd_chunk_to_laddr_const( output, test_publish_chunk );
   FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->fast_boot_stream && !init->is_redirect && !init->file );
   FD_TEST( init->slot==150UL && init->snapshot_hash[ 0 ]==0x11 && init->snapshot_hash[ 31 ]==0x11 );
@@ -785,7 +792,7 @@ test_stream_instance_init( void ) {
   ctx->flush_ack_cnt = 1;
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->deadline_nanos>now && test_publish_cnt==published+2UL );
-  FD_TEST( ctx->fast_boot.stream_slot==160UL && ctx->fast_boot.stream_hash[ 0 ]==0x44 && ctx->fast_boot.full_slot==100UL && ctx->fast_boot.full_hash[ 0 ]==0x22 );
+  FD_TEST( ctx->fast_boot.stream_slot==160UL && ctx->fast_boot.stream_hash[ 0 ]==0x44 && ctx->peer.full_slot==100UL && ctx->peer.full_hash[ 0 ]==0x22 );
   init = fd_chunk_to_laddr_const( output, test_publish_chunk );
   FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->fast_boot_stream && init->slot==160UL && init->snapshot_hash[ 0 ]==0x44 );
   char hash_b58[ FD_BASE58_ENCODED_32_SZ ];
@@ -808,7 +815,8 @@ test_stream_instance_init( void ) {
   snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
   fd_ssctrl_stream_init_t const * fwd = fd_chunk_to_laddr_const( ct_out, test_publish_chunk );
   FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_STREAM_INIT && test_publish_sz==sizeof(*fwd) );
-  FD_TEST( fwd->stream_slot==160UL && fwd->stream_hash[ 0 ]==0x44 && fwd->full_slot==100UL && fwd->full_hash[ 0 ]==0x22 );
+  FD_TEST( fwd->server.incr_slot==160UL && fwd->server.incr_hash[ 0 ]==0x44 && fwd->server.full_slot==100UL && fwd->server.full_hash[ 0 ]==0x22 );
+  FD_TEST( fwd->server.addr.l==ctx->resolved_servers[ 0 ].addr.l && fwd->server.key.is_url && !strcmp( fwd->server.key.url.hostname, "server" ) );
   FD_TEST( ctx->deadline_nanos==LONG_MAX );
   published = test_publish_cnt;
   memset( full_hash, 0x33, FD_HASH_FOOTPRINT );
@@ -822,7 +830,7 @@ test_stream_instance_init( void ) {
   ctx->state = FD_SNAPCT_STATE_INIT;
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
-  FD_TEST( ctx->fast_boot.stream_slot==200UL && ctx->fast_boot.stream_hash[ 0 ]==0x33 && ctx->fast_boot.full_slot==200UL && ctx->fast_boot.full_hash[ 0 ]==0x33 );
+  FD_TEST( ctx->fast_boot.stream_slot==200UL && ctx->fast_boot.stream_hash[ 0 ]==0x33 && ctx->peer.full_slot==200UL && ctx->peer.full_hash[ 0 ]==0x33 );
   init = fd_chunk_to_laddr_const( output, test_publish_chunk );
   FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->slot==200UL && init->snapshot_hash[ 0 ]==0x33 );
   FD_TEST( !strcmp( ctx->http_full_snapshot_name, "fast-boot-stream-200-4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4.tar.zst" ) );
@@ -847,7 +855,7 @@ test_stream_instance_init( void ) {
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->metrics.full.bytes_total==2000UL && ctx->deadline_nanos==LONG_MAX );
   fwd = fd_chunk_to_laddr_const( ct_out, test_publish_chunk );
   FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_STREAM_INIT && test_publish_cnt==published+2UL );
-  FD_TEST( fwd->stream_slot==200UL && fwd->stream_hash[ 0 ]==0x33 && fwd->full_slot==200UL && fwd->full_hash[ 0 ]==0x33 );
+  FD_TEST( fwd->server.full_slot==200UL && fwd->server.full_hash[ 0 ]==0x33 && fwd->server.incr_slot==FD_SSPEER_SLOT_UNKNOWN );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && test_publish_cnt==published+2UL );
 
@@ -871,7 +879,6 @@ test_fast_boot_gossip_server( fd_ssping_t * ssping ) {
   ctx->state                   = FD_SNAPCT_STATE_INIT;
   ctx->config.fast_boot        = 1;
   ctx->config.fast_boot_stream = 1;
-  ctx->fast_boot.stream_slot   = ULONG_MAX;
   ctx->deadline_nanos          = LONG_MAX;
   ctx->flush_ack_cnt           = 1;
   ctx->config.sources.gossip.allow_any        = 0;
@@ -916,7 +923,7 @@ test_fast_boot_gossip_server( fd_ssping_t * ssping ) {
   ctx->ssping = NULL; after_credit( ctx, NULL, NULL, &busy ); ctx->ssping = ssping; /* no ping goes out */
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM );
   FD_TEST( ctx->peer.addr.l==fast_boot.l && !ctx->peer.key.is_url && fd_pubkey_eq( ctx->peer.key.pubkey, &peer ) );
-  FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->fast_boot.full_slot==100UL && ctx->fast_boot.full_hash[ 0 ]==0x22 );
+  FD_TEST( ctx->fast_boot.stream_slot==150UL && ctx->fast_boot.stream_hash[ 0 ]==0x11 && ctx->peer.full_slot==100UL && ctx->peer.full_hash[ 0 ]==0x22 );
 
   /* The stream is asked for over plain HTTP by address. */
   snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, 0UL, NULL );
@@ -929,8 +936,8 @@ test_fast_boot_gossip_server( fd_ssping_t * ssping ) {
   fd_ssctrl_meta_t meta = { .total_sz = 1000UL };
   stream_meta( ctx, NULL, &meta );
   fd_ssctrl_stream_init_t const * stream = fd_chunk_to_laddr_const( ct_out, test_publish_chunk );
-  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_STREAM_INIT && stream->stream_slot==150UL && stream->full_slot==100UL );
-  FD_TEST( stream->server_addr.l==fast_boot.l && !stream->server_key.is_url && fd_pubkey_eq( stream->server_key.pubkey, &peer ) );
+  FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_STREAM_INIT && stream->server.incr_slot==150UL && stream->server.full_slot==100UL );
+  FD_TEST( stream->server.addr.l==fast_boot.l && !stream->server.key.is_url && fd_pubkey_eq( stream->server.key.pubkey, &peer ) );
 
   fd_ssping_remove( ctx->ssping, fast_boot );
   free( scratch );

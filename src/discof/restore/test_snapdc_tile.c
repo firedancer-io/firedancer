@@ -580,6 +580,7 @@ test_controls_and_retry( void ) {
 static void
 test_stream_shutdown( void ) {
   test_env_t * env = test_env_new( 0UL, 1UL );
+  env->ctx->stream = 1;
   begin_load( env, 1, 1 );
   FD_TEST( env->ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
   send_control( env, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN );

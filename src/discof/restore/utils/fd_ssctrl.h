@@ -4,7 +4,7 @@
 #include "../../../util/net/fd_net_headers.h"
 #include "../../../waltz/fd_fqdn.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
-#include "fd_sspeer.h"
+#include "fd_sspeer_selector.h"
 
 /* The snapshot tiles have a somewhat involved state machine, which is
    controlled by snapct.  Imagine first the following sequence:
@@ -190,15 +190,10 @@ typedef struct fd_ssctrl_meta {
 } fd_ssctrl_meta_t;
 
 /* Sent by the snapct reading a fast boot stream to the snapct loading
-   the snapshots behind it: the stream's slot, the full it is on and
-   the server. */
+   the snapshots behind it: the server, and the snapshots it had when
+   the stream was picked. */
 typedef struct fd_ssctrl_stream_init {
-  ulong           stream_slot;
-  uchar           stream_hash[ FD_HASH_FOOTPRINT ];
-  ulong           full_slot;
-  uchar           full_hash[ FD_HASH_FOOTPRINT ];
-  fd_sspeer_key_t server_key;
-  fd_ip4_port_t   server_addr;
+  fd_sspeer_t server;
 } fd_ssctrl_stream_init_t;
 
 struct fd_snapshot_account_hdr {

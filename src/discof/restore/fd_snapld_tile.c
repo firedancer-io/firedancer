@@ -692,12 +692,13 @@ returnable_frag( fd_snapld_tile_t *  ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
-  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL && sig!=FD_SNAPSHOT_MSG_CTRL_SHUTDOWN ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL &&
+      !( sig==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN && ctx->fast_boot_stream.active ) ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this, and a
-       shutdown applies in any state. */
+       shutdown ends a fast boot stream in any state. */
     return 0;
   };
 
@@ -795,6 +796,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE || ctx->fast_boot_stream.active );
       /* Shut down any in-progress fast boot stream. */
       fd_sshttp_cancel( ctx->sshttp );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
