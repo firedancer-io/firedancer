@@ -25,10 +25,6 @@
 #define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )>0)
 #include "../../util/tmpl/fd_sort.c"
 
-/* FD_EPOCH_LEADERS_GEO_RUN_LENGTH is the maximum number of leaders in
-   a single cluster. Defined by SIMD-0675. */
-#define FD_EPOCH_LEADERS_GEO_RUN_LENGTH  (3UL)
-
 /* FD_EPOCH_LEADERS_GEO_STAKE_FLOOR is the minimum % of the total stake
    that each leaders radius must contain. Defined by SIMD-0675. */
 #define FD_EPOCH_LEADERS_GEO_STAKE_FLOOR (10UL)
@@ -341,14 +337,13 @@ fd_epoch_leaders_new( void  *                  shmem,
      vote addr per rotation   (align=32, footprint=32*ceil(slot_cnt/4))
      (up to 32 bytes of padding to align to 64)
      list of pubkeys          (align=32, footprint=32*pub_cnt)
-     (possibly 32 bytes of padding to align to 64)
+     (padding to align to 64)
 
      The memory for the list of pubkeys is used three times, in this
-     order:
-     1. by wsample, to generate the list of indices.  The region is
-        sized for the larger of 32*pub_cnt and wsample's footprint.
-     2. by the geo-aware re-ordering, as scratch space: at most 32
-        bytes per pubkey.
+     order, and is sized for the largest of the three:
+     1. by wsample, to generate the list of indices.
+     2. by the geo-aware re-ordering, as scratch space:
+        FD_EPOCH_LEADERS_GEO_SCRATCH_FOOTPRINT( pub_cnt ).
      3. for the pubkeys themselves, which we only copy in once both
         are done.
 
@@ -373,8 +368,8 @@ fd_epoch_leaders_new( void  *                  shmem,
   void        * wsample_mem = (void        *)fd_type_pun( (void *)laddr );
   fd_pubkey_t * pubkeys     = (fd_pubkey_t *)fd_type_pun( (void *)laddr );
 
-  FD_STATIC_ASSERT( sizeof(fd_geo_neighbor_t)<=sizeof(fd_geo_cluster_t),                          geo_scratch );
-  FD_STATIC_ASSERT( sizeof(ulong)+sizeof(fd_geo_cluster_t)+2UL*sizeof(uint)<=sizeof(fd_pubkey_t), geo_scratch );
+  FD_STATIC_ASSERT( sizeof(fd_geo_neighbor_t)<=sizeof(fd_geo_cluster_t),                                                    geo_scratch );
+  FD_STATIC_ASSERT( sizeof(ulong)+sizeof(fd_geo_cluster_t)+2UL*sizeof(uint)<=FD_EPOCH_LEADERS_GEO_SCRATCH_FOOTPRINT( 1UL ), geo_scratch );
 
   FD_TEST( laddr+fd_wsample_footprint( pub_cnt, 0 )<=(ulong)wsample_mem + fd_epoch_leaders_footprint( pub_cnt, slot_cnt ) );
 
