@@ -16,6 +16,7 @@
 #include "../program/fd_vote_program.h"
 #include "../../stakes/fd_vote_stakes.h"
 #include "../program/vote/fd_vote_codec.h"
+#include "../../accdb/fd_accdb_cache.h"
 
 /* Read the lamport balance of an account at a given fork.
    Returns 0 if the account does not exist. */
@@ -1186,6 +1187,43 @@ test_simd0123_fee_wrong_owner_burns( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_simd0123_fee_wrong_owner_burns: PASSED" ));
 }
 
+/* A leader vote account recreated as a system account of the max
+   size burns the delegator share without being loaded. */
+static void
+test_simd0123_fee_oversized_burns( fd_svm_mini_t * mini ) {
+  ulong root_idx; fd_pubkey_t vote;
+  ulong child_idx = setup_simd0123_fee_block( mini, NULL, 2500U, 1, SIMD0232_FEE_EXECUTION, SIMD0232_FEE_PRIORITY, &root_idx, &vote );
+
+  static uchar big[ FD_RUNTIME_ACC_SZ_MAX ];
+  fd_acc_t recreated = {0};
+  fd_memcpy( recreated.pubkey, vote.key, 32UL );
+  fd_memcpy( recreated.owner,  fd_solana_system_program_id.uc, 32UL );
+  recreated.lamports = fd_rent_exempt_minimum_balance( &fd_svm_mini_bank( mini, root_idx )->f.rent, sizeof(big) );
+  recreated.data_len = sizeof(big);
+  recreated.data     = big;
+  fd_svm_mini_put_account_rooted( mini, &recreated );
+
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
+  fd_pubkey_t const * leader = get_leader( bank );
+  fd_svm_mini_add_lamports( mini, fork_id, leader, 1000000000UL );
+  ulong leader_before = read_lamports( mini, fork_id, leader );
+  ulong vote_before   = read_lamports( mini, fork_id, &vote );
+  ulong cap_before    = bank->f.capitalization;
+
+  fd_accdb_metrics_t const * metrics = fd_accdb_metrics( mini->runtime->accdb );
+  ulong big_class    = fd_accdb_cache_class( sizeof(big) );
+  ulong acquired_pre = metrics->accounts_acquired_per_class[ big_class ] + metrics->writable_accounts_acquired_per_class[ big_class ];
+
+  fd_svm_mini_freeze( mini, child_idx );
+
+  FD_TEST( metrics->accounts_acquired_per_class[ big_class ] + metrics->writable_accounts_acquired_per_class[ big_class ]==acquired_pre );
+  FD_TEST( read_lamports( mini, fork_id, leader )==leader_before+SIMD0123_VALIDATOR_FEE );
+  FD_TEST( read_lamports( mini, fork_id, &vote )==vote_before );
+  FD_TEST( bank->f.capitalization==cap_before-(SIMD0232_FEE_EXECUTION+SIMD0232_FEE_PRIORITY)+SIMD0123_VALIDATOR_FEE );
+  FD_LOG_NOTICE(( "test_simd0123_fee_oversized_burns: PASSED" ));
+}
+
 /* A pre-v4 vote state burns the delegator share. */
 static void
 test_simd0123_fee_pre_v4_burns( fd_svm_mini_t * mini ) {
@@ -1310,6 +1348,7 @@ main( int     argc,
   test_simd0123_fee_rounding( mini );
   test_simd0123_fee_pending_accumulates( mini );
   test_simd0123_fee_wrong_owner_burns( mini );
+  test_simd0123_fee_oversized_burns( mini );
   test_simd0123_fee_pre_v4_burns( mini );
   test_simd0123_fee_pending_overflow_burns( mini );
   test_simd0123_fee_collector_burn_keeps_delegator_share( mini );

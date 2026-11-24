@@ -924,6 +924,8 @@ sweep_vote_account( fd_bank_t *         bank,
                     fd_pubkey_t const * vote_address,
                     ulong const *       maybe_stake,
                     ulong *             total_block_reward_lamports ) {
+  if( FD_UNLIKELY( !fd_stakes_vote_account_sz_ok( accdb, bank->accdb_fork_id, vote_address ) ) ) return;
+
   ulong pending_delegator_rewards = 0UL;
   {
     fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, vote_address->uc );

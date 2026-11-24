@@ -16,6 +16,7 @@
 #include "sysvar/fd_sysvar_clock.h"
 #include "../accdb/fd_accdb.h"
 #include "../accdb/fd_accdb_shmem.h"
+#include "../accdb/fd_accdb_cache.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_stake_types.h"
 #include "../stakes/fd_vote_stakes.h"
@@ -313,6 +314,19 @@ set_vote_account_owner_valid( test_env_t * env, ulong i, int valid ) {
   fd_accdb_unwrite_one( env->accdb, &acc );
 }
 
+/* Replace voter i's vote account with a system-owned account of the
+   max account size, as if it had been closed and recreated. */
+static void
+recreate_vote_account_oversized( test_env_t * env, ulong i ) {
+  fd_pubkey_t v = vote_key( i );
+  fd_acc_t acc = fd_accdb_write_one( env->accdb, env->bank->accdb_fork_id, v.uc );
+  fd_memcpy( acc.owner, fd_solana_system_program_id.key, sizeof(fd_pubkey_t) );
+  acc.data_len = FD_RUNTIME_ACC_SZ_MAX;
+  fd_memset( acc.data, 0, FD_RUNTIME_ACC_SZ_MAX );
+  acc.commit   = 1;
+  fd_accdb_unwrite_one( env->accdb, &acc );
+}
+
 /* ---------------------------------------------------------------- */
 /* env lifecycle                                                    */
 /* ---------------------------------------------------------------- */
@@ -456,6 +470,10 @@ test_env_destroy( test_env_t * env ) {
 static long flip_i_pending     = -1L;
 static int  flip_valid_pending = 0;
 
+/* Optional oversized recreation applied inside step_slot, after the
+   vote prep, when recreate_i_pending>=0. */
+static long recreate_i_pending = -1L;
+
 /* Advance one slot.  If prep_epoch!=0, (re)write the voters' state for
    that epoch into this slot's (still un-rooted) xid so it is visible to
    the next slot's epoch-boundary refresh.  Any pending owner
@@ -486,6 +504,10 @@ step_slot( test_env_t * env, ulong prep_epoch ) {
   if( flip_i_pending>=0L ) {
     set_vote_account_owner_valid( env, (ulong)flip_i_pending, flip_valid_pending );
     flip_i_pending = -1L;
+  }
+  if( recreate_i_pending>=0L ) {
+    recreate_vote_account_oversized( env, (ulong)recreate_i_pending );
+    recreate_i_pending = -1L;
   }
 
   fd_banks_mark_bank_frozen( new_bank );
@@ -852,6 +874,67 @@ test_vat_invalidate_revalidate( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_vat_invalidate_revalidate: ok" ));
 }
 
+/* accounts_acquired returns how many accounts this joiner has acquired
+   from the cache class holding accounts of data_sz bytes. */
+static ulong
+accounts_acquired( test_env_t * env, ulong data_sz ) {
+  fd_accdb_metrics_t const * m = fd_accdb_metrics( env->accdb );
+  ulong c = fd_accdb_cache_class( data_sz );
+  return m->accounts_acquired_per_class[ c ] + m->writable_accounts_acquired_per_class[ c ];
+}
+
+/* A vote account that stays in the t-2 and t-3 sets after it is closed
+   and recreated as an account of the max size is rejected by the
+   boundary refresh and by the pending delegator rewards sweep without
+   its data being loaded. */
+static void
+test_recreated_oversized_not_loaded( fd_wksp_t * wksp ) {
+  bls_mask_override = 1;
+  bls_mask_bits     = (1u<<NUM_VOTERS)-1u;
+
+  test_env_t env[1];
+  test_env_create( env, wksp );
+  enable_feature( env, offsetof( fd_features_t, block_revenue_sharing ), 0UL );
+
+  ulong const          whale = NUM_VOTERS-1UL;
+  fd_pubkey_t          v     = vote_key( whale );
+  fd_vote_stakes_ele_t q[1];
+
+  advance_into_epoch( env, TEST_VAT_EPOCH+1UL );
+  FD_TEST( whale_valid_in_t_2( env )==1 );
+
+  /* The whale is recreated at the last slot of each of the next two
+     epochs.  At the first boundary it is in t-2 and t-3, so the
+     refresh and the sweep both visit it. */
+  ulong boundary = (TEST_VAT_EPOCH+2UL)*TEST_SLOTS_PER_EPOCH;
+  while( env->bank->f.slot<boundary-2UL ) step_slot( env, 0UL );
+  recreate_i_pending = (long)whale;
+  step_slot( env, TEST_VAT_EPOCH+2UL );
+  ulong acquired_pre = accounts_acquired( env, FD_RUNTIME_ACC_SZ_MAX );
+  step_slot( env, 0UL );
+  FD_TEST( env->bank->f.slot==boundary );
+  FD_TEST( fd_vote_stakes_query_t_2( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, q ) && !q->is_valid );
+  FD_TEST( fd_vote_stakes_query_t_3( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, q ) );
+  FD_TEST( accounts_acquired( env, FD_RUNTIME_ACC_SZ_MAX )==acquired_pre );
+
+  /* At the second boundary it is in t-3 alone, so only the sweep
+     visits it. */
+  boundary += TEST_SLOTS_PER_EPOCH;
+  while( env->bank->f.slot<boundary-2UL ) step_slot( env, 0UL );
+  recreate_i_pending = (long)whale;
+  step_slot( env, TEST_VAT_EPOCH+3UL );
+  acquired_pre = accounts_acquired( env, FD_RUNTIME_ACC_SZ_MAX );
+  step_slot( env, 0UL );
+  FD_TEST( env->bank->f.slot==boundary );
+  FD_TEST( !fd_vote_stakes_query_t_2( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, q ) );
+  FD_TEST( fd_vote_stakes_query_t_3( fd_bank_vote_stakes( env->bank ), env->bank->vote_stakes_fork_id, &v, q ) );
+  FD_TEST( accounts_acquired( env, FD_RUNTIME_ACC_SZ_MAX )==acquired_pre );
+
+  bls_mask_override = 0;
+  test_env_destroy( env );
+  FD_LOG_NOTICE(( "test_recreated_oversized_not_loaded: ok" ));
+}
+
 static void
 test_runtime_stack_stake_accum_map_sizing( fd_wksp_t * wksp ) {
   ulong const max_vote_accounts        = 4UL;
@@ -898,6 +981,7 @@ main( int argc, char ** argv ) {
   test_enforce_registration_v5_invalid_location( wksp );
   test_location_captured( wksp );
   test_vat_invalidate_revalidate( wksp );
+  test_recreated_oversized_not_loaded( wksp );
   test_geo_leader_schedule_gate( wksp );
   test_geo_schedule_enforced_set( wksp );
 

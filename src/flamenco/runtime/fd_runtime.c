@@ -253,6 +253,8 @@ fd_runtime_deposit_delegator_fees( fd_bank_t *         bank,
                                    fd_capture_ctx_t *  capture_ctx,
                                    fd_pubkey_t const * vote_address,
                                    ulong               fees ) {
+  if( FD_UNLIKELY( !fd_stakes_vote_account_sz_ok( accdb, bank->accdb_fork_id, vote_address ) ) ) return 1;
+
   fd_accdb_svm_update_t update[1];
   fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, vote_address, 0 );
   if( FD_UNLIKELY( !acc.lamports ) ) return 1; /* open_rw released the handle */

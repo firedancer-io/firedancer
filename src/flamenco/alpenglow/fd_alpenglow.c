@@ -1,6 +1,7 @@
 #include "fd_alpenglow.h"
 #include "fd_vote_queue.h"
 #include "../rewards/fd_epoch_inflation_account.h"
+#include "../stakes/fd_stakes.h"
 
 #include "../runtime/fd_hashes.h"
 #include "../runtime/fd_pubkey_utils.h"
@@ -405,9 +406,7 @@ vote_account_open( fd_bank_t *                 bank,
   /* A signer's vote account can be closed and recreated with any data,
      so reject accounts that can't be vote accounts before copying their
      data. */
-  ulong data_len = fd_accdb_data_len( accdb, bank->accdb_fork_id, pk->uc );
-  if( FD_UNLIKELY( data_len!=FD_VOTE_STATE_V2_SZ && data_len!=FD_VOTE_STATE_V3_SZ &&
-                   data_len!=FD_VOTE_STATE_V4_SZ && data_len!=FD_VOTE_STATE_V5_SZ ) ) return 0;
+  if( FD_UNLIKELY( !fd_stakes_vote_account_sz_ok( accdb, bank->accdb_fork_id, pk ) ) ) return 0;
 
   *acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pk->uc );
   if( acc->prior_lamports &&

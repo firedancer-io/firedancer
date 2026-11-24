@@ -68,6 +68,21 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_stake_delegations_t *       stake_delegations,
                           ulong *                        new_rate_activation_epoch );
 
+/* fd_stakes_vote_account_sz_ok returns 1 if the account at pubkey has
+   the data size of a vote state, else 0.  A vote account can be closed
+   and its address recreated as an account of any size, so callers that
+   load a vote account by address check this first and do not load the
+   account on 0.  Reads account metadata only. */
+
+static inline int
+fd_stakes_vote_account_sz_ok( fd_accdb_t *        accdb,
+                              fd_accdb_fork_id_t  fork_id,
+                              fd_pubkey_t const * pubkey ) {
+  ulong data_len = fd_accdb_data_len( accdb, fork_id, pubkey->uc );
+  return data_len==FD_VOTE_STATE_V2_SZ || data_len==FD_VOTE_STATE_V3_SZ ||
+         data_len==FD_VOTE_STATE_V4_SZ || data_len==FD_VOTE_STATE_V5_SZ;
+}
+
 /* fd_stakes_vote_account_is_admissible returns 1 if a vote account
    with the given state passes the validator admission ticket filter
    applied at the epoch boundary */
