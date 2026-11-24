@@ -52,6 +52,11 @@
 /* The fd_neigh4_prober_t class provides "neighbor probing"
    functionality as described above using empty UDP/IP packets. */
 
+/* 128 burst + 3/s * 15s needs at most 173 live records.  History is
+   independent of the kernel-mirrored neighbor map: failed probes must
+   not leave placeholders there merely to remember their deadline. */
+#define FD_NEIGH4_PROBE_HISTORY_MAX (256UL)
+
 struct fd_neigh4_prober {
   int sock_fd;  /* UDP socket with IP_TTL 1 */
 
@@ -65,7 +70,14 @@ struct fd_neigh4_prober {
   /* Metric counter for probes suppressed by local rate limit */
   ulong local_rate_limited_cnt;
 
-  /* Metric counter for probes suppressed by global rate limit */
+  struct {
+    uint ip4_addr;
+    int  valid;
+    long suppress_until;
+  } history[ FD_NEIGH4_PROBE_HISTORY_MAX ];
+
+  /* Metric counter for probes suppressed by global admission limits
+     (token bucket or, defensively, bounded history capacity). */
   ulong global_rate_limited_cnt;
 };
 
@@ -78,7 +90,9 @@ FD_PROTOTYPES_BEGIN
    (setsockopt(2)).  max_probes_per_second and max_probe_burst configure
    token bucket rate limit parameters for outgoing probe packets.
    probe_delay_seconds sets the min wait time between two probe packet
-   sends for the same dst IP. */
+   sends for the same dst IP.  max_probe_burst plus the rounded-up
+   number of probes permitted during probe_delay_seconds must be less
+   than FD_NEIGH4_PROBE_HISTORY_MAX (one slot reserved for rounding). */
 
 void
 fd_neigh4_prober_init( fd_neigh4_prober_t * prober,
@@ -119,7 +133,22 @@ fd_neigh4_probe_rate_limited(
     prober->local_rate_limited_cnt++;
     return -1;
   }
-  FD_NEIGH4_PROBE_SUPPRESS_UNTIL_SET( entry, now + prober->probe_delay );
+  ulong slot = ULONG_MAX;
+  for( ulong i=0UL; i<FD_NEIGH4_PROBE_HISTORY_MAX; i++ ) {
+    if( !prober->history[ i ].valid || now>=prober->history[ i ].suppress_until ) {
+      if( slot==ULONG_MAX ) slot=i;
+    } else if( prober->history[ i ].ip4_addr==ip4_addr ) {
+      prober->local_rate_limited_cnt++;
+      return -1;
+    }
+  }
+
+  /* Never evict unexpired history.  Valid initialization sizes this
+     above the token-bucket bound; fail closed if that invariant fails. */
+  if( FD_UNLIKELY( slot==ULONG_MAX ) ) {
+    prober->global_rate_limited_cnt++;
+    return -1;
+  }
 
   /* Global rate limit */
   if( !fd_token_bucket_consume( &prober->rate_limit, 1.0f, now ) ) {
@@ -127,6 +156,12 @@ fd_neigh4_probe_rate_limited(
     return -1;
   }
 
+  /* Remember admitted attempts, including send failures.  Globally
+     rejected requests consume no history and cannot fill this cache. */
+  prober->history[ slot ].ip4_addr       = ip4_addr;
+  prober->history[ slot ].valid          = 1;
+  prober->history[ slot ].suppress_until = now + prober->probe_delay;
+  FD_NEIGH4_PROBE_SUPPRESS_UNTIL_SET( entry, now + prober->probe_delay );
   return fd_neigh4_probe( prober, entry, ip4_addr, now );
 }
 
