@@ -329,6 +329,7 @@ fd_sshttp_init( fd_sshttp_t * http,
                 ulong         range_start,
                 int           is_stream ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
+  FD_TEST( !range_start || is_stream );
 
   ulong hostname_len = strnlen( hostname, sizeof(http->hostname) );
   if( FD_UNLIKELY( hostname_len==sizeof(http->hostname) ) ) {
@@ -797,11 +798,7 @@ read_response( fd_sshttp_t *        http,
     return FD_SSHTTP_ADVANCE_NOT_FOUND;
   }
 
-  /* A 200 to a ranged request means the server ignored the range and
-     is about to resend the whole body.  A fast boot stream says where
-     its body starts itself. */
-  int ranged = http->range_start && !http->is_stream;
-  if( FD_UNLIKELY( status!=(ranged ? 206 : 200) ) ) {
+  if( FD_UNLIKELY( status!=200 ) ) {
     FD_LOG_WARNING(( "unexpected response status %d %.*s from " FD_IP4_ADDR_FMT ":%hu", status, (int)message_len, message,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
@@ -825,26 +822,6 @@ read_response( fd_sshttp_t *        http,
     if( FD_UNLIKELY( !http->content_len || http->content_len==ULONG_MAX ) ) {
       FD_LOG_WARNING(( "missing or invalid content-length in response from " FD_IP4_ADDR_FMT ":%hu",
                        FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
-      fd_sshttp_cancel( http );
-      return FD_SSHTTP_ADVANCE_ERROR;
-    }
-  }
-
-  /* A ranged reply must resume where the request asked. */
-  if( FD_UNLIKELY( ranged ) ) {
-    char  expected[ 48 ];
-    ulong expected_len;
-    FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), &expected_len, "bytes %lu-", http->range_start ) );
-    int resumes = 0;
-    for( ulong i=0UL; i<header_cnt; i++ ) {
-      if( FD_LIKELY( headers[i].name_len!=13UL ) ) continue;
-      if( FD_LIKELY( strncasecmp( headers[i].name, "content-range", 13UL ) ) ) continue;
-      resumes = (ulong)headers[i].value_len>=expected_len && !strncmp( headers[i].value, expected, expected_len );
-      break;
-    }
-    if( FD_UNLIKELY( !resumes ) ) {
-      FD_LOG_WARNING(( "response from " FD_IP4_ADDR_FMT ":%hu does not resume at byte %lu",
-                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ), http->range_start ));
       fd_sshttp_cancel( http );
       return FD_SSHTTP_ADVANCE_ERROR;
     }

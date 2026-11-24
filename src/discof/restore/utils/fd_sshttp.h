@@ -60,10 +60,10 @@ fd_sshttp_resolved_hash( fd_sshttp_t const * http );
    URL path of length path_len.  hops is the maximum number of HTTP
    redirects to follow, pass ULONG_MAX to preserve the current hops
    value (e.g. when following a redirect internally).  now is the
-   current timestamp.  A nonzero range_start asks the server to resume
-   the body at that byte offset, which it must answer with a 206.  A
-   redirect to another file reads that file from its start.  is_stream
-   marks a fast boot stream request.  Returns 0 on success and -1 on
+   current timestamp.  is_stream marks a fast boot stream request.  A
+   nonzero range_start asks the server to resume the stream at that
+   byte offset; only a stream resumes.  A redirect to another stream
+   reads it from its start.  Returns 0 on success and -1 on
    failure. */
 
 int
