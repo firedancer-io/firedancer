@@ -899,6 +899,12 @@ test_request_retry( void ) {
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->sent_meta && ctx->fast_boot_stream.off==4UL );
   FD_TEST( ctx->request_retries==FD_SNAPLD_REQUEST_RETRY_MAX-1U && ctx->fast_boot_stream.wait!=LONG_MAX );
   ctx->fast_boot_stream.wait = 0L;
+
+  /* The time spent reconnecting does not count as download time. */
+  ctx->start_batch    = 1L;
+  ctx->bytes_in_batch = 4UL;
+  woken_credit( ctx, &busy );
+  FD_TEST( ctx->fast_boot_stream.wait==LONG_MAX && ctx->start_batch>1L && !ctx->bytes_in_batch );
   serve_one( ctx, server, "Range: bytes=4-\r\n", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 4-7/8\r\nContent-Length: 4\r\n\r\nshot" );
   for( int i=0; i<100000 && ctx->state==FD_SNAPSHOT_STATE_PROCESSING; i++ ) woken_credit( ctx, &busy );
   FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING && publish_sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE && ctx->fast_boot_stream.off==8UL );

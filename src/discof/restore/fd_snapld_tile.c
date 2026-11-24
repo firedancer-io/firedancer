@@ -495,6 +495,8 @@ after_credit( fd_snapld_tile_t *  ctx,
       }
       ctx->fast_boot_stream.wait = LONG_MAX;
       ctx->window_deadline       = LONG_MAX;
+      ctx->start_batch           = now;
+      ctx->bytes_in_batch        = 0UL;
     }
 
     int   fired       = fd_fseq_query( ctx->waker_fseq )==1UL;
