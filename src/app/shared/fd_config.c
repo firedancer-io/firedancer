@@ -18,6 +18,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../discof/restore/utils/fd_ssarchive.h"
 #include "../../discof/restore/utils/fd_wfs.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../util/fd_boolau.h"
 
 #include <unistd.h>
@@ -569,6 +570,9 @@ fd_config_validate( fd_config_t const * config ) {
   fd_config_validate_failover( config );
 
   CFG_HAS_NON_ZERO( development.accdb.partition_size_gib );
+  if( FD_UNLIKELY( config->development.accdb.partition_size_gib>(FD_ACCDB_FILE_SZ_MAX>>30) ) ) {
+    FD_LOG_ERR(( "`development.accdb.partition_size_gib` must be at most %lu", FD_ACCDB_FILE_SZ_MAX>>30 ));
+  }
 
   if( FD_UNLIKELY( config->tiles.gui.enabled && config->tiles.gui.db_size_gib<4UL ) )
     FD_LOG_ERR(( "invalid [tiles.gui.db_size_gib]: must be at least 4 GiB" ));

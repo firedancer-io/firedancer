@@ -2273,6 +2273,47 @@ test_writeback_vs_unlink( void ) {
   test_shmem_delete();
 }
 
+/* test_unbind_vs_unlink: an evictor has loaded K's data word and is
+   about to unbind it when K's version is unlinked, which ORs the
+   unlinked mark into the word.  The evictor's CAS fails; it must retry
+   with the mark rather than take the line with K still bound to it. */
+
+static void
+test_unbind_vs_unlink( void ) {
+  test_shmem_new();
+  fd_accdb_t *       ctl  = join_new();
+  fd_accdb_t *       je   = join_new();
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( ctl, SENTINEL );
+  fd_accdb_fork_id_t f    = fd_accdb_attach_child( ctl, root );
+  uchar              owner[ 32UL ] = { TAG_A };
+
+  uchar K[ 32UL ]; mk_key( 9350UL, K );
+  seq_write_data( ctl, f, K, LAMP_A, owner, 100UL, 0x79 );
+  ulong cls, idx;
+  fd_accdb_cache_line_t * line = line_find( ctl, K, &cls, &idx );
+  FD_TEST( line );
+  fd_accdb_accmeta_t * m = accmeta_at( ctl, line->acc_idx );
+
+  fd_racesan_async_t * e = fiber_force_preevict( &g_fiber[0], je );
+  FD_TEST( fd_racesan_async_step_until( e, "accdb_reclaim:pre_unbind", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( acc_bound( m ) && !fd_accdb_acc_unlinked( m ) );
+  fd_accdb_purge( ctl, f );
+  drain_background( ctl );
+  FD_TEST( acc_bound( m ) && fd_accdb_acc_unlinked( m ) );
+  async_finish( e );
+  fiber_done( &g_fiber[0] );
+  FD_TEST( !acc_bound( m ) && fd_accdb_acc_unlinked( m ) );
+  FD_TEST( line->state==FD_ACCDB_LINE_FREE );
+
+  drain_background( ctl );
+  FD_TEST( !fd_accdb_requests_pending( ctl ) );
+  FD_TEST( fd_accdb_lamports( ctl, root, K )==0UL );
+
+  join_delete( ctl );
+  join_delete( je );
+  test_shmem_delete();
+}
+
 /* test_writeback_vs_compact: compaction parks at the CAS that moves K's
    record, holding K's old offset, while K is overwritten on its fork
    (freeing that record) and an evictor writes the new bytes back.  The
@@ -2546,8 +2587,7 @@ test_nocache_vs_recheck( void ) {
    copies the old bytes and parks; the committer rewrites the line and
    parks with the offset UPDATING.  seq rejects the copy, the version has
    no record yet, so the reader waits (dirty_wait) instead of reading
-   the disk, and then returns the new bytes from the line.  The commit
-   keeps the lamports, which the reader loads once. */
+   the disk, and then returns the new bytes from the line. */
 
 static void
 test_nocache_vs_commit( void ) {
@@ -3841,6 +3881,7 @@ main( int     argc,
     TEST( test_hold_vs_evict ),
     TEST( test_commit_vs_evict ),
     TEST( test_writeback_vs_unlink ),
+    TEST( test_unbind_vs_unlink ),
     TEST( test_writeback_vs_compact ),
     TEST( test_cold_load_race ),
     TEST( test_nocache_vs_reuse ),
