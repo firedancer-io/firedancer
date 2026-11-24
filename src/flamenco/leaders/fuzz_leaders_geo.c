@@ -12,7 +12,7 @@ static fd_validator_location_t const CITY[ 8 ] = {
 #define PUB_MAX   (64UL)
 #define SCHED_MAX (1024UL)
 
-static fd_pubkey_t scratch[ PUB_MAX ];
+static uchar scratch[ FD_EPOCH_LEADERS_GEO_SCRATCH_FOOTPRINT( PUB_MAX ) ] __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN)));
 
 int
 LLVMFuzzerInitialize( int  *   argc,

@@ -35,6 +35,27 @@
                                                       ((ulong )(a))>=((ulong )(b)) ? ((ulong )(a)) : ((ulong )(b)), \
                                                       fd_ulong_max( (a), (b) ) ))
 
+/* FD_EPOCH_LEADERS_GEO_RUN_LENGTH is the maximum number of leaders in
+   a single cluster. Defined by SIMD-0675.
+
+   N.b: SIMD-0675 originally had this value as 3, but this is being
+   changed, likely to 7. This constant will be updated when SIMD-0675
+   is merged. */
+#define FD_EPOCH_LEADERS_GEO_RUN_LENGTH (7UL)
+
+/* FD_EPOCH_LEADERS_GEO_SCRATCH_FOOTPRINT is the scratch space needed
+   for the calculations for the geo-aware leader schedule re-ordering.
+
+   For each validator (pub_cnt), we need:
+   - its radius: sizeof(ulong)
+   - its cluster - the member count plus up to RUN_LENGTH members:
+     (1+RUN_LENGTH)*sizeof(uint)
+   - its entry in the open clusters and eligible clusters lists:
+     2*sizeof(uint) */
+
+#define FD_EPOCH_LEADERS_GEO_SCRATCH_FOOTPRINT( pub_cnt ) \
+  ((pub_cnt)*(sizeof(ulong)+(1UL+FD_EPOCH_LEADERS_GEO_RUN_LENGTH)*sizeof(uint)+2UL*sizeof(uint)))
+
 /* FD_EPOCH_LEADERS_{ALIGN,FOOTPRINT} are compile-time-friendly versions
    of the fd_epoch_leaders_{align,footprint} functions. */
 
@@ -50,8 +71,9 @@
         (slot_cnt+FD_EPOCH_SLOTS_PER_ROTATION-1UL)/FD_EPOCH_SLOTS_PER_ROTATION*32UL                         \
         )                                                                                ),                 \
       FD_EPOCH_LEADERS_ALIGN                                                             )  +               \
-      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( 32UL*(pub_cnt),                                                      \
-                                       FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ), 64UL ) )
+      FD_ULONG_ALIGN_UP( FD_ULONG_MAX( FD_ULONG_MAX( 32UL*(pub_cnt),                                        \
+                                                     FD_WSAMPLE_FOOTPRINT( pub_cnt, 0 ) ),                  \
+                                       FD_EPOCH_LEADERS_GEO_SCRATCH_FOOTPRINT( pub_cnt ) ), 64UL ) )
 
 #define FD_EPOCH_SLOTS_PER_ROTATION (4UL)
 
