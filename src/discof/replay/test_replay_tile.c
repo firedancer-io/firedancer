@@ -4182,6 +4182,58 @@ test_ag_become_leader_publishes_parent( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_ag_become_leader_publishes_parent" ));
 }
 
+static void
+test_ag_skip_timeout_cancels_replay( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  fd_hash_t root_id = { .ul = { 0xBEEFUL } };
+  fd_hash_t id1     = { .ul = { 201UL } };
+  fd_hash_t net2    = { .ul = { 402UL } };
+  fd_bank_t * b1 = setup_ag_leader_ctx( ctx, wksp, &root_id, &id1 );
+  FD_TEST( try_become_leader( ctx, test_stem, FD_METRICS_SAMPLE_REASON_LEADER_START, 0UL ) );
+  fd_bank_t * leader = ctx->leader_bank;
+  fd_bank_t * b2     = add_replayable_block( ctx, b1, 2UL, &net2 );
+  fd_bank_t * b3     = fd_banks_new_bank( ctx->banks, b2->idx, 0L, 0 );
+  FD_TEST( b3 );
+  b2->refcnt = 1UL;
+
+  setup_votor_input( ctx, wksp );
+  ulong chunk = ctx->in[ TEST_VOTOR_IN_IDX ].chunk0;
+  fd_votor_msg_t * msg = fd_chunk_to_laddr( ctx->in[ TEST_VOTOR_IN_IDX ].mem, chunk );
+  ulong seq0       = test_stem_seqs[ ctx->replay_out->idx ];
+  ulong rotor_out  = ctx->rotor_out->idx;
+  ulong rotor_seq0 = test_stem_seqs[ rotor_out ];
+  mock_sched_abandon_queues = 1;
+
+  msg->skip_timeout = (fd_votor_skip_timeout_t){ .slot = 2UL };
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_SKIP_TIMEOUT, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+  ctx->votor_final->slot = 2UL;
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_SKIP_TIMEOUT, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( !mock_sched_abandon_cnt && b2->state==FD_BANK_STATE_REPLAYABLE );
+
+  ctx->votor_final->slot = 0UL;
+  msg->skip_timeout = (fd_votor_skip_timeout_t){ .slot = 1UL };
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_SKIP_TIMEOUT, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( !mock_sched_abandon_cnt && b1->state==FD_BANK_STATE_FROZEN );
+
+  msg->skip_timeout = (fd_votor_skip_timeout_t){ .slot = 2UL };
+  FD_TEST( !returnable_frag( ctx, TEST_VOTOR_IN_IDX, 0UL, FD_VOTOR_SIG_SKIP_TIMEOUT, chunk, sizeof(fd_votor_msg_t), 0UL, 0UL, 0UL, test_stem ) );
+  FD_TEST( mock_sched_abandon_cnt==1UL && mock_sched_abandon_idx==b2->idx );
+  FD_TEST( b2->state==FD_BANK_STATE_DEAD && b3->state==FD_BANK_STATE_DEAD && !b2->refcnt );
+  FD_TEST( ctx->leader_bank==leader && leader->state==FD_BANK_STATE_REPLAYABLE );
+  FD_TEST( !slot_dead_cnt( ctx, seq0 ) );
+  FD_TEST( mock_sched_ref_q==ULONG_MAX );
+  fd_block_id_t key2 = fd_block_id( 2UL, net2.uc );
+  FD_TEST( !fd_block_id_map_ele_query( ctx->block_id_map, &key2, NULL, ctx->block_id_arr ) );
+  mock_sched_abandon_queues = 0;
+
+  fd_hash_t mr4 = { .ul = { 4001UL } };
+  FD_TEST( !deliver_rotor_fec_up( ctx, 4UL, 0U, 0U, 2UL, &net2, &mr4, 0, 0 ) );
+  fd_frag_meta_t const * m = test_stem_mcaches[ rotor_out ] + fd_mcache_line_idx( rotor_seq0, test_stem_depths[ rotor_out ] );
+  FD_TEST( test_stem_seqs[ rotor_out ]==rotor_seq0+1UL && m->sig==REPLAY_SIG_MISSING_FEC );
+
+  FD_LOG_NOTICE(( "pass: test_ag_skip_timeout_cancels_replay" ));
+}
+
 /* Our leader FECs bind to the existing leader bank and never enter
    sched, so a full sched or a full bank pool must not hold them back
    the way it holds back other FECs. */
@@ -4774,6 +4826,7 @@ main( int     argc,
   test_ag_leader_abandon_on_root_past_leader_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_become_leader_refuses_settled_slot( wksp ); fd_wksp_reset( wksp, 42U );
   test_ag_become_leader_publishes_parent( wksp );   fd_wksp_reset( wksp, 42U );
+  test_ag_skip_timeout_cancels_replay( wksp );      fd_wksp_reset( wksp, 42U );
   test_ag_leader_fec_not_gated( wksp );
   fd_wksp_reset( wksp, 42U );
   test_snapmk_start_leader_after_epoch_rollover( wksp );

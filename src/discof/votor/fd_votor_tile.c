@@ -2574,6 +2574,10 @@ after_credit( fd_votor_tile_t *   ctx,
   ulong timeout_slot;
   if( FD_UNLIKELY( fd_votor_loop_poll_skip_timeout( ctx->votor, now, &timeout_slot ) ) ) { /* a timeout we set on ParentReady */
     fd_votor_loop_handle_skip_timeout( ctx->votor, timeout_slot );
+    fd_votor_msg_t * chunk = fd_chunk_to_laddr( ctx->votor_out_mem, ctx->votor_out_chunk );
+    chunk->skip_timeout = (fd_votor_skip_timeout_t){ .slot = timeout_slot };
+    fd_stem_publish( stem, OUT_IDX_VOTOR, FD_VOTOR_SIG_SKIP_TIMEOUT, ctx->votor_out_chunk, sizeof(fd_votor_msg_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->votor_out_chunk = fd_dcache_compact_next( ctx->votor_out_chunk, sizeof(fd_votor_msg_t), ctx->votor_out_chunk0, ctx->votor_out_wmark );
     *opt_poll_in = 0;
     *charge_busy = 1;
   }

@@ -4279,8 +4279,27 @@ returnable_frag( fd_replay_tile_t *  ctx,
         default: break;
         }
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_PARENT_READY ) ) {
-        fd_votor_parent_ready_t const * pr = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-        ctx->votor_parent_ready_slot = fd_ulong_max( ctx->votor_parent_ready_slot, pr->slot );
+        fd_votor_parent_ready_t const * parent_ready = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        ctx->votor_parent_ready_slot = fd_ulong_max( ctx->votor_parent_ready_slot, parent_ready->slot );
+      } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_SKIP_TIMEOUT ) ) {
+        fd_votor_skip_timeout_t const * skip_timeout = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+        if( FD_UNLIKELY( skip_timeout->slot<=ctx->votor_final->slot ) ) break;
+        for( ulong idx=0UL; idx<ctx->block_id_len; idx++ ) {
+          fd_block_id_ele_t const * ele  = &ctx->block_id_arr[ idx ];
+          fd_bank_t *               bank = fd_banks_bank_query( ctx->banks, idx );
+          if( FD_LIKELY( ele->slot!=skip_timeout->slot || !bank || bank->bank_seq!=ele->bank_seq || bank->is_leader || bank->state!=FD_BANK_STATE_REPLAYABLE ) ) continue;
+          fd_sched_block_abandon( ctx->sched, idx, FD_SCHED_ABANDON_DISCARDED );
+          ulong dead_idxs_cnt = 0UL;
+          fd_banks_mark_bank_dead( ctx->banks, idx, ctx->dead_idxs, &dead_idxs_cnt );
+          for( ulong i=0UL; i<dead_idxs_cnt; i++ ) {
+            fd_block_id_ele_t * dead = &ctx->block_id_arr[ ctx->dead_idxs[ i ] ];
+            if( FD_LIKELY( fd_block_id_map_ele_query( ctx->block_id_map, &dead->block_info, NULL, ctx->block_id_arr )==dead ) ) FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &dead->block_info, NULL, ctx->block_id_arr ) );
+            timing_slot_release( ctx, ctx->dead_idxs[ i ] );
+            report_block_incomplete( ctx, dead->slot, dead->block_id_seen ? &dead->dmr : &dead->latest_mr, fd_banks_bank_query( ctx->banks, ctx->dead_idxs[ i ] ),
+                                     FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED );
+          }
+        }
+        try_prune_sched( ctx );
       } else if( FD_UNLIKELY( sig==FD_VOTOR_SIG_QUORUM ) ) {
         fd_votor_quorum_t const * quorum = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         if( FD_UNLIKELY( quorum->kind==FD_VOTOR_QUORUM_KIND_IMPLICITLY_FINALIZED ) ) {
