@@ -313,5 +313,6 @@
   {"name":"unbound_loader_v3_instruction_data","implemented":1,"pubkey":"UPbPFtaUVoKZuMEJsDxLfvCNuKavoVapghnzepr1e26"},
   {"name":"loader_v3_allow_prefunded_programdata","implemented":1,"pubkey":"63Zvc4ixE2NQsP1ef9R5AWQyty96BhRp7NiSuejUmXGM"},
   {"name":"pass_input_metadata_in_vm_r3_r5","implemented":1,"pubkey":"r3r5hXFhEZLB2VCDXmUysuDZj4oMbtW8JRVUqvQSgqE"},
-  {"name":"single_program_runtime_environment","implemented":1,"pubkey":"Hh4mTuC2AVFALH78RjiL8Rih1CcLxXpm4ehXCJNsUei1"}
+  {"name":"single_program_runtime_environment","implemented":1,"pubkey":"Hh4mTuC2AVFALH78RjiL8Rih1CcLxXpm4ehXCJNsUei1"},
+  {"name":"early_instruction_trace_overflow_detection","implemented":1,"pubkey":"HeqqMQXVqavmiJsGTEXgCMydzMEWiiQTAgbs9KVKJVww"}
 ]
