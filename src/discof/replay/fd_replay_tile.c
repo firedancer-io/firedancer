@@ -2478,8 +2478,6 @@ boot_genesis( fd_replay_tile_t *        ctx,
   ctx->published_root_slot = 0UL;
   fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, 0UL );
 
-  bank->f.block_height = 1UL;
-
   ctx->consensus_root          = ctx->initial_block_id;
   ctx->consensus_root_slot     = 0UL;
   ctx->finalized_block_id_lo   = fd_block_id( 0UL, ctx->initial_block_id.uc );
