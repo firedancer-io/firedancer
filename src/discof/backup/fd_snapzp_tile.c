@@ -483,6 +483,8 @@ emitted_flush( fd_snapzp_t *       ctx,
   if( FD_LIKELY( !ctx->emitted->cnt ) ) return;
   ulong sz = sizeof(uint)+ctx->emitted->cnt*sizeof(uint);
   fd_memcpy( fd_chunk_to_laddr( ctx->accdb_out.mem, ctx->accdb_out.chunk ), ctx->emitted, sz );
+  /* counted before it is visible, so DONE waits for it */
+  FD_ATOMIC_FETCH_AND_ADD( &ctx->accdb_shmem->emit_pub, 1UL );
   fd_stem_publish( stem, ctx->accdb_out.idx, 0UL, ctx->accdb_out.chunk, sz, 0UL, 0UL, 0UL );
   ctx->accdb_out.chunk = fd_dcache_compact_next( ctx->accdb_out.chunk, sz, ctx->accdb_out.chunk0, ctx->accdb_out.wmark );
   ctx->emitted->cnt    = 0U;

@@ -531,7 +531,8 @@ fd_accdb_read_one_snap( fd_accdb_t *  accdb,
    the snapshot producer emitted after rooting kept them (it visited
    them second, fd_accdb_snap_visit), as one deferred batch.  Accdb tile
    only.  Returns 0 without freeing anything if a batch is still held
-   (retry later), 1 on success. */
+   (retry later), 1 on success.  The producer counts every batch it
+   sends in shmem emit_pub before sending it. */
 
 int
 fd_accdb_snap_free_kept( fd_accdb_t * accdb,

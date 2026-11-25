@@ -2938,6 +2938,7 @@ keep_check( fd_accdb_t *  accdb,
   }
   FD_TEST( idx!=UINT_MAX );
   if( fd_accdb_snap_visit( &pool[ idx ], shmem->snap_visit ) ) {
+    shmem->emit_pub++;
     FD_TEST( fd_accdb_snap_free_kept( accdb, &idx, 1UL ) );
   }
 }
@@ -3034,8 +3035,16 @@ test_snapshot_keeps( void ) {
     FD_TEST( !accdb_read( accdb, parent, keys[ 3 ], &lamports, NULL, &dl, o ) );
   }
 
-  /* Done: the sweep frees the unemitted keep */
+  /* Done waits for a batch the producer sent but the accdb tile has
+     not freed yet (else the sweep would free its versions first) */
+  shmem->emit_pub++;
   fd_accdb_snapshot_sync_advance( &shmem->snapshot_sync, FD_ACCDB_SNAPSHOT_SYNC_DONE );
+  for( int k=0; k<4; k++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_snapshot_sync_state( &shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_DONE );
+  FD_TEST( shmem->keep_cnt==1UL );
+  FD_TEST( fd_accdb_snap_free_kept( accdb, NULL, 0UL ) ); /* the batch lands (empty here) */
+
+  /* Done: the sweep frees the unemitted keep */
   for( int k=0; k<4; k++ ) drain_background( accdb );
   FD_TEST( fd_accdb_snapshot_sync_state( &shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
   FD_TEST( shmem->snap_gen==UINT_MAX );

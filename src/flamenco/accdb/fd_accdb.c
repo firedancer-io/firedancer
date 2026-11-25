@@ -2203,6 +2203,7 @@ fd_accdb_snap_free_kept( fd_accdb_t * accdb,
   if( FD_UNLIKELY( !background_release( accdb ) ) ) return 0;
   for( ulong i=0UL; i<cnt; i++ ) free_kept( accdb, acc_idx[ i ] );
   retire_batch( accdb, accdb->shmem->done );
+  accdb->shmem->emit_done++;
   return 1;
 }
 
@@ -3872,8 +3873,10 @@ fd_accdb_background( fd_accdb_t * accdb,
          has not scanned (background_compact) */
       break;
     case FD_ACCDB_SNAPSHOT_SYNC_DONE:
-      /* Free what is still kept, as a batch of its own */
-      if( FD_UNLIKELY( shmem->done.retiring ) ) { *charge_busy = 1; return; }
+      /* Free what is still kept, as a batch of its own, once every
+         batch the producer sent is freed */
+      if( FD_UNLIKELY( shmem->done.retiring ||
+                       FD_VOLATILE_CONST( shmem->emit_pub )!=shmem->emit_done ) ) { *charge_busy = 1; return; }
       keeps_sweep( accdb );
       FD_VOLATILE( shmem->snap_gen    ) = UINT_MAX;
       FD_VOLATILE( shmem->snap_rd_off ) = ULONG_MAX;

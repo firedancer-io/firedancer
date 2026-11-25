@@ -674,11 +674,18 @@ struct fd_accdb_shmem_private {
      snap_rd_off  written by the producer: accdb file offset below
                   which its disk scan has resolved every record.
                   Compaction holds partitions past it.  0 on START,
-                  ULONG_MAX once the producer no longer scans disk. */
+                  ULONG_MAX once the producer no longer scans disk.
+     emit_pub     batches of kept versions the producer sent to be freed
+                  (fd_accdb_snap_free_kept), counted before sending.
+     emit_done    of those, batches freed.  Accdb tile only.  DONE
+                  waits for emit_done==emit_pub: a batch still in
+                  flight would otherwise be swept, then freed again. */
 
   uint  snap_gen;
   uint  snap_visit;
   ulong keep_cnt;
+  ulong emit_done;
+  ulong emit_pub __attribute__((aligned(64)));
   ulong snap_rd_off __attribute__((aligned(64)));
 
   /* Each joiner epoch is padded to a full cache line to prevent
