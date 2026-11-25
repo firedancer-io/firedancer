@@ -754,7 +754,7 @@ alpenglow_marker:
     if( FD_UNLIKELY( fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR && dgram_sz<=FD_REPAIR_RES_DE_MAX ) ) {
       ctx->skip_frag = 1;
       ctx->fwd_meta  = ctx->repair_out_idx!=ULONG_MAX &&
-                       fd_disco_netmux_sig_hash( sig )%ctx->round_robin_cnt==ctx->round_robin_id;
+                       fd_net_shred_steer( dcache_entry+hdr_sz, dgram_sz, ctx->round_robin_cnt )==ctx->round_robin_id;
       if( ctx->fwd_meta ) { /* trim trailing bytes outside the datagram */
         fd_memcpy( ctx->shred_buffer, dcache_entry, hdr_sz+dgram_sz );
         ctx->shred_buffer_sz = hdr_sz+dgram_sz;
@@ -766,15 +766,14 @@ alpenglow_marker:
        is overrun meanwhile, which the stem detects before after_frag. */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz, ctx->shred_limit );
     if( FD_UNLIKELY( !shred ) ) {
-      /* shred:0 is responsible for incrementing the stats on these failed parses. */
-      ctx->parse_failed = ctx->round_robin_id==0UL;
+      /* The tile owning the frag counts failed parses. */
+      ctx->parse_failed = fd_net_shred_steer( dcache_entry+hdr_sz, dgram_sz, ctx->round_robin_cnt )==ctx->round_robin_id;
       ctx->skip_frag    = 1;
       return;
     };
 
-    /* round-robin shreds between the shred tiles without splitting FEC
-       sets. */
-    if( FD_LIKELY( fd_ulong_hash( shred->slot ^ ((ulong)shred->fec_set_idx<<40) )%ctx->round_robin_cnt!=ctx->round_robin_id ) ) {
+    /* Keep only this tile's FEC sets, by the rule net tiles steer by. */
+    if( FD_UNLIKELY( fd_net_shred_steer( dcache_entry+hdr_sz, dgram_sz, ctx->round_robin_cnt )!=ctx->round_robin_id ) ) {
       ctx->skip_frag = 1;
       return;
     }
