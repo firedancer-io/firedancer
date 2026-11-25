@@ -1509,8 +1509,11 @@ telemetry = true
         #
         # Smaller values use less memory.  Larger values reduce packet
         # loss caused by excessive scheduling or inter-CPU latency.
+        # Smaller values use less memory and better cache behavior
+        # improving performance.  This comes at a cost of possible
+        # dropped packets during bursts of traffic.
         rx_queue_size = 32768
-        tx_queue_size = 32768
+        tx_queue_size = 4096
 
 
     # This section contains Intel i40e/ice specific network
