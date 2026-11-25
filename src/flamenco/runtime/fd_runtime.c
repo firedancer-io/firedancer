@@ -850,15 +850,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
    For any feature that is pending (not yet activated on-chain) but has
    an account owned by the feature program, set the in-memory activation
    slot within the bank's featureset to the first slot of the next
-   epoch.  This is needed so that deployment verification (which uses
-   slot+1) can detect features that will activate at the next epoch
-   boundary.
-
-   In Agave, program deployments use the feature set from the next
-   slot via DELAY_VISIBILITY_SLOT_OFFSET.  The runtime environments
-   for deployment are selected based on epoch_of(slot+1):
-   https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank.rs#L3280-L3295
-   https://github.com/anza-xyz/agave/blob/v3.1.8/svm/src/transaction_processor.rs#L339-L345
+   epoch.
 
    This function does NOT write to feature accounts or update the
    lthash.  It only modifies the bank's in-memory feature set. */
@@ -905,7 +897,9 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
     fd_cost_tracker_store_unpin( cost_tracker_store, bank->cost_tracker_fork_id );
   }
 
-  fd_features_prepopulate_upcoming( bank, accdb );
+  if( !FD_FEATURE_ACTIVE_BANK( bank, single_program_runtime_environment ) ) {
+    fd_features_prepopulate_upcoming( bank, accdb );
+  }
   fd_runtime_block_sysvar_update_pre_execute( bank, accdb, capture_ctx );
   FD_TEST( fd_sysvar_cache_validate( bank, accdb ) );
 }

@@ -18,3 +18,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l unbound-loader-v3-instructi
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l loader-v3-allow-prefunded-programdata-ea633176 -m 2000000 -e 330
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l pass-input-metadata-in-vm-r3-r5-ea633176 -m 2000000 -e 470
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l pass-input-metadata-in-vm-r3-r5-ptrs-ea633176 -m 2000000 -e 580
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l single-program-runtime-environment-22d4b3a8 -m 2000000 -e 560
