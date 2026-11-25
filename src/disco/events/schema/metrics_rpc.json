@@ -112,7 +112,7 @@
             "type": "Tuple",
             "description": "RPC requests handled, by method, before parameter validation",
             "aliases": {
-                "all": ["genesis", "unknown", "get_account_info", "get_balance", "get_block_height", "get_cluster_nodes", "get_epoch_info", "get_genesis_hash", "get_health", "get_identity", "get_inflation_governor", "get_latest_blockhash", "get_minimum_balance_for_rent_exemption", "get_multiple_accounts", "get_slot", "get_transaction_count", "get_version", "get_max_retransmit_slot", "get_slot_leader", "get_slot_leaders", "get_leader_schedule", "get_ag_genesis_cert", "slot_subscribe", "slot_unsubscribe", "vote_subscribe", "vote_unsubscribe", "unimplemented", "invalid", "health"]
+                "all": ["genesis", "unknown", "get_account_info", "get_balance", "get_block_height", "get_cluster_nodes", "get_epoch_info", "get_genesis_hash", "get_health", "get_identity", "get_inflation_governor", "get_latest_blockhash", "get_minimum_balance_for_rent_exemption", "get_multiple_accounts", "get_slot", "get_transaction_count", "get_version", "get_max_retransmit_slot", "get_slot_leader", "get_slot_leaders", "get_leader_schedule", "get_ag_genesis_cert", "slot_subscribe", "slot_unsubscribe", "vote_subscribe", "vote_unsubscribe", "unimplemented", "invalid", "health", "get_epoch_schedule", "get_vote_accounts", "get_block_production", "get_recent_performance_samples", "get_block_time"]
             },
             "fields": {
                 "genesis":                                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GET /genesis.tar.bz2" },
@@ -143,7 +143,12 @@
                 "vote_unsubscribe":                       { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "voteUnsubscribe" },
                 "unimplemented":                          { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Known method not implemented by Firedancer" },
                 "invalid":                                { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "Malformed JSON-RPC request" },
-                "health":                                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GET /health" }
+                "health":                                 { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "GET /health" },
+                "get_epoch_schedule":                     { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "getEpochSchedule", "field_number": 288053550 },
+                "get_vote_accounts":                      { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "getVoteAccounts", "field_number": 303783843 },
+                "get_block_production":                   { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "getBlockProduction", "field_number": 446460905 },
+                "get_recent_performance_samples":         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "getRecentPerformanceSamples", "field_number": 501955438 },
+                "get_block_time":                         { "type": "UInt64", "compression": "DoubleDelta, ZSTD", "description": "getBlockTime", "field_number": 505200298 }
             }
         },
         "conn_open":                  { "type": "UInt64",                     "compression": "T64, ZSTD",         "description": "Open HTTP connections to the RPC service" },

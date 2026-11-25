@@ -1219,6 +1219,213 @@ GET_EPOCH_INFO = [
     },
 ]
 
+GET_EPOCH_SCHEDULE = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getEpochSchedule",
+        },
+        "description": "getEpochSchedule success",
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getEpochSchedule",
+                "params": e,
+            },
+            "description": f"getEpochSchedule params={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['error']['data']"],
+        }
+        for e in [
+            *ALL_TYPES,
+            *[[_e] for _e in ALL_TYPES],
+        ]
+    ],
+]
+
+
+def get_vote_accounts_prediff(resp1, resp2):
+    stable = ("votePubkey", "nodePubkey", "activatedStake", "commission", "inflationRewardsCommissionBps", "epochVoteAccount")
+    for resp in (resp1, resp2):
+        result = resp.get("msg", {}).get("result")
+        if not isinstance(result, dict):
+            continue
+        infos = [*result.get("current", []), *result.get("delinquent", [])]
+        resp["msg"]["result"] = sorted(({k: info.get(k) for k in stable} for info in infos), key=lambda info: info["votePubkey"])
+    return resp1, resp2
+
+
+GET_VOTE_ACCOUNTS = [
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "getVoteAccounts",
+                **({"params": params} if params is not None else {}),
+            },
+            "description": f"getVoteAccounts success params={json.dumps(params)}",
+            "prediff": get_vote_accounts_prediff,
+        }
+        for params in [
+            None,
+            [],
+            [None],
+            [{}],
+            [{"commitment": "confirmed"}],
+            [{"keepUnstakedDelinquents": True}],
+            [{"delinquentSlotDistance": 1000000}],
+        ]
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getVoteAccounts",
+                "params": e,
+            },
+            "description": f"getVoteAccounts params={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['error']['data']"],
+            "prediff": get_vote_accounts_prediff,
+        }
+        for e in [
+            *ALL_TYPES,
+            *[[_e] for _e in ALL_TYPES],
+            *[[{key: _e}] for key in ("votePubkey", "keepUnstakedDelinquents", "delinquentSlotDistance") for _e in ALL_TYPES],
+        ]
+    ],
+]
+
+def get_block_production_prediff(resp1, resp2):
+    for resp in (resp1, resp2):
+        result = resp.get("msg", {}).get("result")
+        if not isinstance(result, dict):
+            continue
+        resp["msg"]["result"] = sorted(result.get("value", {}).get("byIdentity", {}).keys())
+    return resp1, resp2
+
+
+GET_BLOCK_PRODUCTION = [
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "getBlockProduction",
+                **({"params": params} if params is not None else {}),
+            },
+            "description": f"getBlockProduction success params={json.dumps(params)}",
+            "prediff": get_block_production_prediff,
+        }
+        for params in [
+            None,
+            [],
+            [None],
+            [{}],
+            [{"commitment": "confirmed"}],
+        ]
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBlockProduction",
+                "params": e,
+            },
+            "description": f"getBlockProduction params={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['error']['data']"],
+            "prediff": get_block_production_prediff,
+        }
+        for e in [
+            *ALL_TYPES,
+            *[[_e] for _e in ALL_TYPES],
+            *[[{"identity": _e}] for _e in ALL_TYPES],
+            *[[{"range": _e}] for _e in ALL_TYPES],
+            *[[{"range": {"firstSlot": _e}}] for _e in ALL_TYPES],
+            *[[{"range": {"firstSlot": 0, "lastSlot": _e}}] for _e in ALL_TYPES],
+            [{"range": {"firstSlot": 5, "lastSlot": 4}}],
+        ]
+    ],
+]
+
+def get_recent_performance_samples_prediff(resp1, resp2):
+    for resp in (resp1, resp2):
+        result = resp.get("msg", {}).get("result")
+        if not isinstance(result, list):
+            continue
+        resp["msg"]["result"] = [sorted(sample.keys()) for sample in result[:1]]
+    return resp1, resp2
+
+
+GET_RECENT_PERFORMANCE_SAMPLES = [
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "getRecentPerformanceSamples",
+                **({"params": params} if params is not None else {}),
+            },
+            "description": f"getRecentPerformanceSamples success params={json.dumps(params)}",
+            "prediff": get_recent_performance_samples_prediff,
+        }
+        for params in [None, [], [None], [1], [720], [0]]
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getRecentPerformanceSamples",
+                "params": e,
+            },
+            "description": f"getRecentPerformanceSamples params={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['error']['data']"],
+            "prediff": get_recent_performance_samples_prediff,
+        }
+        for e in [
+            *ALL_TYPES,
+            *[[_e] for _e in ALL_TYPES],
+            [721],
+            [1, 2],
+        ]
+    ],
+]
+
+GET_BLOCK_TIME = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getBlockTime",
+            "params": [0],
+        },
+        "description": "getBlockTime genesis",
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getBlockTime",
+                "params": e,
+            },
+            "description": f"getBlockTime params={json.dumps(e)}",
+            "exclude_paths": ["root['msg']['error']['data']"],
+        }
+        for e in [
+            *ALL_TYPES,
+            *[[_e] for _e in ALL_TYPES if not (isinstance(_e, int) and not isinstance(_e, bool) and _e >= 0)],
+            [0, 1],
+        ]
+    ],
+]
+
 GET_MULTIPLE_ACCOUNTS = [
     {
         "payload": {
@@ -1350,6 +1557,11 @@ TEST_SUITE = [
     *GET_TRANSACTION_COUNT,
     *GET_CLUSTER_NODES,
     *GET_EPOCH_INFO,
+    *GET_EPOCH_SCHEDULE,
+    *GET_VOTE_ACCOUNTS,
+    *GET_BLOCK_PRODUCTION,
+    *GET_RECENT_PERFORMANCE_SAMPLES,
+    *GET_BLOCK_TIME,
     *GET_MULTIPLE_ACCOUNTS,
 ]
 

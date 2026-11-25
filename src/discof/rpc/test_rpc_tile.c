@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "fd_rpc_tile.c"
 #include "../../disco/topo/fd_topob.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../tango/fseq/fd_fseq.h"
@@ -18,6 +19,144 @@
 #define POOL_NEXT  parent
 #include "../../util/tmpl/fd_pool.c"
 
+
+static void
+test_put_vote_account( fd_accdb_t *        accdb,
+                       fd_accdb_fork_id_t  fork_id,
+                       fd_pubkey_t const * vote_key,
+                       fd_pubkey_t const * node_key,
+                       uchar const *       owner,
+                       ushort              commission_bps,
+                       ulong               last_vote,
+                       int                 has_root,
+                       ulong               root_slot,
+                       ulong               credits_cnt,
+                       int                 v5 ) {
+  static fd_vote_state_versioned_t vsv[1];
+  static uchar                     data[ FD_VOTE_STATE_V4_SZ ];
+  memset( data, 0, sizeof(data) );
+
+  FD_TEST( fd_vote_state_versioned_new( vsv, fd_vote_state_versioned_enum_v4 ) );
+  fd_vote_state_v4_t * s = &vsv->v4;
+  s->node_pubkey                      = *node_key;
+  s->authorized_withdrawer            = *node_key;
+  s->inflation_rewards_collector      = *vote_key;
+  s->block_revenue_collector          = *node_key;
+  s->inflation_rewards_commission_bps = commission_bps;
+  s->has_bls_pubkey_compressed        = 1;
+  memset( s->bls_pubkey_compressed, 0xBB, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  s->has_root_slot = (uchar)!!has_root;
+  s->root_slot     = root_slot;
+  deq_fd_landed_vote_t_push_tail( s->votes, (fd_landed_vote_t){ .lockout = { .slot = last_vote, .confirmation_count = 1U } } );
+  for( ulong i=0UL; i<credits_cnt; i++ ) {
+    deq_fd_vote_epoch_credits_t_push_tail( s->epoch_credits, (fd_vote_epoch_credits_t){ .epoch = i, .credits = (i+1UL)*100UL, .prev_credits = i*100UL } );
+  }
+
+  fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( s->authorized_voters.pool );
+  memset( voter, 0, sizeof(fd_vote_authorized_voter_t) );
+  voter->pubkey = *node_key;
+  voter->prio   = node_key->uc[ 0 ];
+  fd_vote_authorized_voters_treap_ele_insert( s->authorized_voters.treap, voter, s->authorized_voters.pool );
+
+  ulong data_len = FD_VOTE_STATE_V4_SZ;
+  if( v5 ) {
+    FD_TEST( !fd_vsv_try_convert_to_v5( vsv, 0UL ) );
+    vsv->v5.location                 = (fd_validator_location_t){ 4051542, 618526, 4870645 };
+    vsv->v5.accumulated_lamports_len = 2U;
+    vsv->v5.accumulated_lamports[ 0 ] = (fd_vote_epoch_credits_t){ .epoch = 7UL, .credits = 7000UL, .prev_credits = 0UL };
+    vsv->v5.accumulated_lamports[ 1 ] = (fd_vote_epoch_credits_t){ .epoch = 8UL, .credits = 8000UL, .prev_credits = 7000UL };
+    data_len = FD_VOTE_STATE_V5_SZ;
+  }
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv, data, data_len ) );
+
+  uchar const * pks[ 1 ] = { vote_key->uc };
+  int           wr [ 1 ] = { 1 };
+  fd_acc_t      acc[ 1 ]; memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  acc[ 0 ].lamports = 1000000000UL;
+  acc[ 0 ].data_len = data_len;
+  memcpy( acc[ 0 ].owner, owner, 32UL );
+  memcpy( acc[ 0 ].data, data, data_len );
+  acc[ 0 ].commit = 1;
+  fd_accdb_release( accdb, 1UL, acc );
+}
+
+static void
+test_put_slot_history( fd_accdb_t *       accdb,
+                       fd_accdb_fork_id_t fork_id,
+                       ulong              next_slot,
+                       ulong const *      missing,
+                       ulong              missing_cnt,
+                       ulong              lamports ) {
+  static uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
+  memset( data, 0, sizeof(data) );
+  ulong   blocks_len = FD_SLOT_HISTORY_MAX_ENTRIES/64UL;
+  uchar * bits       = data+9UL;
+  data[ 0 ] = 1;
+  FD_STORE( ulong, data+1UL, blocks_len );
+  for( ulong slot=fd_ulong_sat_sub( next_slot, FD_SLOT_HISTORY_MAX_ENTRIES ); slot<next_slot; slot++ ) {
+    ulong * word = (ulong *)fd_type_pun( bits + ((slot/64UL)%blocks_len)*sizeof(ulong) );
+    *word |= 1UL<<(slot%64UL);
+  }
+  for( ulong i=0UL; i<missing_cnt; i++ ) {
+    ulong * word = (ulong *)fd_type_pun( bits + ((missing[ i ]/64UL)%blocks_len)*sizeof(ulong) );
+    *word &= ~(1UL<<(missing[ i ]%64UL));
+  }
+  FD_STORE( ulong, bits+(blocks_len*sizeof(ulong)),     FD_SLOT_HISTORY_MAX_ENTRIES );
+  FD_STORE( ulong, bits+(blocks_len*sizeof(ulong))+8UL, next_slot );
+
+  uchar const * pks[ 1 ] = { fd_sysvar_slot_history_id.uc };
+  int           wr [ 1 ] = { 1 };
+  fd_acc_t      acc[ 1 ]; memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  acc[ 0 ].lamports = lamports;
+  acc[ 0 ].data_len = lamports ? sizeof(data) : 0UL;
+  memcpy( acc[ 0 ].owner, fd_sysvar_owner_id.uc, 32UL );
+  if( lamports ) memcpy( acc[ 0 ].data, data, sizeof(data) );
+  acc[ 0 ].commit = 1;
+  fd_accdb_release( accdb, 1UL, acc );
+}
+
+static void
+test_put_clock( fd_accdb_t *       accdb,
+                fd_accdb_fork_id_t fork_id,
+                ulong              slot,
+                long               unix_timestamp ) {
+  uchar data[ 40UL ] = {0};
+  FD_STORE( ulong, data,      slot           );
+  FD_STORE( long,  data+32UL, unix_timestamp );
+  uchar const * pks[ 1 ] = { fd_sysvar_clock_id.uc };
+  int           wr [ 1 ] = { 1 };
+  fd_acc_t      acc[ 1 ]; memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  acc[ 0 ].lamports = 1000000UL;
+  acc[ 0 ].data_len = sizeof(data);
+  memcpy( acc[ 0 ].owner, fd_sysvar_owner_id.uc, 32UL );
+  memcpy( acc[ 0 ].data, data, sizeof(data) );
+  acc[ 0 ].commit = 1;
+  fd_accdb_release( accdb, 1UL, acc );
+}
+
+static fd_epoch_info_msg_t *
+test_vote_set_msg( uchar *                        buf,
+                   ulong                          epoch,
+                   ulong                          cnt,
+                   fd_vote_stake_weight_t const * weights ) {
+  fd_epoch_info_msg_t * msg = (fd_epoch_info_msg_t *)buf;
+  memset( msg, 0, fd_epoch_info_msg_sz( cnt, cnt ) );
+  msg->epoch           = epoch;
+  msg->staked_vote_cnt = cnt;
+  msg->staked_id_cnt   = cnt;
+  fd_features_disable_all( &msg->features );
+  fd_vote_stake_weight_t * w  = fd_epoch_info_msg_stake_weights( msg );
+  fd_stake_weight_t *      id = fd_epoch_info_msg_id_weights( msg );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    w [ i ]       = weights[ i ];
+    id[ i ].key   = weights[ i ].id_key;
+    id[ i ].stake = weights[ i ].stake;
+  }
+  return msg;
+}
 
 static void
 test_ws_conn_open( fd_http_server_t * http,
@@ -556,6 +695,7 @@ main( int     argc,
   (void)link_rpc_replay;
   fd_topo_link_t * link_replay_slot = create_link( topo, wksp, "replay_slot", 4UL, sizeof(fd_replay_root_advanced_t), 1UL );
   fd_topo_link_t * link_votor_out  = create_link( topo, wksp, "votor_out",  4UL, sizeof(fd_votor_msg_t),             1UL );
+  fd_topo_link_t * link_epoch      = create_link( topo, wksp, "replay_epoch", 2UL, FD_EPOCH_OUT_MTU,                1UL );
 
   /* Two shred tiles' getMaxRetransmitSlot fseqs */
   ulong * shred_rtx[ 2 ];
@@ -585,6 +725,7 @@ main( int     argc,
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "replay_slot", 0UL, 0, 1 );
   fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "votor_out",  0UL, 0, 1 );
+  fd_topob_tile_in( topo, "rpc", 0UL, "wksp", "replay_epoch", 0UL, 0, 1 );
 
   void * waker_fseq_mem = fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL );
   FD_TEST( waker_fseq_mem );
@@ -631,7 +772,7 @@ main( int     argc,
   FD_TEST( FD_MGAUGE_GET( RPC, WEBSOCKET_SUBSCRIBER_COUNT_VOTE )==0UL );
   /* an unimplemented method over ws is -32601, not a closed socket */
   expect_ws_rpc_response( ctx, 0UL,
-      "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"getBlockTime\",\"params\":[1]}",
+      "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"getTransaction\",\"params\":[\"1\"]}",
       "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":9}"
   );
   FD_TEST( ctx->ws_subscribers_slot_cnt==1UL );
@@ -1353,6 +1494,407 @@ main( int     argc,
 #undef HEALTH_OK
 #undef HEALTH_BEHIND
 #undef WRITE_AG_ACCT
+  }
+
+  /* -- getEpochSchedule -- */
+  {
+    fd_epoch_schedule_t saved_schedule = ctx->epoch_schedule;
+    int                 saved_has      = ctx->has_epoch_schedule;
+    ctx->has_epoch_schedule = 0;
+
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getEpochSchedule\"}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32008,\"message\":\"Firedancer Error: No epoch schedule\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getEpochSchedule\",\"params\":[1]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid parameters: No parameters were expected\",\"data\":\"\"},\"id\":1}" );
+
+    ulong epoch_in_idx = ctx->in_cnt;
+    for( ulong in_idx=0UL; in_idx<ctx->in_cnt; in_idx++ ) {
+      if( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) { epoch_in_idx = in_idx; break; }
+    }
+    FD_TEST( epoch_in_idx<ctx->in_cnt );
+
+    fd_vote_stake_weight_t w0 = { .stake = 1000000UL };
+    memset( w0.vote_key.uc, 0x11, 32UL );
+    memset( w0.id_key.uc,   0x22, 32UL );
+    fd_epoch_info_msg_t * emsg = test_vote_set_msg( fd_chunk_to_laddr( wksp, fd_dcache_compact_chunk0( wksp, link_epoch->dcache ) ), 0UL, 1UL, &w0 );
+    emsg->slot_cnt = 32UL;
+    emsg->epoch_schedule.slots_per_epoch             = 432000UL;
+    emsg->epoch_schedule.leader_schedule_slot_offset = 432000UL;
+    emsg->epoch_schedule.warmup                      = 1;
+    emsg->epoch_schedule.first_normal_epoch          = 14UL;
+    emsg->epoch_schedule.first_normal_slot           = 524256UL;
+    FD_TEST( !returnable_frag( ctx, epoch_in_idx, 0UL, 4UL, fd_laddr_to_chunk( wksp, emsg ), fd_epoch_info_msg_sz( 1UL, 1UL ), 0UL, 0UL, 0UL, NULL ) );
+    FD_TEST( ctx->has_epoch_schedule );
+    fd_rpc_vote_set_t const * set0 = fd_rpc_vote_set_query( ctx, 0UL );
+    FD_TEST( set0 && set0->cnt==1UL && fd_pubkey_eq( &set0->ele[ 0 ].vote_key, &w0.vote_key ) && set0->ele[ 0 ].stake==1000000UL );
+
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getEpochSchedule\"}",
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"slotsPerEpoch\":432000,\"leaderScheduleSlotOffset\":432000,\"warmup\":true,\"firstNormalEpoch\":14,\"firstNormalSlot\":524256},\"id\":1}" );
+
+    ctx->epoch_schedule     = saved_schedule;
+    ctx->has_epoch_schedule = saved_has;
+  }
+
+  /* -- getVoteAccounts -- */
+  {
+    fd_pubkey_t vote_a, vote_b, vote_c, vote_d, vote_e, node_a, node_b, node_c, stake_owner;
+    memset( vote_a.uc, 0x31, 32UL ); memset( node_a.uc, 0x41, 32UL );
+    memset( vote_b.uc, 0x32, 32UL ); memset( node_b.uc, 0x42, 32UL );
+    memset( vote_c.uc, 0x33, 32UL ); memset( node_c.uc, 0x43, 32UL );
+    memset( vote_d.uc, 0x34, 32UL );
+    memset( vote_e.uc, 0x35, 32UL );
+    memset( stake_owner.uc, 0x99, 32UL );
+
+    test_put_vote_account( writer_accdb, test_fork_id, &vote_a, &node_a, fd_solana_vote_program_id.uc, 550, 290UL, 1, 280UL, 7UL, 0 );
+    test_put_vote_account( writer_accdb, test_fork_id, &vote_b, &node_b, fd_solana_vote_program_id.uc, 10000, 100UL, 0, 0UL, 3UL, 1 );
+    test_put_vote_account( writer_accdb, test_fork_id, &vote_c, &node_c, fd_solana_vote_program_id.uc, 0, 299UL, 1, 298UL, 1UL, 0 );
+    test_put_vote_account( writer_accdb, test_fork_id, &vote_e, &node_c, stake_owner.uc, 0, 299UL, 1, 298UL, 1UL, 0 );
+
+    static uchar set_buf[ FD_EPOCH_INFO_MAX_MSG_SZ ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+    fd_vote_stake_weight_t cur[ 4 ] = {
+      { .vote_key = vote_e, .id_key = node_c, .stake =   60UL },
+      { .vote_key = vote_b, .id_key = node_b, .stake =  700UL },
+      { .vote_key = vote_d, .id_key = node_c, .stake =   50UL },
+      { .vote_key = vote_a, .id_key = node_a, .stake = 1000UL },
+    };
+    fd_rpc_vote_sets_ingest( ctx, test_vote_set_msg( set_buf, 9UL, 4UL, cur ) );
+    fd_vote_stake_weight_t nxt[ 2 ] = {
+      { .vote_key = vote_c, .id_key = node_c, .stake =  900UL },
+      { .vote_key = vote_a, .id_key = node_a, .stake = 1500UL },
+    };
+    fd_rpc_vote_sets_ingest( ctx, test_vote_set_msg( set_buf, 10UL, 2UL, nxt ) );
+
+    ctx->banks[ 0 ].slot          = 300UL;
+    ctx->banks[ 0 ].epoch         = 9UL;
+    ctx->banks[ 0 ].accdb_fork_id = test_fork_id;
+    ctx->processed_idx = 0UL;
+    ctx->confirmed_idx = 0UL;
+    ctx->finalized_idx = 0UL;
+
+    FD_BASE58_ENCODE_32_BYTES( vote_a.uc, vote_a_b58 );
+    FD_BASE58_ENCODE_32_BYTES( vote_b.uc, vote_b_b58 );
+    FD_BASE58_ENCODE_32_BYTES( vote_c.uc, vote_c_b58 );
+    FD_BASE58_ENCODE_32_BYTES( node_a.uc, node_a_b58 );
+    FD_BASE58_ENCODE_32_BYTES( node_b.uc, node_b_b58 );
+    FD_BASE58_ENCODE_32_BYTES( node_c.uc, node_c_b58 );
+
+    char info_a[ 512 ], info_b[ 512 ], info_c[ 512 ];
+    FD_TEST( fd_cstr_printf_check( info_a, sizeof(info_a), NULL,
+        "{\"votePubkey\":\"%s\",\"nodePubkey\":\"%s\",\"activatedStake\":1500,\"commission\":6,\"inflationRewardsCommissionBps\":550,\"epochVoteAccount\":true,"
+        "\"epochCredits\":[[2,300,200],[3,400,300],[4,500,400],[5,600,500],[6,700,600]],\"lastVote\":290,\"rootSlot\":280}", vote_a_b58, node_a_b58 ) );
+    FD_TEST( fd_cstr_printf_check( info_b, sizeof(info_b), NULL,
+        "{\"votePubkey\":\"%s\",\"nodePubkey\":\"%s\",\"activatedStake\":0,\"commission\":100,\"inflationRewardsCommissionBps\":10000,\"epochVoteAccount\":true,"
+        "\"epochCredits\":[[7,7000,0],[8,8000,7000]],\"lastVote\":100,\"rootSlot\":0}", vote_b_b58, node_b_b58 ) );
+    FD_TEST( fd_cstr_printf_check( info_c, sizeof(info_c), NULL,
+        "{\"votePubkey\":\"%s\",\"nodePubkey\":\"%s\",\"activatedStake\":900,\"commission\":0,\"inflationRewardsCommissionBps\":0,\"epochVoteAccount\":false,"
+        "\"epochCredits\":[[0,100,0]],\"lastVote\":299,\"rootSlot\":298}", vote_c_b58, node_c_b58 ) );
+
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"current\":[%s,%s],\"delinquent\":[]},\"id\":1}", info_a, info_c ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\"}", res_buf );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[]}", res_buf );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[null]}", res_buf );
+
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"current\":[%s,%s],\"delinquent\":[%s]},\"id\":1}", info_a, info_c, info_b ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"commitment\":\"processed\",\"keepUnstakedDelinquents\":true}]}", res_buf );
+
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"votePubkey\":\"%s\",\"keepUnstakedDelinquents\":true}]}", vote_b_b58 ) );
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"current\":[],\"delinquent\":[%s]},\"id\":1}", info_b ) );
+    expect_rpc_response( ctx, req_buf, res_buf );
+
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"current\":[%s,%s,%s],\"delinquent\":[]},\"id\":1}", info_a, info_b, info_c ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"delinquentSlotDistance\":301}]}", res_buf );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"delinquentSlotDistance\":201}]}", res_buf );
+
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"current\":[],\"delinquent\":[%s,%s]},\"id\":1}", info_a, info_c ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"delinquentSlotDistance\":0}]}", res_buf );
+
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[1]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: integer `1`, expected struct RpcGetVoteAccountsConfig.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"votePubkey\":1}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: integer `1`, expected a string.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"votePubkey\":\"xyz\"}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: WrongSize\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"votePubkey\":\"0OIl\"}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"keepUnstakedDelinquents\":\"x\"}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"x\\\", expected a boolean.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"delinquentSlotDistance\":-1}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: integer `-1`, expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\",\"params\":[{\"delinquentSlotDistance\":\"x\"}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"x\\\", expected u64.\"},\"id\":1}" );
+
+    ctx->banks[ 0 ].epoch = 11UL;
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\"}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":1}" );
+    ctx->banks[ 0 ].epoch = 9UL;
+
+    ctx->finalized_idx = ULONG_MAX;
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getVoteAccounts\"}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":1}" );
+    ctx->finalized_idx = 0UL;
+  }
+
+  /* -- getBlockProduction -- */
+  {
+    fd_pubkey_t leader_id; memset( leader_id.uc, 0x77, 32UL );
+    fd_pubkey_t other_id;  memset( other_id.uc,  0x78, 32UL );
+    FD_BASE58_ENCODE_32_BYTES( leader_id.uc, leader_b58 );
+    FD_BASE58_ENCODE_32_BYTES( other_id.uc,  other_b58 );
+
+    static uchar lsched_buf[ FD_EPOCH_INFO_MAX_MSG_SZ ] __attribute__((aligned(alignof(fd_epoch_info_msg_t))));
+    fd_vote_stake_weight_t lw = { .id_key = leader_id, .stake = 1000000UL };
+    memset( lw.vote_key.uc, 0x88, 32UL );
+    fd_epoch_info_msg_t * lmsg = test_vote_set_msg( lsched_buf, 0UL, 1UL, &lw );
+    lmsg->slot_cnt = 32UL;
+    FD_TEST( fd_epoch_schedule_derive( &lmsg->epoch_schedule, 32UL, 0UL, 0 ) );
+    fd_rpc_mleaders_init( ctx->mleaders );
+    fd_rpc_mleaders_ingest( ctx->mleaders, lmsg );
+    ctx->epoch_schedule     = lmsg->epoch_schedule;
+    ctx->has_epoch_schedule = 1;
+
+    ctx->banks[ 0 ].slot          = 19UL;
+    ctx->banks[ 0 ].epoch         = 0UL;
+    ctx->banks[ 0 ].slot_in_epoch = 19UL;
+    ctx->banks[ 0 ].accdb_fork_id = test_fork_id;
+    ctx->processed_idx = 0UL;
+    ctx->confirmed_idx = 0UL;
+    ctx->finalized_idx = 0UL;
+
+    char const * bp_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\"}";
+
+    test_put_slot_history( writer_accdb, test_fork_id, 20UL, NULL, 0UL, 0UL );
+    expect_rpc_response( ctx, bp_req,
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32021,\"message\":\"No slot history\"},\"id\":1}" );
+
+    ulong missing[ 2 ] = { 3UL, 7UL };
+    test_put_slot_history( writer_accdb, test_fork_id, 20UL, missing, 2UL, 1000000UL );
+
+#define BP_RES( _by_identity, _first, _last ) do {                                                                       \
+      FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,                                                       \
+          "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":19},\"value\":{\"byIdentity\":{%s},"  \
+          "\"range\":{\"firstSlot\":%lu,\"lastSlot\":%lu}}},\"id\":1}", FD_RPC_AGAVE_API_VERSION, (_by_identity), (ulong)(_first), (ulong)(_last) ) ); \
+    } while( 0 )
+
+    char by_id[ 256 ];
+    FD_TEST( fd_cstr_printf_check( by_id, sizeof(by_id), NULL, "\"%s\":[20,18]", leader_b58 ) );
+    BP_RES( by_id, 0UL, 19UL );
+    expect_rpc_response( ctx, bp_req, res_buf );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"commitment\":\"processed\"}]}", res_buf );
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"identity\":\"%s\"}]}", leader_b58 ) );
+    expect_rpc_response( ctx, req_buf, res_buf );
+
+    BP_RES( "", 0UL, 19UL );
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"identity\":\"%s\"}]}", other_b58 ) );
+    expect_rpc_response( ctx, req_buf, res_buf );
+
+    FD_TEST( ctx->block_production_epoch_first_slot==0UL && ctx->block_production_epoch_next_slot==20UL );
+    ctx->block_production_epoch_first_slot = ULONG_MAX;
+    ctx->banks[ 1 ].slot          = 9UL;
+    ctx->banks[ 1 ].epoch         = 0UL;
+    ctx->banks[ 1 ].slot_in_epoch = 9UL;
+    ctx->banks[ 1 ].accdb_fork_id = test_fork_id;
+    ctx->finalized_idx = 1UL;
+    FD_TEST( fd_cstr_printf_check( by_id, sizeof(by_id), NULL, "\"%s\":[20,18]", leader_b58 ) );
+    BP_RES( by_id, 0UL, 19UL );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"commitment\":\"processed\"}]}", res_buf );
+    FD_TEST( ctx->block_production_epoch_first_slot==0UL && ctx->block_production_epoch_next_slot==10UL );
+    FD_TEST( ctx->block_production_epoch->cnt==1UL );
+    FD_TEST( ctx->block_production_epoch->map[ ctx->block_production_epoch->used[ 0 ] ].leader_slots   ==10UL );
+    FD_TEST( ctx->block_production_epoch->map[ ctx->block_production_epoch->used[ 0 ] ].blocks_produced== 8UL );
+    FD_TEST( fd_cstr_printf_check( by_id, sizeof(by_id), NULL, "\"%s\":[10,8]", leader_b58 ) );
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":9},\"value\":{\"byIdentity\":{%s},"
+        "\"range\":{\"firstSlot\":0,\"lastSlot\":9}}},\"id\":1}", FD_RPC_AGAVE_API_VERSION, by_id ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"commitment\":\"finalized\"}]}", res_buf );
+    ctx->finalized_idx = 0UL;
+    FD_TEST( fd_cstr_printf_check( by_id, sizeof(by_id), NULL, "\"%s\":[20,18]", leader_b58 ) );
+    BP_RES( by_id, 0UL, 19UL );
+    expect_rpc_response( ctx, bp_req, res_buf );
+    FD_TEST( ctx->block_production_epoch_next_slot==20UL );
+    ctx->banks[ 1 ].slot = ULONG_MAX;
+
+    FD_TEST( fd_cstr_printf_check( by_id, sizeof(by_id), NULL, "\"%s\":[3,2]", leader_b58 ) );
+    BP_RES( by_id, 2UL, 4UL );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{\"firstSlot\":2,\"lastSlot\":4}}]}", res_buf );
+
+    FD_TEST( fd_cstr_printf_check( by_id, sizeof(by_id), NULL, "\"%s\":[10,10]", leader_b58 ) );
+    BP_RES( by_id, 10UL, 19UL );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{\"firstSlot\":10,\"lastSlot\":null}}]}", res_buf );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{\"firstSlot\":10}}]}", res_buf );
+
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{\"firstSlot\":5,\"lastSlot\":4}}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"lastSlot, 4, cannot be less than firstSlot, 5\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{\"firstSlot\":0,\"lastSlot\":25}}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"lastSlot, 25, is too large; max 19\"},\"id\":1}" );
+
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[1]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: integer `1`, expected struct RpcBlockProductionConfig.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"identity\":1}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: integer `1`, expected a string.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"identity\":\"xyz\"}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: WrongSize\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":1}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: integer `1`, expected struct RpcBlockProductionConfigRange.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{}}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `firstSlot`.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{\"firstSlot\":-1}}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: integer `-1`, expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{\"firstSlot\":0,\"lastSlot\":\"x\"}}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"x\\\", expected u64.\"},\"id\":1}" );
+
+    test_put_slot_history( writer_accdb, test_fork_id, 40UL, NULL, 0UL, 1000000UL );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{\"firstSlot\":30,\"lastSlot\":35}}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid slot range: leader schedule for epoch 1 is unavailable\"},\"id\":1}" );
+
+    test_put_slot_history( writer_accdb, test_fork_id, 1048600UL, NULL, 0UL, 1000000UL );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockProduction\",\"params\":[{\"range\":{\"firstSlot\":0,\"lastSlot\":30}}]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"firstSlot, 0, is too small; min 24\"},\"id\":1}" );
+
+#undef BP_RES
+  }
+
+  /* -- getRecentPerformanceSamples -- */
+  {
+    char const * ps_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getRecentPerformanceSamples\"}";
+    expect_rpc_response( ctx, ps_req, "{\"jsonrpc\":\"2.0\",\"result\":[],\"id\":1}" );
+
+    long const sec = 1000000000L;
+    long       t0  = 1000L*sec;
+    ctx->banks[ 0 ].transaction_count = 1000UL;
+    ctx->highest_replayed_slot        = 500UL;
+    ctx->finalized_idx                = 0UL;
+    fd_rpc_perf_sample_poll( ctx, t0 );
+    fd_rpc_perf_sample_poll( ctx, t0+(30L*sec) );
+    expect_rpc_response( ctx, ps_req, "{\"jsonrpc\":\"2.0\",\"result\":[],\"id\":1}" );
+
+    ctx->banks[ 0 ].transaction_count = 1100UL;
+    ctx->highest_replayed_slot        = 650UL;
+    fd_rpc_perf_sample_poll( ctx, t0+(61L*sec) );
+    char const * s1 = "{\"slot\":650,\"numTransactions\":100,\"numNonVoteTransactions\":100,\"numSlots\":150,\"samplePeriodSecs\":61}";
+
+    ctx->banks[ 0 ].transaction_count = 1150UL;
+    ctx->highest_replayed_slot        = 670UL;
+    ctx->finalized_idx                = ULONG_MAX;
+    fd_rpc_perf_sample_poll( ctx, t0+(122L*sec) );
+    ctx->finalized_idx                = 0UL;
+    fd_rpc_perf_sample_poll( ctx, t0+(123L*sec) );
+    char const * s2 = "{\"slot\":670,\"numTransactions\":50,\"numNonVoteTransactions\":50,\"numSlots\":20,\"samplePeriodSecs\":62}";
+
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL, "{\"jsonrpc\":\"2.0\",\"result\":[%s,%s],\"id\":1}", s2, s1 ) );
+    expect_rpc_response( ctx, ps_req, res_buf );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getRecentPerformanceSamples\",\"params\":[null]}", res_buf );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getRecentPerformanceSamples\",\"params\":[720]}", res_buf );
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL, "{\"jsonrpc\":\"2.0\",\"result\":[%s],\"id\":1}", s2 ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getRecentPerformanceSamples\",\"params\":[1]}", res_buf );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getRecentPerformanceSamples\",\"params\":[0]}", "{\"jsonrpc\":\"2.0\",\"result\":[],\"id\":1}" );
+
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getRecentPerformanceSamples\",\"params\":[721]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid limit; max 720\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getRecentPerformanceSamples\",\"params\":[-1]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: integer `-1`, expected usize.\"},\"id\":1}" );
+    expect_rpc_response( ctx,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getRecentPerformanceSamples\",\"params\":[\"x\"]}",
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"x\\\", expected usize.\"},\"id\":1}" );
+
+    long t = t0+(123L*sec);
+    for( ulong i=0UL; i<FD_RPC_PERF_SAMPLE_MAX+5UL; i++ ) {
+      t += 60L*sec;
+      ctx->banks[ 0 ].transaction_count += 2UL;
+      ctx->highest_replayed_slot        += 3UL;
+      fd_rpc_perf_sample_poll( ctx, t );
+    }
+    FD_TEST( ctx->perf_sample_cnt==FD_RPC_PERF_SAMPLE_MAX+7UL );
+    fd_rpc_perf_sample_t const * newest = &ctx->perf_samples[ (ctx->perf_sample_cnt-1UL) % FD_RPC_PERF_SAMPLE_MAX ];
+    FD_TEST( newest->slot==670UL+(3UL*(FD_RPC_PERF_SAMPLE_MAX+5UL)) && newest->num_transactions==2UL && newest->num_slots==3UL && newest->sample_period_secs==60 );
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"result\":[{\"slot\":%lu,\"numTransactions\":2,\"numNonVoteTransactions\":2,\"numSlots\":3,\"samplePeriodSecs\":60}],\"id\":1}", newest->slot ) );
+    expect_rpc_response( ctx, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getRecentPerformanceSamples\",\"params\":[1]}", res_buf );
+  }
+
+  /* -- getBlockTime -- */
+  {
+    ctx->banks[ 0 ].slot          = 40UL;
+    ctx->banks[ 0 ].accdb_fork_id = test_fork_id;
+    ctx->processed_idx = 0UL;
+    ctx->confirmed_idx = 0UL;
+    ctx->finalized_idx = 0UL;
+    ctx->has_genesis_hash      = 1;
+    ctx->genesis_creation_time = 1690000000L;
+
+    ulong skipped[ 1 ] = { 12UL };
+    test_put_slot_history( writer_accdb, test_fork_id, 41UL, skipped, 1UL, 1000000UL );
+
+    ulong recorded[ 6 ] = { 10UL, 11UL, 12UL, 13UL, 40UL, 42UL };
+    for( ulong i=0UL; i<6UL; i++ ) {
+      test_put_clock( writer_accdb, test_fork_id, recorded[ i ], 1700000000L+(long)recorded[ i ] );
+      fd_rpc_block_time_record( ctx, recorded[ i ], test_fork_id );
+    }
+
+#define BT_REQ( _params ) "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBlockTime\",\"params\":" _params "}"
+    expect_rpc_response( ctx, BT_REQ( "[0]"  ), "{\"jsonrpc\":\"2.0\",\"result\":1690000000,\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[10]" ), "{\"jsonrpc\":\"2.0\",\"result\":1700000010,\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[40]" ), "{\"jsonrpc\":\"2.0\",\"result\":1700000040,\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[42]" ), "{\"jsonrpc\":\"2.0\",\"result\":1700000042,\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[20]" ), "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[43]" ),
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32004,\"message\":\"Block not available for slot 43\"},\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[12]" ),
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32007,\"message\":\"Slot 12 was skipped, or missing due to ledger jump to recent snapshot\"},\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[5]" ),
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Block 5 cleaned up, does not exist on node. First available block: 10\"},\"id\":1}" );
+
+    expect_rpc_response( ctx, BT_REQ( "[]" ),
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"`params` should have at least 1 argument(s)\"},\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[\"x\"]" ),
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"x\\\", expected u64.\"},\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[-1]" ),
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: integer `-1`, expected u64.\"},\"id\":1}" );
+
+    ctx->finalized_idx = ULONG_MAX;
+    expect_rpc_response( ctx, BT_REQ( "[10]" ),
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":1}" );
+    ctx->finalized_idx = 0UL;
+
+    ulong wrap_slot = 10UL+FD_RPC_BLOCK_TIME_MAX;
+    test_put_clock( writer_accdb, test_fork_id, wrap_slot, 1800000000L );
+    fd_rpc_block_time_record( ctx, wrap_slot, test_fork_id );
+    expect_rpc_response( ctx, BT_REQ( "[10]" ),
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32001,\"message\":\"Block 10 cleaned up, does not exist on node. First available block: 11\"},\"id\":1}" );
+    expect_rpc_response( ctx, BT_REQ( "[11]" ), "{\"jsonrpc\":\"2.0\",\"result\":1700000011,\"id\":1}" );
+#undef BT_REQ
   }
 
   /* Reset the HTTP server so the eviction regression starts with empty

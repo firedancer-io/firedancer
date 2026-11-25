@@ -198,6 +198,7 @@ seed_mleaders( fd_rpc_tile_t * ctx,
   ctx->epoch_schedule     = emsg->epoch_schedule;
   ctx->has_epoch_schedule = 1;
   fd_rpc_mleaders_ingest( ctx->mleaders, emsg );
+  fd_rpc_vote_sets_ingest( ctx, emsg );
 }
 
 int

@@ -1663,6 +1663,11 @@ deliberate exception with lint-allow="<rule id>")
     <int value="24" name="Unimplemented" label="Known method not implemented by Firedancer" />
     <int value="25" name="Invalid" label="Malformed JSON-RPC request" />
     <int value="26" name="Health" label="GET /health" />
+    <int value="27" name="GetEpochSchedule" label="getEpochSchedule" />
+    <int value="28" name="GetVoteAccounts" label="getVoteAccounts" />
+    <int value="29" name="GetBlockProduction" label="getBlockProduction" />
+    <int value="30" name="GetRecentPerformanceSamples" label="getRecentPerformanceSamples" />
+    <int value="31" name="GetBlockTime" label="getBlockTime" />
 </enum>
 
 <enum name="RpcNotificationType">

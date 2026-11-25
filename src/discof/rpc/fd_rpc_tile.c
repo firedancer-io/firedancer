@@ -18,10 +18,14 @@
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/alpenglow/fd_alpenglow.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec_tmpl.h"
 #include "../../tango/fseq/fd_fseq.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../util/net/fd_ip4.h"
@@ -170,6 +174,7 @@ FD_STATIC_ASSERT( FD_RPC_ZSTD_LEVEL<=3 || FD_RPC_ZSTD_LEVEL>=16, zstd_level );
 #define FD_RPC_ERROR_EPOCH_REWARDS_PERIOD_ACTIVE                 (-32017)
 #define FD_RPC_ERROR_SLOT_NOT_EPOCH_BOUNDARY                     (-32018)
 #define FD_RPC_ERROR_LONG_TERM_STORAGE_UNREACHABLE               (-32019)
+#define FD_RPC_ERROR_NO_SLOT_HISTORY                             (-32021)
 
 /* fd_rpc_val_t is a JSON value captured from a request as a raw input
    slice plus its kind.  Kinds mirror the serde names Agave uses in its
@@ -288,6 +293,10 @@ struct fd_rpc_config {
   fd_rpc_val_t data_slice;
   fd_rpc_val_t min_context_slot;
   fd_rpc_val_t identity;
+  fd_rpc_val_t vote_pubkey;
+  fd_rpc_val_t keep_unstaked_delinquents;
+  fd_rpc_val_t delinquent_slot_distance;
+  fd_rpc_val_t range;
 };
 
 typedef struct fd_rpc_config fd_rpc_config_t;
@@ -300,6 +309,10 @@ fd_rpc_config_read( fd_rpc_val_t const * config,
   out->data_slice.kind       = FD_RPC_VAL_NONE;
   out->min_context_slot.kind = FD_RPC_VAL_NONE;
   out->identity.kind         = FD_RPC_VAL_NONE;
+  out->vote_pubkey.kind               = FD_RPC_VAL_NONE;
+  out->keep_unstaked_delinquents.kind = FD_RPC_VAL_NONE;
+  out->delinquent_slot_distance.kind  = FD_RPC_VAL_NONE;
+  out->range.kind                     = FD_RPC_VAL_NONE;
   if( config->kind!=FD_RPC_VAL_MAP ) return;
   fd_jtok_t j[1];
   fd_jtok_str_t key;
@@ -311,6 +324,10 @@ fd_rpc_config_read( fd_rpc_val_t const * config,
     else if( fd_jtok_str_eq( &key, "dataSlice"      ) ) member = &out->data_slice;
     else if( fd_jtok_str_eq( &key, "minContextSlot" ) ) member = &out->min_context_slot;
     else if( fd_jtok_str_eq( &key, "identity"       ) ) member = &out->identity;
+    else if( fd_jtok_str_eq( &key, "votePubkey"              ) ) member = &out->vote_pubkey;
+    else if( fd_jtok_str_eq( &key, "keepUnstakedDelinquents" ) ) member = &out->keep_unstaked_delinquents;
+    else if( fd_jtok_str_eq( &key, "delinquentSlotDistance"  ) ) member = &out->delinquent_slot_distance;
+    else if( fd_jtok_str_eq( &key, "range"                   ) ) member = &out->range;
     else continue;
     if( member->kind==FD_RPC_VAL_NONE ) fd_rpc_val_read( j, member );
   }
@@ -401,6 +418,112 @@ struct fd_rpc_gls_pair {
   uint        rot;    /* rotation index into the epoch's leader schedule */
 };
 typedef struct fd_rpc_gls_pair fd_rpc_gls_pair_t;
+
+struct fd_rpc_vote_set_ele {
+  fd_pubkey_t vote_key;
+  ulong       stake;
+};
+typedef struct fd_rpc_vote_set_ele fd_rpc_vote_set_ele_t;
+
+struct fd_rpc_vote_set {
+  ulong                 epoch;
+  ulong                 cnt;
+  fd_rpc_vote_set_ele_t ele[ MAX_STAKE_WEIGHTS ];
+};
+typedef struct fd_rpc_vote_set fd_rpc_vote_set_t;
+
+#define FD_RPC_VOTE_SET_CNT (3UL)
+
+#define SORT_NAME        fd_rpc_vote_set_sort
+#define SORT_KEY_T       fd_rpc_vote_set_ele_t
+#define SORT_BEFORE(a,b) (memcmp( (a).vote_key.uc, (b).vote_key.uc, 32UL )<0)
+#include "../../util/tmpl/fd_sort.c"
+
+#define FD_RPC_VOTE_ACCOUNT_CREDITS_MAX     (5UL)
+#define FD_RPC_DELINQUENT_SLOT_DISTANCE     (128UL)
+
+struct fd_rpc_vote_info {
+  fd_pubkey_t             vote_key;
+  fd_pubkey_t             node_key;
+  ulong                   stake;
+  ushort                  commission_bps;
+  int                     epoch_vote_account;
+  ulong                   last_vote;
+  ulong                   root_slot;
+  ulong                   credits_cnt;
+  fd_vote_epoch_credits_t credits[ FD_RPC_VOTE_ACCOUNT_CREDITS_MAX ];
+};
+typedef struct fd_rpc_vote_info fd_rpc_vote_info_t;
+
+struct fd_rpc_block_production {
+  fd_pubkey_t key;
+  ulong       leader_slots;
+  ulong       blocks_produced;
+};
+typedef struct fd_rpc_block_production fd_rpc_block_production_t;
+
+static fd_pubkey_t const fd_rpc_null_pubkey = {0};
+
+#define MAP_NAME              fd_rpc_block_production_map
+#define MAP_T                 fd_rpc_block_production_t
+#define MAP_KEY_T             fd_pubkey_t
+#define MAP_MEMOIZE           0
+#define MAP_LG_SLOT_CNT       16
+#define MAP_KEY_NULL          fd_rpc_null_pubkey
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).uc, (k1).uc, 32UL ))
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL( (k), fd_rpc_null_pubkey )
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_KEY_HASH(k)       ((uint)fd_ulong_hash( fd_ulong_load_8( (k).uc ) ))
+#include "../../util/tmpl/fd_map.c"
+
+struct fd_rpc_block_production_table {
+  fd_rpc_block_production_t map [ 1UL<<16 ];
+  uint                      used[ 1UL<<16 ];
+  ulong                     cnt;
+};
+typedef struct fd_rpc_block_production_table fd_rpc_block_production_table_t;
+
+static void
+fd_rpc_block_production_table_reset( fd_rpc_block_production_table_t * table ) {
+  for( ulong i=0UL; i<table->cnt; i++ ) table->map[ table->used[ i ] ].key = fd_rpc_null_pubkey;
+  table->cnt = 0UL;
+}
+
+static void
+fd_rpc_block_production_table_add( fd_rpc_block_production_table_t * table,
+                                   fd_pubkey_t const *               key,
+                                   ulong                             leader_slots,
+                                   ulong                             blocks_produced ) {
+  fd_rpc_block_production_t * entry = fd_rpc_block_production_map_query( table->map, *key, NULL );
+  if( FD_UNLIKELY( !entry ) ) {
+    FD_TEST( table->cnt<fd_rpc_block_production_map_key_max() );
+    entry = fd_rpc_block_production_map_insert( table->map, *key );
+    entry->leader_slots    = 0UL;
+    entry->blocks_produced = 0UL;
+    table->used[ table->cnt++ ] = (uint)fd_rpc_block_production_map_slot_idx( table->map, entry );
+  }
+  entry->leader_slots    += leader_slots;
+  entry->blocks_produced += blocks_produced;
+}
+
+#define FD_RPC_PERF_SAMPLE_MAX      (720UL)
+#define FD_RPC_PERF_SAMPLE_INTERVAL (60L*1000000000L)
+
+struct fd_rpc_perf_sample {
+  ulong  slot;
+  ulong  num_transactions;
+  ulong  num_slots;
+  ushort sample_period_secs;
+};
+typedef struct fd_rpc_perf_sample fd_rpc_perf_sample_t;
+
+#define FD_RPC_BLOCK_TIME_MAX (1UL<<19)
+
+struct fd_rpc_block_time {
+  ulong slot;
+  long  unix_timestamp;
+};
+typedef struct fd_rpc_block_time fd_rpc_block_time_t;
 
 #define FD_RPC_MLEADERS_CNT       (5UL)
 #define FD_RPC_MLEADERS_EPOCH_CNT (FD_RPC_MLEADERS_CNT*MULTI_EPOCH_LEADERS_EPOCH_CNT)
@@ -510,6 +633,33 @@ struct fd_rpc_tile {
   fd_epoch_schedule_t      epoch_schedule;
   int                      has_epoch_schedule;
 
+  fd_rpc_vote_set_t         vote_sets[ FD_RPC_VOTE_SET_CNT ];
+  fd_rpc_vote_info_t        vote_infos[ 2UL*MAX_STAKE_WEIGHTS ];
+  ulong                     vote_infos_cnt;
+  int                       vote_infos_valid;
+  int                       vote_infos_has_nxt;
+  ulong                     vote_infos_slot;
+  uchar                     vote_infos_block_hash[ 32 ];
+  fd_vote_state_versioned_t vote_state[ 1 ];
+
+  fd_rpc_block_production_table_t block_production[ 1 ];
+  fd_rpc_block_production_table_t block_production_epoch[ 1 ];
+  ulong                           block_production_epoch_first_slot;
+  ulong                           block_production_epoch_next_slot;
+
+  ulong                highest_replayed_slot;
+  int                  perf_sample_has_snapshot;
+  long                 perf_sample_last_ns;
+  ulong                perf_sample_last_txn_cnt;
+  ulong                perf_sample_last_slot;
+  ulong                perf_sample_cnt;
+  fd_rpc_perf_sample_t perf_samples[ FD_RPC_PERF_SAMPLE_MAX ];
+
+  long                genesis_creation_time;
+  ulong               block_time_first_slot;
+  ulong               block_time_newest_slot;
+  fd_rpc_block_time_t block_times[ FD_RPC_BLOCK_TIME_MAX ];
+
   ZSTD_CCtx * zstd_cctx;
   uchar compress_buf[ ZSTD_COMPRESSBOUND( FD_RUNTIME_ACC_SZ_MAX ) ];
 
@@ -530,6 +680,89 @@ struct fd_rpc_tile {
 };
 
 typedef struct fd_rpc_tile fd_rpc_tile_t;
+
+static void
+fd_rpc_vote_sets_ingest( fd_rpc_tile_t *             ctx,
+                         fd_epoch_info_msg_t const * msg ) {
+  FD_TEST( msg->staked_vote_cnt<=MAX_STAKE_WEIGHTS );
+  fd_rpc_vote_set_t *            set = &ctx->vote_sets[ msg->epoch % FD_RPC_VOTE_SET_CNT ];
+  fd_vote_stake_weight_t const * w   = fd_epoch_info_msg_stake_weights( msg );
+  set->epoch = msg->epoch;
+  set->cnt   = msg->staked_vote_cnt;
+  for( ulong i=0UL; i<set->cnt; i++ ) {
+    set->ele[ i ].vote_key = w[ i ].vote_key;
+    set->ele[ i ].stake    = w[ i ].stake;
+  }
+  fd_rpc_vote_set_sort_inplace( set->ele, set->cnt );
+}
+
+static void
+fd_rpc_block_time_record( fd_rpc_tile_t *    ctx,
+                          ulong              slot,
+                          fd_accdb_fork_id_t accdb_fork_id ) {
+  ulong lamports;
+  int   executable;
+  uchar owner[ 32UL ];
+  ulong data_sz;
+  fd_accdb_read_one_nocache( ctx->accdb, accdb_fork_id, fd_sysvar_clock_id.uc, &lamports, &executable, owner, ctx->scratch.accdb_data_buf, &data_sz );
+  if( FD_UNLIKELY( !lamports || data_sz<40UL ) ) return;
+
+  fd_rpc_block_time_t * entry = &ctx->block_times[ slot % FD_RPC_BLOCK_TIME_MAX ];
+  entry->slot           = slot;
+  entry->unix_timestamp = FD_LOAD( long, ctx->scratch.accdb_data_buf+32UL );
+  ctx->block_time_first_slot  = fd_ulong_min( ctx->block_time_first_slot,  slot );
+  ctx->block_time_newest_slot = fd_ulong_max( ctx->block_time_newest_slot, slot );
+}
+
+static fd_rpc_block_time_t const *
+fd_rpc_block_time_query( fd_rpc_tile_t const * ctx,
+                         ulong                 slot ) {
+  fd_rpc_block_time_t const * entry = &ctx->block_times[ slot % FD_RPC_BLOCK_TIME_MAX ];
+  return entry->slot==slot ? entry : NULL;
+}
+
+static ulong
+fd_rpc_block_time_first_available( fd_rpc_tile_t const * ctx ) {
+  if( FD_UNLIKELY( ctx->block_time_first_slot==ULONG_MAX ) ) return 0UL;
+  return fd_ulong_max( ctx->block_time_first_slot, fd_ulong_sat_sub( ctx->block_time_newest_slot, FD_RPC_BLOCK_TIME_MAX-1UL ) );
+}
+
+static void
+fd_rpc_perf_sample_poll( fd_rpc_tile_t * ctx,
+                         long            now ) {
+  if( FD_UNLIKELY( ctx->finalized_idx==ULONG_MAX ) ) return;
+  ulong txn_cnt = ctx->banks[ ctx->finalized_idx ].transaction_count;
+  ulong slot    = ctx->highest_replayed_slot;
+
+  if( FD_UNLIKELY( !ctx->perf_sample_has_snapshot ) ) {
+    ctx->perf_sample_has_snapshot = 1;
+    ctx->perf_sample_last_ns      = now;
+    ctx->perf_sample_last_txn_cnt = txn_cnt;
+    ctx->perf_sample_last_slot    = slot;
+    return;
+  }
+
+  long elapsed = now - ctx->perf_sample_last_ns;
+  if( FD_LIKELY( elapsed<FD_RPC_PERF_SAMPLE_INTERVAL ) ) return;
+
+  fd_rpc_perf_sample_t * sample = &ctx->perf_samples[ ctx->perf_sample_cnt % FD_RPC_PERF_SAMPLE_MAX ];
+  sample->slot               = slot;
+  sample->num_transactions   = fd_ulong_sat_sub( txn_cnt, ctx->perf_sample_last_txn_cnt );
+  sample->num_slots          = fd_ulong_sat_sub( slot,    ctx->perf_sample_last_slot    );
+  sample->sample_period_secs = (ushort)( elapsed/1000000000L );
+  ctx->perf_sample_cnt++;
+
+  ctx->perf_sample_last_ns      = now;
+  ctx->perf_sample_last_txn_cnt = txn_cnt;
+  ctx->perf_sample_last_slot    = slot;
+}
+
+static fd_rpc_vote_set_t const *
+fd_rpc_vote_set_query( fd_rpc_tile_t const * ctx,
+                       ulong                 epoch ) {
+  fd_rpc_vote_set_t const * set = &ctx->vote_sets[ epoch % FD_RPC_VOTE_SET_CNT ];
+  return set->epoch==epoch ? set : NULL;
+}
 
 static void
 fd_rpc_ws_subscriber_vote_add( fd_rpc_tile_t * ctx,
@@ -729,6 +962,8 @@ during_housekeeping( fd_rpc_tile_t * ctx ) {
     fd_memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
+
+  fd_rpc_perf_sample_poll( ctx, fd_clock_tile_now( ctx->clock ) );
 }
 
 static inline void
@@ -857,6 +1092,8 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         bank->slot_in_epoch = slot_completed->slot_in_epoch;
         bank->slots_per_epoch = slot_completed->slots_per_epoch;
         bank->transaction_count = slot_completed->transaction_count;
+        ctx->highest_replayed_slot = fd_ulong_max( ctx->highest_replayed_slot, slot_completed->slot );
+        fd_rpc_block_time_record( ctx, slot_completed->slot, slot_completed->accdb_fork_id );
         bank->block_height = slot_completed->block_height;
         fd_memcpy( bank->block_hash, slot_completed->block_hash.uc, 32 );
 
@@ -965,6 +1202,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     ctx->has_epoch_schedule = 1;
 
     fd_rpc_mleaders_ingest( ctx->mleaders, msg );
+    fd_rpc_vote_sets_ingest( ctx, msg );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_VOTOR ) {
     fd_votor_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     if( FD_LIKELY( msg->certed.kind==FD_CERT_KIND_FINAL || msg->certed.kind==FD_CERT_KIND_FAST_FINAL ) ) {
@@ -974,6 +1212,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     ctx->has_genesis_hash = 1;
     fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     *ctx->genesis_hash = genesis_meta->genesis_hash;
+    ctx->genesis_creation_time = (long)genesis_meta->creation_time_seconds;
 
     uchar const * blob    = (uchar const *)( genesis_meta+1 );
     ulong const   blob_sz = genesis_meta->blob_sz;
@@ -1788,10 +2027,248 @@ getBlockHeight( fd_rpc_tile_t *         ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", ctx->banks[ bank_idx ].block_height, id_cstr );
 }
 
-UNIMPLEMENTED(getBlockProduction) // TODO: Used by solana-exporter
+static int
+fd_rpc_validate_block_production_range( fd_rpc_tile_t *             ctx,
+                                        char const *                id_cstr,
+                                        fd_rpc_val_t const *        range,
+                                        int *                       has_first,
+                                        ulong *                     first_slot,
+                                        int *                       has_last,
+                                        ulong *                     last_slot,
+                                        fd_http_server_response_t * res ) {
+  *has_first = 0;
+  *has_last  = 0;
+  if( range->kind==FD_RPC_VAL_NONE || range->kind==FD_RPC_VAL_NULL ) return 1;
+
+  fd_rpc_val_t first[ 1 ] = {{ .kind = FD_RPC_VAL_NONE }};
+  fd_rpc_val_t last [ 1 ] = {{ .kind = FD_RPC_VAL_NONE }};
+  if( range->kind==FD_RPC_VAL_MAP ) {
+    fd_jtok_t     j[ 1 ];
+    fd_jtok_str_t key;
+    fd_jtok_obj_enter( fd_jtok_init( j, range->raw, range->raw_sz ) );
+    while( fd_jtok_obj_next( j, &key ) ) {
+      if(      fd_jtok_str_eq( &key, "firstSlot" ) ) { if( first->kind==FD_RPC_VAL_NONE ) fd_rpc_val_read( j, first ); }
+      else if( fd_jtok_str_eq( &key, "lastSlot"  ) ) { if( last->kind ==FD_RPC_VAL_NONE ) fd_rpc_val_read( j, last  ); }
+    }
+  } else if( range->kind==FD_RPC_VAL_SEQ ) {
+    fd_jtok_t j[ 1 ];
+    ulong     cnt = 0UL;
+    fd_jtok_arr_enter( fd_jtok_init( j, range->raw, range->raw_sz ) );
+    while( fd_jtok_arr_next( j ) ) {
+      if(      cnt==0UL ) fd_rpc_val_read( j, first );
+      else if( cnt==1UL ) fd_rpc_val_read( j, last  );
+      cnt++;
+    }
+  } else {
+    *res = fd_rpc_err_invalid( ctx, id_cstr, "type", range, "struct RpcBlockProductionConfigRange" );
+    return 0;
+  }
+
+  if( FD_UNLIKELY( first->kind==FD_RPC_VAL_NONE ) ) {
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: missing field `firstSlot`.\"},\"id\":%s}\n", id_cstr );
+    return 0;
+  }
+  if( FD_UNLIKELY( !fd_rpc_validate_uint_param( ctx, id_cstr, first, "u64", first_slot, res ) ) ) return 0;
+  *has_first = 1;
+
+  if( last->kind!=FD_RPC_VAL_NONE && last->kind!=FD_RPC_VAL_NULL ) {
+    if( FD_UNLIKELY( !fd_rpc_validate_uint_param( ctx, id_cstr, last, "u64", last_slot, res ) ) ) return 0;
+    *has_last = 1;
+  }
+  return 1;
+}
+
+static void
+fd_rpc_block_production_epoch_update( fd_rpc_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->finalized_idx==ULONG_MAX ) ) return;
+  bank_info_t const * root  = &ctx->banks[ ctx->finalized_idx ];
+  ulong               first = root->slot-root->slot_in_epoch;
+  if( FD_UNLIKELY( ctx->block_production_epoch_first_slot!=first ) ) {
+    fd_rpc_block_production_table_reset( ctx->block_production_epoch );
+    ctx->block_production_epoch_first_slot = first;
+    ctx->block_production_epoch_next_slot  = first;
+  }
+  if( ctx->block_production_epoch_next_slot>root->slot ) return;
+
+  ulong lamports;
+  int   executable;
+  uchar owner[ 32UL ];
+  ulong data_sz;
+  fd_accdb_read_one_nocache( ctx->accdb, root->accdb_fork_id, fd_sysvar_slot_history_id.uc, &lamports, &executable, owner, ctx->scratch.accdb_data_buf, &data_sz );
+  fd_slot_history_view_t view[ 1 ];
+  if( FD_UNLIKELY( !lamports || !fd_sysvar_slot_history_view( view, ctx->scratch.accdb_data_buf, data_sz ) ) ) return;
+
+  for( ulong slot=ctx->block_production_epoch_next_slot; slot<=root->slot; slot++ ) {
+    fd_pubkey_t const * leader = fd_rpc_mleaders_get_leader_for_slot( ctx->mleaders, slot );
+    if( FD_UNLIKELY( !leader ) ) return;
+    fd_rpc_block_production_table_add( ctx->block_production_epoch, leader, 1UL, fd_sysvar_slot_history_find_slot( view, slot )==FD_SLOT_HISTORY_SLOT_FOUND );
+    ctx->block_production_epoch_next_slot = slot+1UL;
+  }
+}
+
+static fd_http_server_response_t
+getBlockProduction( fd_rpc_tile_t *         ctx,
+                    char const *            id_cstr,
+                    fd_rpc_params_t const * params ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_BLOCK_PRODUCTION, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
+
+  fd_rpc_val_t const * config   = &params->v[ 0 ];
+  ulong                bank_idx = ULONG_MAX;
+  fd_rpc_val_t         identity[ 1 ];
+  int config_valid = fd_rpc_validate_config( ctx, id_cstr, config, "struct RpcBlockProductionConfig",
+                                             1, /* has_commitment */
+                                             0, /* has_encoding */
+                                             0, /* has_data_slice */
+                                             0, /* has_min_context_slot */
+                                             &bank_idx,
+                                             NULL,
+                                             NULL,
+                                             NULL,
+                                             identity,
+                                             &response );
+  if( FD_UNLIKELY( !config_valid ) ) return response;
+
+  int has_filter = identity->kind!=FD_RPC_VAL_NONE && identity->kind!=FD_RPC_VAL_NULL;
+  if( FD_UNLIKELY( has_filter && identity->kind!=FD_RPC_VAL_STR ) ) {
+    return fd_rpc_err_invalid( ctx, id_cstr, "type", identity, "a string" );
+  }
+
+  fd_rpc_config_t cfg[ 1 ];
+  fd_rpc_config_read( config, cfg );
+  int   has_first;
+  int   has_last;
+  ulong first_slot = 0UL;
+  ulong last_slot  = 0UL;
+  if( FD_UNLIKELY( !fd_rpc_validate_block_production_range( ctx, id_cstr, &cfg->range, &has_first, &first_slot, &has_last, &last_slot, &response ) ) ) return response;
+
+  fd_pubkey_t filter[ 1 ];
+  if( has_filter && FD_UNLIKELY( !fd_rpc_validate_address( ctx, id_cstr, identity, filter, &response ) ) ) return response;
+
+  bank_info_t const * bank          = &ctx->banks[ bank_idx ];
+  int                 default_range = !has_first && !has_last;
+  if( !has_first ) first_slot = bank->slot-bank->slot_in_epoch;
+  if( !has_last  ) last_slot  = bank->slot;
+  if( FD_UNLIKELY( last_slot<first_slot ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"lastSlot, %lu, cannot be less than firstSlot, %lu\"},\"id\":%s}\n", last_slot, first_slot, id_cstr );
+  }
+
+  if( default_range ) fd_rpc_block_production_epoch_update( ctx );
+
+  ulong lamports;
+  int   executable;
+  uchar owner[ 32UL ];
+  ulong data_sz;
+  fd_accdb_read_one_nocache( ctx->accdb, bank->accdb_fork_id, fd_sysvar_slot_history_id.uc, &lamports, &executable, owner, ctx->scratch.accdb_data_buf, &data_sz );
+  fd_slot_history_view_t view[ 1 ];
+  if( FD_UNLIKELY( !lamports || !fd_sysvar_slot_history_view( view, ctx->scratch.accdb_data_buf, data_sz ) ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"No slot history\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SLOT_HISTORY, id_cstr );
+  }
+
+  ulong oldest = fd_ulong_sat_sub( view->next_slot, FD_SLOT_HISTORY_MAX_ENTRIES );
+  ulong newest = fd_ulong_sat_sub( view->next_slot, 1UL );
+  if( FD_UNLIKELY( first_slot<oldest ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"firstSlot, %lu, is too small; min %lu\"},\"id\":%s}\n", first_slot, oldest, id_cstr );
+  }
+  if( FD_UNLIKELY( last_slot>newest ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"lastSlot, %lu, is too large; max %lu\"},\"id\":%s}\n", last_slot, newest, id_cstr );
+  }
+
+  fd_rpc_block_production_table_t * table = ctx->block_production;
+  fd_rpc_block_production_table_reset( table );
+
+  ulong walk_slot = first_slot;
+  if( default_range && ctx->block_production_epoch_first_slot==first_slot && ctx->block_production_epoch_next_slot<=(last_slot+1UL) ) {
+    fd_rpc_block_production_table_t const * epoch = ctx->block_production_epoch;
+    for( ulong i=0UL; i<epoch->cnt; i++ ) {
+      fd_rpc_block_production_t const * entry = &epoch->map[ epoch->used[ i ] ];
+      if( has_filter && !fd_pubkey_eq( &entry->key, filter ) ) continue;
+      fd_rpc_block_production_table_add( table, &entry->key, entry->leader_slots, entry->blocks_produced );
+    }
+    walk_slot = ctx->block_production_epoch_next_slot;
+  }
+
+  for( ulong slot=walk_slot; slot<=last_slot; slot++ ) {
+    fd_pubkey_t const * leader = fd_rpc_mleaders_get_leader_for_slot( ctx->mleaders, slot );
+    if( FD_UNLIKELY( !leader ) ) {
+      ulong epoch = ctx->has_epoch_schedule ? fd_slot_to_epoch( &ctx->epoch_schedule, slot, NULL ) : 0UL;
+      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid slot range: leader schedule for epoch %lu is unavailable\"},\"id\":%s}\n", epoch, id_cstr );
+    }
+    if( has_filter && !fd_pubkey_eq( leader, filter ) ) continue;
+
+    fd_rpc_block_production_table_add( table, leader, 1UL, fd_sysvar_slot_history_find_slot( view, slot )==FD_SLOT_HISTORY_SLOT_FOUND );
+  }
+
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":{\"byIdentity\":{", FD_RPC_AGAVE_API_VERSION, bank->slot );
+  int first = 1;
+  for( ulong i=0UL; i<table->cnt; i++ ) {
+    fd_rpc_block_production_t const * entry = &table->map[ table->used[ i ] ];
+    FD_BASE58_ENCODE_32_BYTES( entry->key.uc, identity_b58 );
+    fd_http_server_printf( ctx->http, "%s\"%s\":[%lu,%lu]", first ? "" : ",", identity_b58, entry->leader_slots, entry->blocks_produced );
+    first = 0;
+  }
+  fd_http_server_printf( ctx->http, "},\"range\":{\"firstSlot\":%lu,\"lastSlot\":%lu}}},\"id\":%s}\n", first_slot, last_slot, id_cstr );
+  return STAGE_JSON( ctx );
+}
 UNIMPLEMENTED(getBlocks)
 UNIMPLEMENTED(getBlocksWithLimit)
-UNIMPLEMENTED(getBlockTime)
+static fd_http_server_response_t
+getBlockTime( fd_rpc_tile_t *         ctx,
+              char const *            id_cstr,
+              fd_rpc_params_t const * params ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_BLOCK_TIME, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 1, 1, &response ) ) ) return response;
+
+  ulong slot;
+  if( FD_UNLIKELY( !fd_rpc_validate_uint_param( ctx, id_cstr, &params->v[ 0 ], "u64", &slot, &response ) ) ) return response;
+
+  if( FD_UNLIKELY( !slot && ctx->has_genesis_hash ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%ld,\"id\":%s}\n", ctx->genesis_creation_time, id_cstr );
+  }
+
+  if( FD_UNLIKELY( ctx->finalized_idx==ULONG_MAX ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
+  }
+  bank_info_t const *         root  = &ctx->banks[ ctx->finalized_idx ];
+  fd_rpc_block_time_t const * entry = fd_rpc_block_time_query( ctx, slot );
+
+  if( slot>root->slot ) {
+    if( FD_LIKELY( entry ) ) return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%ld,\"id\":%s}\n", entry->unix_timestamp, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Block not available for slot %lu\"},\"id\":%s}\n", FD_RPC_ERROR_BLOCK_NOT_AVAILABLE, slot, id_cstr );
+  }
+
+  int   rooted = -1;
+  ulong lamports;
+  int   executable;
+  uchar owner[ 32UL ];
+  ulong data_sz;
+  fd_accdb_read_one_nocache( ctx->accdb, root->accdb_fork_id, fd_sysvar_slot_history_id.uc, &lamports, &executable, owner, ctx->scratch.accdb_data_buf, &data_sz );
+  fd_slot_history_view_t view[ 1 ];
+  if( FD_LIKELY( lamports && fd_sysvar_slot_history_view( view, ctx->scratch.accdb_data_buf, data_sz ) ) ) {
+    int found = fd_sysvar_slot_history_find_slot( view, slot );
+    if(      found==FD_SLOT_HISTORY_SLOT_FOUND     ) rooted = 1;
+    else if( found==FD_SLOT_HISTORY_SLOT_NOT_FOUND ) rooted = 0;
+  }
+
+  if( FD_LIKELY( entry && rooted!=0 ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%ld,\"id\":%s}\n", entry->unix_timestamp, id_cstr );
+  }
+  if( FD_UNLIKELY( slot>=root->slot ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Block not available for slot %lu\"},\"id\":%s}\n", FD_RPC_ERROR_BLOCK_NOT_AVAILABLE, slot, id_cstr );
+  }
+  if( FD_UNLIKELY( !rooted ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Slot %lu was skipped, or missing due to ledger jump to recent snapshot\"},\"id\":%s}\n", FD_RPC_ERROR_SLOT_SKIPPED, slot, id_cstr );
+  }
+  ulong first_available = fd_rpc_block_time_first_available( ctx );
+  if( FD_UNLIKELY( slot<first_available ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Block %lu cleaned up, does not exist on node. First available block: %lu\"},\"id\":%s}\n", FD_RPC_ERROR_BLOCK_CLEANED_UP, slot, first_available, id_cstr );
+  }
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}\n", id_cstr );
+}
 
 static fd_http_server_response_t
 getClusterNodes( fd_rpc_tile_t *         ctx,
@@ -1904,7 +2381,23 @@ getEpochInfo( fd_rpc_tile_t *         ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}\n", ctx->banks[ bank_idx ].slot, ctx->banks[ bank_idx ].block_height, ctx->banks[ bank_idx ].epoch, ctx->banks[ bank_idx ].slot_in_epoch, ctx->banks[ bank_idx ].slots_per_epoch, ctx->banks[ bank_idx ].transaction_count, id_cstr );
 }
 
-UNIMPLEMENTED(getEpochSchedule)
+static fd_http_server_response_t
+getEpochSchedule( fd_rpc_tile_t *         ctx,
+                  char const *            id_cstr,
+                  fd_rpc_params_t const * params ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_EPOCH_SCHEDULE, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 0, &response ) ) ) return response;
+
+  if( FD_UNLIKELY( !ctx->has_epoch_schedule ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":%d,\"message\":\"Firedancer Error: No epoch schedule\"},\"id\":%s}\n", FD_RPC_ERROR_NO_SNAPSHOT, id_cstr );
+  }
+
+  fd_epoch_schedule_t const * schedule = &ctx->epoch_schedule;
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"slotsPerEpoch\":%lu,\"leaderScheduleSlotOffset\":%lu,\"warmup\":%s,\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu},\"id\":%s}\n",
+                      schedule->slots_per_epoch, schedule->leader_schedule_slot_offset, schedule->warmup ? "true" : "false", schedule->first_normal_epoch, schedule->first_normal_slot, id_cstr );
+}
 UNIMPLEMENTED(getFeeForMessage)
 UNIMPLEMENTED(getFirstAvailableBlock) // TODO: Used by solana-exporter
 
@@ -2446,7 +2939,34 @@ getMultipleAccounts( fd_rpc_tile_t *         ctx,
 }
 
 UNIMPLEMENTED(getProgramAccounts)
-UNIMPLEMENTED(getRecentPerformanceSamples)
+static fd_http_server_response_t
+getRecentPerformanceSamples( fd_rpc_tile_t *         ctx,
+                             char const *            id_cstr,
+                             fd_rpc_params_t const * params ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_RECENT_PERFORMANCE_SAMPLES, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
+
+  ulong                limit = FD_RPC_PERF_SAMPLE_MAX;
+  fd_rpc_val_t const * p0    = &params->v[ 0 ];
+  if( p0->kind!=FD_RPC_VAL_NONE && p0->kind!=FD_RPC_VAL_NULL ) {
+    if( FD_UNLIKELY( !fd_rpc_validate_uint_param( ctx, id_cstr, p0, "usize", &limit, &response ) ) ) return response;
+  }
+  if( FD_UNLIKELY( limit>FD_RPC_PERF_SAMPLE_MAX ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid limit; max %lu\"},\"id\":%s}\n", FD_RPC_PERF_SAMPLE_MAX, id_cstr );
+  }
+
+  ulong cnt = fd_ulong_min( limit, fd_ulong_min( ctx->perf_sample_cnt, FD_RPC_PERF_SAMPLE_MAX ) );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":[" );
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_rpc_perf_sample_t const * sample = &ctx->perf_samples[ (ctx->perf_sample_cnt-1UL-i) % FD_RPC_PERF_SAMPLE_MAX ];
+    fd_http_server_printf( ctx->http, "%s{\"slot\":%lu,\"numTransactions\":%lu,\"numNonVoteTransactions\":%lu,\"numSlots\":%lu,\"samplePeriodSecs\":%u}",
+                           i ? "," : "", sample->slot, sample->num_transactions, sample->num_transactions, sample->num_slots, (uint)sample->sample_period_secs );
+  }
+  fd_http_server_printf( ctx->http, "],\"id\":%s}\n", id_cstr );
+  return STAGE_JSON( ctx );
+}
 UNIMPLEMENTED(getRecentPrioritizationFees)
 UNIMPLEMENTED(getSignaturesForAddress)
 UNIMPLEMENTED(getSignatureStatuses)
@@ -2705,7 +3225,211 @@ slotUnsubscribe( fd_rpc_tile_t *         ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":true,\"id\":%s}\n", id_cstr );
 }
 
-UNIMPLEMENTED(getVoteAccounts) // TODO: Used by solana-exporter
+static int
+fd_rpc_vote_info_load( fd_rpc_tile_t *      ctx,
+                       fd_accdb_fork_id_t   accdb_fork_id,
+                       fd_pubkey_t const *  vote_key,
+                       fd_rpc_vote_info_t * out ) {
+  ulong lamports;
+  int   executable;
+  uchar owner[ 32UL ];
+  ulong data_sz;
+  fd_accdb_read_one_nocache( ctx->accdb, accdb_fork_id, vote_key->uc, &lamports, &executable, owner, ctx->scratch.accdb_data_buf, &data_sz );
+  if( FD_UNLIKELY( !lamports || memcmp( owner, fd_solana_vote_program_id.uc, 32UL ) ) ) return 0;
+
+  uchar const * data = ctx->scratch.accdb_data_buf;
+  if( FD_UNLIKELY( data_sz<sizeof(uint) ) ) return 0;
+  if( FD_UNLIKELY( fd_vote_account_node_pubkey( data, data_sz, &out->node_key ) ) ) return 0;
+  if( FD_UNLIKELY( fd_vote_account_commission_bps( data, data_sz, 1, &out->commission_bps ) ) ) return 0;
+
+  ulong                           credits_cnt;
+  fd_vote_epoch_credits_t const * credits = fd_vote_account_epoch_credits( data, data_sz, &credits_cnt );
+  if( FD_UNLIKELY( !credits ) ) return 0;
+
+  switch( FD_LOAD( uint, data ) ) {
+  case fd_vote_state_versioned_enum_v5: {
+    ulong latest_vote = FD_LOAD( ulong, data+sizeof(uint)+offsetof( fd_vote_state_v5_t, latest_vote ) );
+    ulong root_slot   = FD_LOAD( ulong, data+sizeof(uint)+offsetof( fd_vote_state_v5_t, root_slot   ) );
+    out->last_vote = latest_vote==ULONG_MAX ? 0UL : latest_vote;
+    out->root_slot = root_slot==ULONG_MAX   ? 0UL : root_slot;
+    break;
+  }
+  case fd_vote_state_versioned_enum_v3:
+  case fd_vote_state_versioned_enum_v4: {
+    fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_deserialize( ctx->vote_state, data, data_sz );
+    if( FD_UNLIKELY( !vsv ) ) return 0;
+    int                      v3       = vsv->kind==fd_vote_state_versioned_enum_v3;
+    fd_landed_vote_t const * votes    = v3 ? vsv->v3.votes         : vsv->v4.votes;
+    int                      has_root = v3 ? vsv->v3.has_root_slot : vsv->v4.has_root_slot;
+    ulong                    root     = v3 ? vsv->v3.root_slot     : vsv->v4.root_slot;
+    out->last_vote = deq_fd_landed_vote_t_empty( votes ) ? 0UL : deq_fd_landed_vote_t_peek_tail_const( votes )->lockout.slot;
+    out->root_slot = has_root ? root : 0UL;
+    break;
+  }
+  default:
+    return 0;
+  }
+
+  ulong skip = fd_ulong_sat_sub( credits_cnt, FD_RPC_VOTE_ACCOUNT_CREDITS_MAX );
+  out->credits_cnt = credits_cnt-skip;
+  fd_memcpy( out->credits, credits+skip, out->credits_cnt*sizeof(fd_vote_epoch_credits_t) );
+  return 1;
+}
+
+static void
+fd_rpc_print_vote_infos( fd_rpc_tile_t *            ctx,
+                         fd_rpc_vote_info_t const * infos,
+                         ulong                      info_cnt,
+                         fd_pubkey_t const *        filter,
+                         ulong                      slot,
+                         ulong                      distance,
+                         int                        keep_unstaked,
+                         int                        delinquent ) {
+  int first = 1;
+  for( ulong i=0UL; i<info_cnt; i++ ) {
+    fd_rpc_vote_info_t const * info = &infos[ i ];
+    if( filter && !fd_pubkey_eq( &info->vote_key, filter ) ) continue;
+    int info_delinquent = slot>=distance ? info->last_vote<=(slot-distance) : !info->last_vote;
+    if( info_delinquent!=delinquent ) continue;
+    if( info_delinquent && !info->stake && !keep_unstaked ) continue;
+
+    FD_BASE58_ENCODE_32_BYTES( info->vote_key.uc, vote_b58 );
+    FD_BASE58_ENCODE_32_BYTES( info->node_key.uc, node_b58 );
+    ulong commission = fd_ulong_min( ((ulong)info->commission_bps+99UL)/100UL, (ulong)UCHAR_MAX );
+    fd_http_server_printf( ctx->http, "%s{\"votePubkey\":\"%s\",\"nodePubkey\":\"%s\",\"activatedStake\":%lu,\"commission\":%lu,\"inflationRewardsCommissionBps\":%u,\"epochVoteAccount\":%s,\"epochCredits\":[",
+                           first ? "" : ",", vote_b58, node_b58, info->stake, commission, (uint)info->commission_bps, info->epoch_vote_account ? "true" : "false" );
+    for( ulong k=0UL; k<info->credits_cnt; k++ ) {
+      fd_http_server_printf( ctx->http, "%s[%lu,%lu,%lu]", k ? "," : "", info->credits[ k ].epoch, info->credits[ k ].credits, info->credits[ k ].prev_credits );
+    }
+    fd_http_server_printf( ctx->http, "],\"lastVote\":%lu,\"rootSlot\":%lu}", info->last_vote, info->root_slot );
+    first = 0;
+  }
+}
+
+static ulong
+fd_rpc_vote_infos_load( fd_rpc_tile_t *           ctx,
+                        bank_info_t const *       bank,
+                        fd_rpc_vote_set_t const * cur,
+                        fd_rpc_vote_set_t const * nxt,
+                        fd_pubkey_t const *       filter,
+                        fd_rpc_vote_info_t *      infos ) {
+  ulong nxt_cnt  = nxt ? nxt->cnt : 0UL;
+  ulong info_cnt = 0UL;
+  ulong i        = 0UL;
+  ulong j        = 0UL;
+  while( i<cur->cnt || j<nxt_cnt ) {
+    int cmp;
+    if(      i>=cur->cnt ) cmp =  1;
+    else if( j>=nxt_cnt  ) cmp = -1;
+    else                   cmp = memcmp( cur->ele[ i ].vote_key.uc, nxt->ele[ j ].vote_key.uc, 32UL );
+
+    fd_rpc_vote_set_ele_t const * ele_cur = NULL;
+    fd_rpc_vote_set_ele_t const * ele_nxt = NULL;
+    if( cmp<=0 ) ele_cur = &cur->ele[ i++ ];
+    if( cmp>=0 ) ele_nxt = &nxt->ele[ j++ ];
+    fd_pubkey_t const * vote_key = ele_cur ? &ele_cur->vote_key : &ele_nxt->vote_key;
+
+    if( filter && !fd_pubkey_eq( vote_key, filter ) ) continue;
+
+    fd_rpc_vote_info_t * info = &infos[ info_cnt ];
+    if( FD_UNLIKELY( !fd_rpc_vote_info_load( ctx, bank->accdb_fork_id, vote_key, info ) ) ) continue;
+    info->vote_key           = *vote_key;
+    info->stake              = ele_nxt ? ele_nxt->stake : ( nxt ? 0UL : ele_cur->stake );
+    info->epoch_vote_account = !!ele_cur;
+    info_cnt++;
+    if( filter ) break;
+  }
+  return info_cnt;
+}
+
+static fd_http_server_response_t
+getVoteAccounts( fd_rpc_tile_t *         ctx,
+                 char const *            id_cstr,
+                 fd_rpc_params_t const * params ) {
+  FD_MCNT_INC( RPC, REQUEST_HANDLED_GET_VOTE_ACCOUNTS, 1UL );
+
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id_cstr, params, 0, 1, &response ) ) ) return response;
+
+  fd_rpc_val_t const * config   = &params->v[ 0 ];
+  ulong                bank_idx = ULONG_MAX;
+  int config_valid = fd_rpc_validate_config( ctx, id_cstr, config, "struct RpcGetVoteAccountsConfig",
+                                             1, /* has_commitment */
+                                             0, /* has_encoding */
+                                             0, /* has_data_slice */
+                                             0, /* has_min_context_slot */
+                                             &bank_idx,
+                                             NULL,
+                                             NULL,
+                                             NULL,
+                                             NULL,
+                                             &response );
+  if( FD_UNLIKELY( !config_valid ) ) return response;
+
+  fd_rpc_config_t cfg[ 1 ];
+  fd_rpc_config_read( config, cfg );
+
+  fd_rpc_val_t const * vote_pubkey = &cfg->vote_pubkey;
+  int                  has_filter  = vote_pubkey->kind!=FD_RPC_VAL_NONE && vote_pubkey->kind!=FD_RPC_VAL_NULL;
+  if( FD_UNLIKELY( has_filter && vote_pubkey->kind!=FD_RPC_VAL_STR ) ) {
+    return fd_rpc_err_invalid( ctx, id_cstr, "type", vote_pubkey, "a string" );
+  }
+
+  fd_rpc_val_t const * keep          = &cfg->keep_unstaked_delinquents;
+  int                  keep_unstaked = 0;
+  if( keep->kind==FD_RPC_VAL_BOOL ) {
+    keep_unstaked = keep->raw_sz && keep->raw[ 0 ]=='t';
+  } else if( FD_UNLIKELY( keep->kind!=FD_RPC_VAL_NONE && keep->kind!=FD_RPC_VAL_NULL ) ) {
+    return fd_rpc_err_invalid( ctx, id_cstr, "type", keep, "a boolean" );
+  }
+
+  fd_rpc_val_t const * distance_val = &cfg->delinquent_slot_distance;
+  ulong                distance     = FD_RPC_DELINQUENT_SLOT_DISTANCE;
+  if( distance_val->kind==FD_RPC_VAL_INT ) {
+    if( FD_UNLIKELY( distance_val->neg ) ) return fd_rpc_err_invalid( ctx, id_cstr, "value", distance_val, "u64" );
+    distance = distance_val->u;
+  } else if( FD_UNLIKELY( distance_val->kind!=FD_RPC_VAL_NONE && distance_val->kind!=FD_RPC_VAL_NULL ) ) {
+    return fd_rpc_err_invalid( ctx, id_cstr, "type", distance_val, "u64" );
+  }
+
+  fd_pubkey_t filter[ 1 ];
+  if( has_filter && FD_UNLIKELY( !fd_rpc_validate_address( ctx, id_cstr, vote_pubkey, filter, &response ) ) ) return response;
+
+  bank_info_t const *       bank = &ctx->banks[ bank_idx ];
+  fd_rpc_vote_set_t const * cur  = fd_rpc_vote_set_query( ctx, bank->epoch );
+  if( FD_UNLIKELY( !cur ) ) {
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32600,\"message\":\"Invalid request\"},\"id\":%s}\n", id_cstr );
+  }
+  fd_rpc_vote_set_t const * nxt = fd_rpc_vote_set_query( ctx, bank->epoch+1UL );
+
+  fd_rpc_vote_info_t         filtered[ 1 ];
+  fd_rpc_vote_info_t const * infos    = ctx->vote_infos;
+  ulong                      info_cnt = ctx->vote_infos_cnt;
+  int cached = ctx->vote_infos_valid && ctx->vote_infos_slot==bank->slot && ctx->vote_infos_has_nxt==!!nxt &&
+               !memcmp( ctx->vote_infos_block_hash, bank->block_hash, 32UL );
+  if( !cached ) {
+    if( has_filter ) {
+      info_cnt = fd_rpc_vote_infos_load( ctx, bank, cur, nxt, filter, filtered );
+      infos    = filtered;
+    } else {
+      ctx->vote_infos_valid   = 0;
+      ctx->vote_infos_cnt     = fd_rpc_vote_infos_load( ctx, bank, cur, nxt, NULL, ctx->vote_infos );
+      ctx->vote_infos_slot    = bank->slot;
+      ctx->vote_infos_has_nxt = !!nxt;
+      fd_memcpy( ctx->vote_infos_block_hash, bank->block_hash, 32UL );
+      ctx->vote_infos_valid   = 1;
+      info_cnt                = ctx->vote_infos_cnt;
+    }
+  }
+  fd_pubkey_t const * print_filter = has_filter ? filter : NULL;
+
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"result\":{\"current\":[" );
+  fd_rpc_print_vote_infos( ctx, infos, info_cnt, print_filter, bank->slot, distance, keep_unstaked, 0 );
+  fd_http_server_printf( ctx->http, "],\"delinquent\":[" );
+  fd_rpc_print_vote_infos( ctx, infos, info_cnt, print_filter, bank->slot, distance, keep_unstaked, 1 );
+  fd_http_server_printf( ctx->http, "]},\"id\":%s}\n", id_cstr );
+  return STAGE_JSON( ctx );
+}
 UNIMPLEMENTED(isBlockhashValid)
 UNIMPLEMENTED(minimumLedgerSlot) // TODO: Used by solana-exporter
 UNIMPLEMENTED(requestAirdrop)
@@ -3156,6 +3880,14 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_rpc_mleaders_init( ctx->mleaders );
   ctx->has_epoch_schedule = 0;
+  ctx->highest_replayed_slot    = 0UL;
+  ctx->perf_sample_has_snapshot = 0;
+  ctx->perf_sample_cnt          = 0UL;
+  ctx->genesis_creation_time    = 0L;
+  ctx->block_time_first_slot    = ULONG_MAX;
+  ctx->block_time_newest_slot   = 0UL;
+  for( ulong i=0UL; i<FD_RPC_BLOCK_TIME_MAX; i++ ) ctx->block_times[ i ].slot = ULONG_MAX;
+  for( ulong i=0UL; i<FD_RPC_VOTE_SET_CNT; i++ ) ctx->vote_sets[ i ].epoch = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<=sizeof( ctx->in )/sizeof( ctx->in[ 0 ] ) );
   for( ulong i=0; i<tile->in_cnt; i++ ) {

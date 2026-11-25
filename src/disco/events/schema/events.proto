@@ -5836,6 +5836,16 @@ message MetricsRpcRequestHandled {
   uint64 invalid = 28;
   // GET /health
   uint64 health = 29;
+  // getEpochSchedule
+  uint64 get_epoch_schedule = 288053550;
+  // getVoteAccounts
+  uint64 get_vote_accounts = 303783843;
+  // getBlockProduction
+  uint64 get_block_production = 446460905;
+  // getRecentPerformanceSamples
+  uint64 get_recent_performance_samples = 501955438;
+  // getBlockTime
+  uint64 get_block_time = 505200298;
 }
 
 // Time to handle one HTTP request or WebSocket message, excluding socket I/O
