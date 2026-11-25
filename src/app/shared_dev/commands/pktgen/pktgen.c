@@ -542,7 +542,12 @@ run_noninteractive_pktgen( args_t *          args,
 
   fd_net_stats_t end = start;
   for( long i=1L; i<=PKTGEN_TEST_SECS; i++ ) {
-    fd_log_wait_until( start.ts + i*(long)1e9 );
+    long deadline = start.ts + i*(long)1e9;
+    for(;;) {
+      long remaining = deadline - fd_log_wallclock();
+      if( remaining<=0L ) break;
+      fd_log_sleep( remaining );
+    }
     end = sum_net_stats( get_net_stats( pktgen->net_metrics, net_tile_cnt, provider ), net_tile_cnt );
     printf( "%8ld %10.3e %10.3e %7.2f%%\n", i, end.tx_ok_pps, end.tx_bps, 100.*end.busy_r );
     fflush( stdout );
