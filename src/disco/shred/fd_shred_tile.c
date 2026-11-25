@@ -924,6 +924,7 @@ send_shred( fd_shred_ctx_t                 * ctx,
             ulong                            tsorig ) {
 
   if( FD_UNLIKELY( !dest->ip4 ) ) return;
+  if( FD_UNLIKELY( !fd_stem_has_credit( stem, NET_OUT_IDX ) ) ) return;
 
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
 

@@ -1015,7 +1015,8 @@ fd_uverbs_register_mr( uint *         lkey,
                        void *         memory,
                        ulong          memory_sz,
                        ulong          iova,
-                       ulong          max_mr_size ) {
+                       ulong          max_mr_size,
+                       uint           access_flags ) {
   ulong memory_addr = (ulong)memory;
   if( FD_UNLIKELY( !memory || !memory_sz || memory_sz>ULONG_MAX-memory_addr || memory_sz>ULONG_MAX-iova ||
                    memory_sz>max_mr_size ||
@@ -1033,13 +1034,23 @@ fd_uverbs_register_mr( uint *         lkey,
   req->length       = memory_sz;
   req->hca_va       = iova;
   req->pd_handle    = pd->handle;
-  req->access_flags = IB_UVERBS_ACCESS_LOCAL_WRITE;
+  req->access_flags = access_flags;
   FD_TEST( !fd_uverbs_init_cmd_hdr( &req->hdr, IB_USER_VERBS_CMD_REG_MR,
                                     sizeof(req), sizeof(resp) ) );
   if( FD_UNLIKELY( fd_uverbs_write_cmd( pd->ctx->cmd_fd, req, sizeof(req) ) ) ) return NULL;
 
   *lkey = resp->lkey;
   return lkey;
+}
+
+uint *
+fd_mlx5_uverbs_register_tx_memory( fd_uverbs_ctx_t * uverbs,
+                                  uint *            lkey,
+                                  void *            memory,
+                                  ulong             memory_sz,
+                                  ulong             iova ) {
+  fd_mlx5_pd_t pd = { .ctx=uverbs, .handle=uverbs->pd_handle };
+  return fd_uverbs_register_mr( lkey, &pd, memory, memory_sz, iova, uverbs->max_mr_size, 0U );
 }
 
 static void
@@ -1240,10 +1251,11 @@ fd_uverbs_create_tx_qp( fd_uverbs_ctx_t * uverbs,
   /* Linux requires both CQ handles even when max_recv_wr is zero. */
   req->recv_cq_handle    = tx_cq_handle;
   req->max_send_wr       = tx_qp->tx_depth;
-  req->max_send_sge      = 1U;
+  req->max_send_sge      = 2U;
+  req->max_inline_data   = tx_qp->tx_inline_hdr_sz;
   req->qp_type           = IB_UVERBS_QPT_RAW_PACKET;
   req->mlx5.db_addr      = (ulong)tx_qp->control;
-  req->mlx5.sq_wqe_count = tx_qp->tx_depth;
+  req->mlx5.sq_wqe_count = tx_qp->tx_depth << FD_MLX5_TX_WQEBB_LG_CNT( tx_qp->tx_inline_hdr_sz );
   req->mlx5.flags        = MLX5_QP_FLAG_UAR_PAGE_INDEX;
   req->mlx5.uidx         = 0U;
   req->mlx5.bfreg_index  = uar_page_id;
@@ -1254,7 +1266,7 @@ fd_uverbs_create_tx_qp( fd_uverbs_ctx_t * uverbs,
 
   if( FD_UNLIKELY( resp->core.max_send_wr<tx_qp->tx_depth ||
                    resp->core.max_recv_wr                 ||
-                   resp->core.max_send_sge<1U             ||
+                   resp->core.max_send_sge<2U             ||
                    resp->core.max_recv_sge                ||
                    resp->core.qpn>0xffffffU ) ) {
     FD_LOG_WARNING(( "invalid mlx5 QP response (max send WRs %u, max receive WRs %u, max send SGEs %u, "
@@ -1562,17 +1574,25 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
   uint           rwq_ind_table_handle;
   if( FD_UNLIKELY( !fd_uverbs_open_context( uverbs, caps, rdma_name, port_num ) ) ) return NULL;
   if( FD_UNLIKELY( !fd_uverbs_alloc_pd( pd, uverbs ) ) ) return NULL;
+  uverbs->pd_handle   = pd->handle;
+  uverbs->max_mr_size = caps->max_mr_size;
 
   for( ulong i=0UL; i<tile_cnt; i++ ) {
     fd_mlx5_uverbs_tile_t * tile = tiles+i;
     fd_mlx5_rx_wq_t * rx_wq = tile->rx_wq;
     fd_mlx5_tx_qp_t * tx_qp = tile->tx_qp;
+    tx_qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;
+    uint const wqebb_lg_cnt = FD_MLX5_TX_WQEBB_LG_CNT( tx_qp->tx_inline_hdr_sz );
     if( FD_UNLIKELY( !fd_uint_is_pow2( rx_wq->rx_depth ) ||
                      !fd_uint_is_pow2( tx_qp->tx_depth ) ||
                      rx_wq->rx_depth>caps->max_recv_wr   ||
-                     tx_qp->tx_depth>caps->max_send_wqe  ||
+                     tx_qp->tx_depth>(caps->max_send_wqe>>wqebb_lg_cnt) ||
+                     tx_qp->tx_depth>(65536U>>wqebb_lg_cnt) ||
                      rx_wq->rx_depth-1U>caps->max_cqe    ||
                      tx_qp->tx_depth-1U>caps->max_cqe ) ) {
+      FD_LOG_WARNING(( "unsupported mlx5 queue depths (RX %u, TX %u, max receive WRs %u, max send WQEBBs %u, max CQEs %u, minimum inline header %u)",
+                        rx_wq->rx_depth, tx_qp->tx_depth, caps->max_recv_wr, caps->max_send_wqe, caps->max_cqe,
+                        (uint)caps->eth_min_inline_hdr_sz ));
       errno = EINVAL;
       return NULL;
     }
@@ -1584,14 +1604,13 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
                      !fd_uverbs_create_cq( &rx_cq_handle, uverbs, tile->rx_cq, uar_page_id, caps->max_cqe ) ||
                      !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tile->tx_cq, uar_page_id, caps->max_cqe ) ||
                      !fd_uverbs_register_mr( tile->lkey, pd, tile->packet_memory, tile->packet_memory_sz,
-                                             tile->packet_iova, caps->max_mr_size )                         ||
+                                             tile->packet_iova, caps->max_mr_size, IB_UVERBS_ACCESS_LOCAL_WRITE ) ||
                      !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id )                ||
                      !fd_uverbs_start_tx_qp( uverbs, tx_qp )                                                ||
                      !fd_uverbs_create_rx_wq( uverbs, rx_wq, pd, rx_cq_handle )                             ||
                      !fd_uverbs_start_rx_wq( uverbs, rx_wq ) ) ) {
       return NULL;
     }
-    tx_qp->tx_inline_hdr_sz = caps->eth_min_inline_hdr_sz;
   }
 
   if( FD_UNLIKELY( !fd_uverbs_create_rwq_ind_table( &rwq_ind_table_handle, uverbs, tiles, tile_cnt ) ||

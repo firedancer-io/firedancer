@@ -15,15 +15,18 @@
    creates and tracks these resources, while the packet path uses the mapped
    queues and doorbells directly.
 
-   mlx5 queue fields are big-endian.  This implementation reserves 64
-   bytes for each TX WQE and 16 bytes for each RX WQE. */
+   mlx5 queue fields are big-endian.  Each TX WQE occupies one 64-byte
+   send-queue block, or two when inline headers are required.
+   Each RX WQE occupies 16 bytes. */
 
-#define FD_MLX5_TX_WQE_SZ     (64UL)
+#define FD_MLX5_TX_WQE_SZ     (128UL)
+#define FD_MLX5_WQEBB_SZ      (64UL)
+#define FD_MLX5_TX_WQEBB_LG_CNT( inline_hdr_sz ) ((uint)!!(inline_hdr_sz))
 #define FD_MLX5_RQ_WQE_SZ     (16UL)
 #define FD_MLX5_CQE_SZ        (64UL)
 #define FD_MLX5_PAGE_SZ       (4096UL)
 
-struct __attribute__((aligned(FD_MLX5_TX_WQE_SZ))) fd_mlx5_tx_wqe {
+struct __attribute__((aligned(FD_MLX5_WQEBB_SZ))) fd_mlx5_tx_wqe {
   uchar bytes[ FD_MLX5_TX_WQE_SZ ];
 };
 typedef struct fd_mlx5_tx_wqe fd_mlx5_tx_wqe_t;
@@ -48,6 +51,8 @@ struct fd_uverbs_ctx {
   int  cmd_fd;
   int  async_fd;
   uint port_num;
+  uint pd_handle;
+  ulong max_mr_size;
 };
 typedef struct fd_uverbs_ctx fd_uverbs_ctx_t;
 
@@ -175,6 +180,15 @@ fd_uverbs_init( fd_uverbs_ctx_t *         uverbs,
 volatile uchar *
 fd_uverbs_map_uar( fd_uverbs_ctx_t * uverbs,
                    ulong             mmap_offset );
+
+/* fd_mlx5_uverbs_register_tx_memory registers read-only TX data in the
+   same protection domain as the send queues.  iova is its NIC address. */
+uint *
+fd_mlx5_uverbs_register_tx_memory( fd_uverbs_ctx_t * uverbs,
+                                  uint *            lkey,
+                                  void *            memory,
+                                  ulong             memory_sz,
+                                  ulong             iova );
 
 /* fd_uverbs_create_udp_flow and fd_uverbs_create_gre_udp_flow steer matching
    IPv4 traffic to an RSS QP.  The GRE destination IP and port select the inner

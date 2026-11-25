@@ -264,6 +264,7 @@ struct fd_votor_tile {
   ulong  votor_out_chunk;
 
   ulong                                        net_tx_cnt;
+  fd_stem_context_t *                          stem;
   struct { ulong chunk; ulong sz; ulong sig; } net_tx[ FD_VOTOR_NET_BURST ];
 
   /* Scratch */
@@ -472,7 +473,9 @@ quic_aio_tx( void *                    _ctx,
   fd_votor_tile_t * ctx = _ctx;
 
   for( ulong i=0UL; i<batch_cnt; i++ ) {
-    if( FD_UNLIKELY( ctx->net_tx_cnt==FD_VOTOR_NET_BURST ) ) {
+    if( FD_UNLIKELY( ctx->net_tx_cnt==FD_VOTOR_NET_BURST ||
+                     (ctx->stem->out_reliable[ OUT_IDX_NET ] &&
+                      ctx->stem->cr_avail[ OUT_IDX_NET ]<=ctx->net_tx_cnt) ) ) {
       if( FD_LIKELY( opt_batch_idx ) ) *opt_batch_idx = i;
       return FD_AIO_ERR_AGAIN;
     }
@@ -529,6 +532,7 @@ quic_client_datagram_tx( fd_votor_tile_t *   ctx,
                          fd_quic_conn_t *    conn,
                          uchar const *       buf,
                          ulong               buf_sz ) {
+  if( FD_UNLIKELY( stem->out_reliable[ OUT_IDX_NET ] && stem->cr_avail[ OUT_IDX_NET ]<=ctx->net_tx_cnt ) ) return;
   uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   uchar * payload   = packet_l2 + sizeof(fd_ip4_udp_hdrs_t);
 
@@ -1049,6 +1053,7 @@ after_credit( fd_votor_tile_t *   ctx,
               int *               charge_busy ) {
 
   long now     = fd_log_wallclock();
+  ctx->stem    = stem;
   *charge_busy = fd_quic_service( ctx->quic_client, now ) | fd_quic_service( ctx->quic_server, now );
   for( ulong i=0UL; i<ctx->net_tx_cnt; i++ ) fd_stem_publish( stem, OUT_IDX_NET, ctx->net_tx[ i ].sig, ctx->net_tx[ i ].chunk, ctx->net_tx[ i ].sz, fd_frag_meta_ctl( 0UL, 1, 1, 0 ), 0L, 0L );
   ctx->net_tx_cnt = 0UL;

@@ -34,6 +34,14 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;
 
+/* fd_stem_has_credit checks before a producer writes its next output
+   buffer.  This also covers callbacks that publish before credit checks. */
+static inline int
+fd_stem_has_credit( fd_stem_context_t const * stem,
+                    ulong                     out_idx ) {
+  return !stem->out_reliable[ out_idx ] || stem->cr_avail[ out_idx ]>=stem->cr_decrement_amount;
+}
+
 static inline ulong
 fd_stem_publish( fd_stem_context_t * stem,
                  ulong               out_idx,

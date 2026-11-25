@@ -182,6 +182,7 @@ send_to_net( fd_txsend_tile_t *   ctx,
   ulong const sz_l2 = hdr_sz + payload_sz;
 
   fd_txsend_out_t * net_out_link = ctx->net_out;
+  if( FD_UNLIKELY( !fd_stem_has_credit( ctx->stem, net_out_link->idx ) ) ) return;
   uchar * packet_l2 = fd_chunk_to_laddr( net_out_link->mem, net_out_link->chunk );
   uchar * packet_l3 = packet_l2 + sizeof(fd_eth_hdr_t);
   uchar * packet_l4 = packet_l3 + ip_sz;
@@ -211,6 +212,10 @@ quic_tx_aio_send( void *                    _ctx,
 
   for( ulong i=0; i<batch_cnt; i++ ) {
     if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
+    if( FD_UNLIKELY( !fd_stem_has_credit( ctx->stem, ctx->net_out->idx ) ) ) {
+      if( opt_batch_idx ) *opt_batch_idx = i;
+      return FD_AIO_ERR_AGAIN;
+    }
     uchar * buf = batch[ i ].buf;
     fd_ip4_hdr_t * ip4_hdr    = fd_type_pun( buf );
     ulong const    ip4_len    = FD_IP4_GET_LEN( *ip4_hdr );

@@ -152,6 +152,7 @@ send_packet( ctx_t               * ctx,
             uchar const          * payload,
             ulong                  payload_sz,
             ulong                  tsorig ) {
+  if( FD_UNLIKELY( !fd_stem_has_credit( stem, ctx->net_out_idx ) ) ) return;
   ctx->metrics->send_pkt_cnt++;
   ctx->metrics->sent_response_bytes += payload_sz;
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );

@@ -37,6 +37,14 @@
    or monitoring tools.  The ctx is a user-provided context object from
    when the stem tile was initialized.
 
+     RETURN_CREDIT
+   Returns the input sequence safe to release to its producer.  The
+   arguments are ctx, input index, and the next sequence to consume.
+   The returned sequence must not advance past that sequence or move
+   backwards.  Tiles retaining input data may delay credits until their
+   asynchronous work completes.  Without this callback, consumption
+   returns credits normally.
+
      BEFORE_CREDIT
    Is called every iteration of the stem run loop, whether there is a
    new frag ready to receive or not.  This callback is also still
@@ -200,8 +208,16 @@
 #define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
 
 static inline void
+#ifdef STEM_CALLBACK_RETURN_CREDIT
+STEM_(in_update)( fd_stem_tile_in_t * in, STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
+#else
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
-  __atomic_store_n( in->fseq, in->seq, __ATOMIC_RELEASE );
+#endif
+  ulong seq = in->seq;
+#ifdef STEM_CALLBACK_RETURN_CREDIT
+  seq = STEM_CALLBACK_RETURN_CREDIT( ctx, in->idx, seq );
+#endif
+  __atomic_store_n( in->fseq, seq, __ATOMIC_RELEASE );
 
   volatile ulong * metrics = fd_metrics_link_in( fd_metrics_base_tl, in->idx );
 
@@ -432,7 +448,11 @@ STEM_(run1)( ulong                        in_cnt,
         /* Send flow control credits and drain flow control diagnostics
            for in_idx. */
 
+#ifdef STEM_CALLBACK_RETURN_CREDIT
+        STEM_(in_update)( &in[ in_idx ], ctx );
+#else
         STEM_(in_update)( &in[ in_idx ] );
+#endif
 
       } else { /* event_idx==cons_cnt, housekeeping event */
 
@@ -931,6 +951,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_SHOULD_SHUTDOWN
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
 #undef STEM_CALLBACK_METRICS_WRITE
+#undef STEM_CALLBACK_RETURN_CREDIT
 #undef STEM_CALLBACK_BEFORE_CREDIT
 #undef STEM_CALLBACK_AFTER_CREDIT
 #undef STEM_CALLBACK_BEFORE_FRAG

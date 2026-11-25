@@ -481,6 +481,7 @@ send_packet( ctx_t             * ctx,
              uchar const *       payload,
              ulong               payload_sz,
              ulong               tsorig ) {
+  if( FD_UNLIKELY( !fd_stem_has_credit( stem, ctx->net_out_ctx->idx ) ) ) return;
   ctx->metrics->send_pkt_cnt++;
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_ctx->mem, ctx->net_out_ctx->chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;

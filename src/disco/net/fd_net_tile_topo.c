@@ -512,6 +512,14 @@ fd_topos_net_tile_finish( fd_topo_t * topo,
       FD_LOG_ERR(( "tile mlx5:%lu not found", net_kind_id ));
     }
     fd_topos_mlx5_setup_mem( topo, &topo->tiles[ tile_id ] );
+    fd_topo_tile_t * tile = &topo->tiles[ tile_id ];
+    for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+      fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+      if( !strcmp( link->name, "iproute_out" ) ) continue;
+      FD_TEST( tile->in_link_poll[ i ] );
+      /* mlx5 retains producer data until TX completion. */
+      tile->in_link_reliable[ i ] = 1;
+    }
   } else {
     return;
   }

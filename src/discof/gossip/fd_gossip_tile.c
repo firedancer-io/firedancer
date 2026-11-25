@@ -43,6 +43,7 @@ gossip_send_fn( void *                ctx,
                 fd_ip4_port_t const * peer_address,
                 ulong                 tsorig ) {
   fd_gossip_tile_ctx_t * gossip_ctx = (fd_gossip_tile_ctx_t *)ctx;
+  if( FD_UNLIKELY( !fd_stem_has_credit( stem, gossip_ctx->net_out->idx ) ) ) return;
 
   uchar * packet          = (uchar *)fd_chunk_to_laddr( gossip_ctx->net_out->mem, gossip_ctx->net_out->chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;

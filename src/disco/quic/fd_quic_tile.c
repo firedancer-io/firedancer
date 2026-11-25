@@ -392,6 +392,10 @@ quic_tx_aio_send( void *                    _ctx,
 
   for( ulong i=0; i<batch_cnt; i++ ) {
     if( FD_UNLIKELY( batch[ i ].buf_sz<FD_NETMUX_SIG_MIN_HDR_SZ ) ) continue;
+    if( FD_UNLIKELY( !fd_stem_has_credit( ctx->stem, OUT_IDX_NET ) ) ) {
+      if( opt_batch_idx ) *opt_batch_idx = i;
+      return FD_AIO_ERR_AGAIN;
+    }
 
     uint const ip_dst = FD_LOAD( uint, batch[ i ].buf+offsetof( fd_ip4_hdr_t, daddr_c ) );
     uchar * packet_l2 = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
