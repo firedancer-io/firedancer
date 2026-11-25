@@ -146,10 +146,18 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
 /* fd_ed25519_verify_batch8 verifies n independent signatures, n in
    [1,8] (asserted).  results[i] is exactly what fd_ed25519_verify
    returns for (msgs[i], msg_szs[i], sigs[i], public_keys[i], shas[i]),
-   error precedence included; nothing is aggregated across items.
-   shas[i] is scratch and its state on return is unspecified.  Grouping
-   more items into calls of at most eight and deriving a transaction
-   verdict from the codes are the caller's. */
+   error precedence included, for every input; nothing is aggregated
+   across items.  shas[i] is scratch and its state on return is
+   unspecified.  Grouping more items into calls of at most eight and
+   deriving a transaction verdict from the codes are the caller's.
+
+   Each sigs[i] points to 64 readable bytes, each public_keys[i] to 32
+   and each msgs[i] to msg_szs[i] (NULL is fine if msg_szs[i] is 0).
+   The caller takes a read interest in the inputs and a write interest
+   in results[0,n) and the n distinct calculators shas[0,n) for the
+   duration of the call; nothing else is written.  Inputs may alias
+   each other (e.g. several items over one message or one key), but
+   not results or the calculators. */
 
 void
 fd_ed25519_verify_batch8( uchar const * const msgs[],        /* n */

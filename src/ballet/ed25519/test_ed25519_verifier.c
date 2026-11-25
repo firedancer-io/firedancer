@@ -1,5 +1,7 @@
 #include "../fd_ballet.h"
 #include "fd_ed25519_verifier.h"
+#include "test_ed25519_cctv.c"
+#include "test_ed25519_wycheproof.c"
 #include <stdlib.h>
 
 /* fd_ed25519_verify is the oracle for every form; the signer cache
@@ -92,6 +94,33 @@ test_verifier( fd_rng_t * rng,
     fd_ed25519_verifier_verify_sigs( v, msgs, msg_szs, sigs, pubs, results, cnt );
     for( ulong j=0UL; j<cnt; j++ ) FD_TEST( results[ j ]==fd_ed25519_verify( msgs[ j ], msg_szs[ j ], sigs[ j ], pubs[ j ], sha ) );
   }
+
+  /* every fixture in every position of a call of each size, the
+     calls of a size covering a window of consecutive fixtures, so warm
+     and cold keys and every error code meet in one call; results past
+     sig_cnt are never written */
+#define TEST_CORPUS( corpus ) do {                                                        \
+    ulong n = sizeof(corpus)/sizeof((corpus)[0])-1UL;                                    \
+    for( ulong cnt=1UL; cnt<=FD_ED25519_VERIFIER_SIG_MAX; cnt++ ) {                      \
+      for( ulong start=0UL; start<n; start++ ) {                                         \
+        uchar const * msgs[ FD_ED25519_VERIFIER_SIG_MAX ]; ulong msg_szs[ FD_ED25519_VERIFIER_SIG_MAX ];   \
+        uchar const * sigs[ FD_ED25519_VERIFIER_SIG_MAX ]; uchar const * pubs[ FD_ED25519_VERIFIER_SIG_MAX ]; \
+        int results[ FD_ED25519_VERIFIER_SIG_MAX+1UL ];                                  \
+        for( ulong j=0UL; j<cnt; j++ ) {                                                 \
+          ulong idx = (start+j)%n;                                                       \
+          msgs[ j ] = (corpus)[ idx ].msg; msg_szs[ j ] = (corpus)[ idx ].msg_sz;        \
+          sigs[ j ] = (corpus)[ idx ].sig; pubs   [ j ] = (corpus)[ idx ].pub;           \
+        }                                                                                \
+        for( ulong j=0UL; j<=FD_ED25519_VERIFIER_SIG_MAX; j++ ) results[ j ] = 12345;   \
+        fd_ed25519_verifier_verify_sigs( v, msgs, msg_szs, sigs, pubs, results, cnt );   \
+        for( ulong j=0UL; j<cnt; j++ ) FD_TEST( results[ j ]==fd_ed25519_verify( msgs[ j ], msg_szs[ j ], sigs[ j ], pubs[ j ], sha ) ); \
+        for( ulong j=cnt; j<=FD_ED25519_VERIFIER_SIG_MAX; j++ ) FD_TEST( results[ j ]==12345 ); \
+      }                                                                                  \
+    }                                                                                    \
+  } while(0)
+  TEST_CORPUS( ed25519_verify_cctvs );
+  TEST_CORPUS( ed25519_verify_wycheproofs );
+#undef TEST_CORPUS
 
   if( cache_ent_cnt==FD_ED25519_VERIFIER_CACHE_OFF ) {
     FD_TEST( !fd_ed25519_verifier_hit_cnt( v ) && !fd_ed25519_verifier_miss_cnt( v ) && !fd_ed25519_verifier_insert_cnt( v ) );

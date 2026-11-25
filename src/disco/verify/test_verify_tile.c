@@ -819,6 +819,304 @@ test_stalled_consumer( void ) {
   FD_TEST( result_cnt( env, RES_SUCCESS )==seq_pub );
 }
 
+/* res_check checks the verify result counts since the last check */
+static ulong res_seen[ FD_METRICS_ENUM_VERIFY_RESULT_CNT ];
+
+static void
+res_reset( void ) {
+  memset( res_seen, 0, sizeof(res_seen) );
+}
+
+static void
+res_check( test_env_t const * env,
+           ulong              success,
+           ulong              peer_failed,
+           ulong              parse_failed,
+           ulong              duplicate,
+           ulong              sig_failed ) {
+  ulong want[ FD_METRICS_ENUM_VERIFY_RESULT_CNT ] = {0};
+  want[ RES_SUCCESS   ] = success;
+  want[ RES_PEERFAIL  ] = peer_failed;
+  want[ RES_PARSEFAIL ] = parse_failed;
+  want[ RES_DUP       ] = duplicate;
+  want[ RES_SIGFAIL   ] = sig_failed;
+  for( ulong i=0UL; i<FD_METRICS_ENUM_VERIFY_RESULT_CNT; i++ ) {
+    ulong got = result_cnt( env, i );
+    if( FD_UNLIKELY( got-res_seen[ i ]!=want[ i ] ) ) FD_LOG_ERR(( "result %lu: got %lu want %lu", i, got-res_seen[ i ], want[ i ] ));
+    res_seen[ i ] = got;
+  }
+}
+
+/* flush runs after_credit with no fragment pending, which flushes */
+static void
+flush( test_env_t * env ) {
+  int charge_busy = 0;
+  after_credit( env->ctx, env->stem, NULL, &charge_busy );
+  FD_TEST( !env->ctx->batch_txn_cnt );
+}
+
+/* A bad signature in each position of a full batch drops only its
+   transaction, and partial batches of every size are held while a
+   fragment is pending and flushed once none is */
+static void
+test_batch_positions( void ) {
+  test_env_t env[1]; test_env_init( env ); res_reset();
+  static uchar txn[ FD_VERIFY_BATCH_TXN_MAX ][ FD_TPU_MTU ];
+  ulong        txn_sz[ FD_VERIFY_BATCH_TXN_MAX ];
+  ulong        seq = 0UL;
+
+  for( ulong bad=0UL; bad<FD_VERIFY_BATCH_TXN_MAX; bad++ ) {
+    for( ulong i=0UL; i<FD_VERIFY_BATCH_TXN_MAX; i++ ) {
+      txn_sz[ i ] = txn_build( txn[ i ], 1UL, 8UL*i, i==bad ? 0UL : ULONG_MAX );
+      feed( env, IN_IDX_QUIC, txn[ i ], txn_sz[ i ], 0UL );
+    }
+    FD_TEST( !env->ctx->batch_txn_cnt );
+    for( ulong i=0UL; i<FD_VERIFY_BATCH_TXN_MAX; i++ ) if( i!=bad ) check_frag( env, seq++, txn[ i ], txn_sz[ i ] );
+    FD_TEST( pub_cnt( env )==seq );
+    res_check( env, FD_VERIFY_BATCH_TXN_MAX-1UL, 0UL, 0UL, 0UL, 1UL );
+  }
+
+  for( ulong n=1UL; n<FD_VERIFY_BATCH_TXN_MAX; n++ ) {
+    for( ulong i=0UL; i<n; i++ ) {
+      txn_sz[ i ] = txn_build( txn[ i ], 1UL, 0UL, ULONG_MAX );
+      feed( env, IN_IDX_QUIC, txn[ i ], txn_sz[ i ], 0UL );
+    }
+    pend( env, IN_IDX_QUIC );
+    int charge_busy = 0;
+    after_credit( env->ctx, env->stem, NULL, &charge_busy );
+    FD_TEST( env->ctx->batch_txn_cnt==n && !charge_busy && pub_cnt( env )==seq );
+    env->in_seq[ IN_IDX_QUIC ] = ++test_stem_in[ IN_IDX_QUIC ].seq; /* consumed */
+    after_credit( env->ctx, env->stem, NULL, &charge_busy );
+    FD_TEST( !env->ctx->batch_txn_cnt && charge_busy );
+    for( ulong i=0UL; i<n; i++ ) check_frag( env, seq++, txn[ i ], txn_sz[ i ] );
+    FD_TEST( pub_cnt( env )==seq );
+    res_check( env, n, 0UL, 0UL, 0UL, 0UL );
+  }
+}
+
+/* The stem reorders its in slots: readiness follows the in an entry
+   belongs to (in->idx), not the slot it is in */
+static void
+test_in_slot_order( void ) {
+  test_env_t env[1]; test_env_init( env ); res_reset();
+  env->ctx->round_robin_cnt = 2UL;
+  env->ctx->round_robin_idx = 1UL;
+  uchar txn[ FD_TPU_MTU ];
+  ulong txn_sz = txn_build( txn, 1UL, 0UL, ULONG_MAX );
+  env->in_seq[ IN_IDX_QUIC ] = test_stem_in[ IN_IDX_QUIC ].seq = 1UL; /* this tile's slot */
+  feed( env, IN_IDX_QUIC, txn, txn_sz, 0UL );
+  FD_TEST( env->ctx->batch_txn_cnt==1UL );
+
+  /* quic is now in slot 0; its next frag is the other tile's seq 2,
+     and this tile's seq 3 is published */
+  fd_stem_tile_in_t tmp = test_stem_in[ 0 ]; test_stem_in[ 0 ] = test_stem_in[ 1 ]; test_stem_in[ 1 ] = tmp;
+  FD_TEST( test_stem_in[ 0 ].idx==IN_IDX_QUIC && test_stem_in[ 0 ].seq==2UL );
+  fd_topo_link_t * quic = env->in_link[ IN_IDX_QUIC ];
+  fd_mcache_publish( quic->mcache, quic->depth, 3UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+  int charge_busy = 0;
+  after_credit( env->ctx, env->stem, NULL, &charge_busy );
+  FD_TEST( env->ctx->batch_txn_cnt==1UL && !charge_busy );
+
+  test_stem_in[ 0 ].seq = 4UL;
+  after_credit( env->ctx, env->stem, NULL, &charge_busy );
+  FD_TEST( !env->ctx->batch_txn_cnt && charge_busy );
+  check_frag( env, 0UL, txn, txn_sz );
+  res_check( env, 1UL, 0UL, 0UL, 0UL, 0UL );
+  tmp = test_stem_in[ 0 ]; test_stem_in[ 0 ] = test_stem_in[ 1 ]; test_stem_in[ 1 ] = tmp;
+}
+
+/* One stem iteration publishes at most STEM_BURST: a frag that flushes
+   a full batch, a frag that flushes the batch ahead of it and then
+   goes alone, and an idle flush followed by a frag in the same
+   iteration.  Each iteration starts with OUT_BURST credits on a
+   reliable out, so publishing more fails the test. */
+static void
+test_burst( void ) {
+  test_env_t env[1]; test_env_init( env ); res_reset();
+  test_out_reliable[0] = 1;
+  static uchar txn[ FD_VERIFY_BATCH_TXN_MAX ][ FD_TPU_MTU ];
+  ulong        txn_sz[ FD_VERIFY_BATCH_TXN_MAX ];
+  ulong        seq = 0UL;
+
+# define ITER_BEGIN() do { test_cr_avail[0] = OUT_BURST; test_min_cr_avail = OUT_BURST; } while(0)
+
+  for( ulong round=0UL; round<3UL; round++ ) {
+    for( ulong i=0UL; i<FD_VERIFY_BATCH_TXN_MAX; i++ ) {
+      ulong sig_cnt = ( round && i==FD_VERIFY_BATCH_TXN_MAX-1UL ) ? FD_TXN_SIG_MAX : 1UL;
+      txn_sz[ i ] = txn_build( txn[ i ], sig_cnt, 0UL, ULONG_MAX );
+    }
+    for( ulong i=0UL; i<FD_VERIFY_BATCH_TXN_MAX-1UL; i++ ) {
+      ITER_BEGIN();
+      feed( env, IN_IDX_QUIC, txn[ i ], txn_sz[ i ], 0UL );
+    }
+    FD_TEST( env->ctx->batch_txn_cnt==FD_VERIFY_BATCH_TXN_MAX-1UL );
+    ITER_BEGIN();
+    if( round==2UL ) flush( env ); /* idle flush, then a frag in the same iteration */
+    feed( env, IN_IDX_QUIC, txn[ FD_VERIFY_BATCH_TXN_MAX-1UL ], txn_sz[ FD_VERIFY_BATCH_TXN_MAX-1UL ], 0UL );
+    FD_TEST( !env->ctx->batch_txn_cnt && test_cr_avail[0]==OUT_BURST-FD_VERIFY_BATCH_TXN_MAX );
+    for( ulong i=0UL; i<FD_VERIFY_BATCH_TXN_MAX; i++ ) check_frag( env, seq++, txn[ i ], txn_sz[ i ] );
+    res_check( env, FD_VERIFY_BATCH_TXN_MAX, 0UL, 0UL, 0UL, 0UL );
+  }
+
+  /* an unparsed bundle transaction flushes the batch ahead of it */
+  static uchar bad[ 64 ];
+  memset( bad, 0xff, sizeof(bad) );
+  for( ulong i=0UL; i<FD_VERIFY_BATCH_TXN_MAX-1UL; i++ ) {
+    ITER_BEGIN();
+    txn_sz[ i ] = txn_build( txn[ i ], 1UL, 0UL, ULONG_MAX );
+    feed( env, IN_IDX_QUIC, txn[ i ], txn_sz[ i ], 0UL );
+  }
+  ITER_BEGIN();
+  feed( env, IN_IDX_BUNDLE, bad, sizeof(bad), 5UL );
+  FD_TEST( !env->ctx->batch_txn_cnt && test_cr_avail[0]==OUT_BURST-(FD_VERIFY_BATCH_TXN_MAX-1UL) );
+  for( ulong i=0UL; i<FD_VERIFY_BATCH_TXN_MAX-1UL; i++ ) check_frag( env, seq++, txn[ i ], txn_sz[ i ] );
+  res_check( env, FD_VERIFY_BATCH_TXN_MAX-1UL, 0UL, 1UL, 0UL, 0UL );
+
+# undef ITER_BEGIN
+  test_out_reliable[0] = 0;
+}
+
+/* The frontrun vectors (PR #1068) queued in one batch: an invalid
+   transaction carrying a valid one's first signature never dedups the
+   valid one, whichever comes first */
+static void
+test_wire_vectors_batched( void ) {
+  test_env_t env[1]; test_env_init( env ); res_reset();
+  static uchar v1[ FD_TPU_MTU ], i1[ FD_TPU_MTU ], v2[ FD_TPU_MTU ], i2[ FD_TPU_MTU ];
+  ulong v1_sz = VEC_LOAD( v1, vec_valid_1sig );
+  ulong i1_sz = VEC_LOAD( i1, vec_invalid_same_1sig );
+  ulong v2_sz = VEC_LOAD( v2, vec_valid_2sigs );
+  ulong i2_sz = VEC_LOAD( i2, vec_invalid_2sigs );
+
+  feed( env, IN_IDX_QUIC, i1, i1_sz, 0UL );
+  feed( env, IN_IDX_QUIC, v1, v1_sz, 0UL );
+  FD_TEST( env->ctx->batch_txn_cnt==2UL );
+  flush( env );
+  FD_TEST( pub_cnt( env )==1UL );
+  check_frag( env, 0UL, v1, v1_sz );
+  res_check( env, 1UL, 0UL, 0UL, 0UL, 1UL );
+
+  test_env_init( env ); res_reset();
+  feed( env, IN_IDX_QUIC, v1, v1_sz, 0UL );
+  feed( env, IN_IDX_QUIC, i1, i1_sz, 0UL ); /* not yet recorded: queued, fails its signature */
+  FD_TEST( env->ctx->batch_txn_cnt==2UL );
+  flush( env );
+  FD_TEST( pub_cnt( env )==1UL );
+  check_frag( env, 0UL, v1, v1_sz );
+  res_check( env, 1UL, 0UL, 0UL, 0UL, 1UL );
+
+  /* the same with two signers, the second signature replaced */
+  test_env_init( env ); res_reset();
+  feed( env, IN_IDX_QUIC, i2, i2_sz, 0UL );
+  feed( env, IN_IDX_QUIC, v2, v2_sz, 0UL );
+  feed( env, IN_IDX_QUIC, i2, i2_sz, 0UL );
+  FD_TEST( env->ctx->batch_txn_cnt==3UL );
+  flush( env );
+  FD_TEST( pub_cnt( env )==1UL );
+  check_frag( env, 0UL, v2, v2_sz );
+  res_check( env, 1UL, 0UL, 0UL, 0UL, 2UL );
+  feed( env, IN_IDX_QUIC, i2, i2_sz, 0UL ); /* recorded now: a duplicate */
+  res_check( env, 0UL, 0UL, 0UL, 1UL, 0UL );
+}
+
+/* Bundles: all or nothing in arrival order, interleaved with other
+   transactions in one batch and across flushes */
+static void
+test_bundles( void ) {
+  test_env_t env[1]; test_env_init( env ); res_reset();
+  static uchar t[ 8 ][ FD_TPU_MTU ], bad[ 64 ];
+  ulong        t_sz[ 8 ];
+  ulong        seq = 0UL;
+  memset( bad, 0xff, sizeof(bad) );
+
+# define MAKE( i, sig_cnt, bad_sig ) t_sz[ i ] = txn_build( t[ i ], (sig_cnt), 0UL, (bad_sig) )
+# define FEED( i, bundle_id )        feed( env, (bundle_id) ? IN_IDX_BUNDLE : IN_IDX_QUIC, t[ i ], t_sz[ i ], (bundle_id) )
+# define OUT( i )                    check_frag( env, seq++, t[ i ], t_sz[ i ] )
+# define OK                          ULONG_MAX
+
+  /* member 2 of 3 has a bad signature */
+  MAKE( 0, 1UL, OK ); MAKE( 1, 2UL, 1UL ); MAKE( 2, 1UL, OK );
+  FEED( 0, 100UL ); FEED( 1, 100UL ); FEED( 2, 100UL );
+  flush( env );
+  OUT( 0 ); FD_TEST( pub_cnt( env )==seq );
+  res_check( env, 1UL, 1UL, 0UL, 0UL, 1UL );
+
+  /* member 2 of 3 does not parse */
+  MAKE( 0, 1UL, OK ); MAKE( 2, 1UL, OK );
+  FEED( 0, 101UL );
+  feed( env, IN_IDX_BUNDLE, bad, sizeof(bad), 101UL );
+  FEED( 2, 101UL );
+  flush( env );
+  OUT( 0 ); FD_TEST( pub_cnt( env )==seq );
+  res_check( env, 1UL, 1UL, 1UL, 0UL, 0UL );
+
+  /* member 1 does not parse */
+  MAKE( 1, 1UL, OK );
+  feed( env, IN_IDX_BUNDLE, bad, sizeof(bad), 102UL );
+  FEED( 1, 102UL );
+  flush( env );
+  FD_TEST( pub_cnt( env )==seq );
+  res_check( env, 0UL, 1UL, 1UL, 0UL, 0UL );
+
+  /* unparsed members of distinct bundles each fail only themselves */
+  for( ulong i=0UL; i<FD_VERIFY_BATCH_TXN_MAX; i++ ) feed( env, IN_IDX_BUNDLE, bad, sizeof(bad), 103UL+i );
+  FD_TEST( !env->ctx->batch_txn_cnt && pub_cnt( env )==seq );
+  res_check( env, 0UL, 0UL, FD_VERIFY_BATCH_TXN_MAX, 0UL, 0UL );
+
+  /* interleaved with other transactions in one batch: arrival order */
+  MAKE( 0, 1UL, OK ); MAKE( 1, 2UL, OK ); MAKE( 2, 1UL, OK ); MAKE( 3, 1UL, OK ); MAKE( 4, 1UL, OK );
+  FEED( 0, 0UL ); FEED( 1, 200UL ); FEED( 2, 0UL ); FEED( 3, 200UL ); FEED( 4, 0UL );
+  FD_TEST( env->ctx->batch_txn_cnt==5UL );
+  flush( env );
+  OUT( 0 ); OUT( 1 ); OUT( 2 ); OUT( 3 ); OUT( 4 ); FD_TEST( pub_cnt( env )==seq );
+  res_check( env, 5UL, 0UL, 0UL, 0UL, 0UL );
+
+  /* a failed bundle interleaved: the other transactions go out */
+  MAKE( 0, 1UL, OK ); MAKE( 1, 1UL, 0UL ); MAKE( 2, 1UL, OK ); MAKE( 3, 1UL, OK ); MAKE( 4, 1UL, OK );
+  FEED( 0, 0UL ); FEED( 1, 201UL ); FEED( 2, 0UL ); FEED( 3, 201UL ); FEED( 4, 0UL );
+  flush( env );
+  OUT( 0 ); OUT( 2 ); OUT( 4 ); FD_TEST( pub_cnt( env )==seq );
+  res_check( env, 3UL, 1UL, 0UL, 0UL, 1UL );
+
+  /* an unparsed member between others: the batch ahead goes out, the
+     bad signature after it is the next transaction's alone */
+  MAKE( 0, 1UL, OK ); MAKE( 1, 2UL, OK ); MAKE( 3, 1UL, 0UL ); MAKE( 4, 1UL, OK ); MAKE( 5, 1UL, OK );
+  FEED( 0, 0UL ); FEED( 1, 202UL );
+  feed( env, IN_IDX_BUNDLE, bad, sizeof(bad), 202UL );
+  FEED( 3, 0UL ); FEED( 4, 202UL ); FEED( 5, 0UL );
+  flush( env );
+  OUT( 0 ); OUT( 1 ); OUT( 5 ); FD_TEST( pub_cnt( env )==seq );
+  res_check( env, 3UL, 1UL, 1UL, 0UL, 1UL );
+
+  /* two consecutive bundles in one batch, the first fails */
+  MAKE( 0, 1UL, 0UL ); MAKE( 1, 1UL, OK ); MAKE( 2, 1UL, OK ); MAKE( 3, 2UL, OK );
+  FEED( 0, 300UL ); FEED( 1, 300UL ); FEED( 2, 301UL ); FEED( 3, 301UL );
+  flush( env );
+  OUT( 2 ); OUT( 3 ); FD_TEST( pub_cnt( env )==seq );
+  res_check( env, 2UL, 1UL, 0UL, 0UL, 1UL );
+
+  /* the same across a flush */
+  MAKE( 0, 1UL, OK ); MAKE( 1, 1UL, 0UL ); MAKE( 2, 1UL, OK );
+  FEED( 0, 302UL ); FEED( 1, 302UL );
+  flush( env );
+  FEED( 2, 303UL );
+  flush( env );
+  OUT( 0 ); OUT( 2 ); FD_TEST( pub_cnt( env )==seq );
+  res_check( env, 2UL, 0UL, 0UL, 0UL, 1UL );
+
+  /* bundle state carries across a flush */
+  MAKE( 0, 1UL, 0UL ); MAKE( 1, 1UL, OK );
+  FEED( 0, 304UL ); flush( env );
+  FEED( 1, 304UL ); flush( env );
+  FD_TEST( pub_cnt( env )==seq );
+  res_check( env, 0UL, 1UL, 0UL, 0UL, 1UL );
+
+# undef MAKE
+# undef FEED
+# undef OUT
+# undef OK
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -844,6 +1142,11 @@ main( int     argc,
   test_bundle_order();
   test_wire_vectors();
   test_stalled_consumer();
+  test_batch_positions();
+  test_in_slot_order();
+  test_burst();
+  test_wire_vectors_batched();
+  test_bundles();
   test_free_all();
 
   FD_LOG_NOTICE(( "pass" ));
