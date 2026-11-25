@@ -1524,8 +1524,9 @@ writer_append_account( fd_snapin_tile_t * ctx,
 
   /* Serialize the account metadata into the buffer */
   fd_accdb_disk_meta_t meta = {
-    .size       = (uint)data_len,
+    .size       = FD_ACCDB_DISK_SIZE( data_len, executable ),
     .generation = 0U,
+    .lamports   = lamports,
   };
   uchar * meta_ptr = ctx->writer.buf+buf_off;
   uchar * data_ptr = meta_ptr+sizeof(fd_accdb_disk_meta_t);

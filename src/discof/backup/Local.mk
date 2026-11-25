@@ -27,3 +27,10 @@ $(call run-unit-test,test_snaprd_tile)
 endif # FD_HAS_ATOMIC
 endif # FD_HAS_INT128
 endif # FD_HAS_HOSTED
+
+# fd_snapcheck: offline snapshot verifier (development tool)
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_INT128
+$(call make-bin,fd_snapcheck,fd_snapcheck,fd_discof fd_flamenco fd_ballet fd_util)
+endif
+endif

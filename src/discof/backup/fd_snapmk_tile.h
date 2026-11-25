@@ -51,6 +51,7 @@
 #define FD_SNAPMK_MSG_DELETED 3 /* fd_snapmk_msg_deleted_t */
 #define FD_SNAPMK_MSG_STARTED 4 /* fd_snapmk_msg_started_t */
 #define FD_SNAPMK_MSG_FAILED  5 /* fd_snapmk_msg_failed_t */
+#define FD_SNAPMK_MSG_RELEASED 6 /* fd_snapmk_msg_released_t */
 
 /* fd_snapmk_msg_found_t signals that a pre-existing snapshot was found
    on the file system.  That snapshot comes from a previous run or was
@@ -121,6 +122,18 @@ struct fd_snapmk_msg_failed {
 
 typedef struct fd_snapmk_msg_failed fd_snapmk_msg_failed_t;
 
+/* fd_snapmk_msg_released_t signals that snapmk no longer uses the
+   snapshot bank (manifest and status cache are written).  The replay
+   tile drops its reference and resumes rooting; accdb keeps the
+   account versions the snapshot still needs.  Sent once per started
+   snapshot, before created. */
+
+struct fd_snapmk_msg_released {
+  ulong slot;
+};
+
+typedef struct fd_snapmk_msg_released fd_snapmk_msg_released_t;
+
 /* fd_snapmk_msg_t is the data payload behind the fd_frag_meta_t::chunk
    compressed offset. */
 
@@ -130,6 +143,7 @@ union fd_snapmk_msg {
   fd_snapmk_msg_deleted_t deleted;
   fd_snapmk_msg_started_t started;
   fd_snapmk_msg_failed_t  failed;
+  fd_snapmk_msg_released_t released;
 };
 
 typedef union fd_snapmk_msg fd_snapmk_msg_t;

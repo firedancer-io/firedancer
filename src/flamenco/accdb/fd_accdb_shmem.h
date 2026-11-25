@@ -67,21 +67,31 @@ struct fd_accdb_metrics {
 
 typedef struct fd_accdb_metrics fd_accdb_metrics_t;
 
-/* fd_accdb_disk_meta_t is the on-disk account revision header. */
+/* fd_accdb_disk_meta_t is the on-disk account revision header.  A
+   record is self-describing (everything an account holds), so readers
+   of the file need not consult the index for the account's fields.
+   size is the data length, with the executable flag in its high bit
+   (FD_ACCDB_DISK_SIZE_*). */
 
 union fd_accdb_disk_meta {
   struct __attribute__((packed)) {
     uchar pubkey[ 32UL ];
     uint  size;
     uint  generation;
+    ulong lamports;
     uchar owner[ 32UL ];
   };
-  uchar b[72];
+  uchar b[80];
 };
 
 typedef union fd_accdb_disk_meta fd_accdb_disk_meta_t;
 
-FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)==72UL, layout );
+#define FD_ACCDB_DISK_SIZE_EXEC_BIT  (1U<<31)
+#define FD_ACCDB_DISK_SIZE(len,exec) ( (uint)(len) | ( (exec) ? FD_ACCDB_DISK_SIZE_EXEC_BIT : 0U ) )
+#define FD_ACCDB_DISK_DATA_LEN(size) ( (size) & ~FD_ACCDB_DISK_SIZE_EXEC_BIT )
+#define FD_ACCDB_DISK_EXEC(size)     ( !!( (size) & FD_ACCDB_DISK_SIZE_EXEC_BIT ) )
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)==80UL, layout );
 FD_STATIC_ASSERT( offsetof(fd_accdb_disk_meta_t,owner)+32UL==sizeof(fd_accdb_disk_meta_t), layout );
 
 FD_PROTOTYPES_BEGIN

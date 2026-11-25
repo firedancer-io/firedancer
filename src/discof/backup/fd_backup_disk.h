@@ -213,7 +213,7 @@ fd_snapmk_accparse_publish( fd_snapmk_accparse_t * parse,
 
       if( FD_UNLIKELY( parse->meta_sz < sizeof(fd_accdb_disk_meta_t) ) ) continue;
 
-      ulong data_sz = (ulong)FD_ACCDB_SIZE_DATA( parse->meta.size );
+      ulong data_sz = (ulong)FD_ACCDB_DISK_DATA_LEN( parse->meta.size );
       ulong snap_sz = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_sz, 8UL );
       if( FD_UNLIKELY( data_sz>UINT_MAX ) ) {
         FD_LOG_CRIT(( "accdb disk account data too large (%lu bytes)", data_sz ));
@@ -319,7 +319,7 @@ fd_snapmk_accparse_prestage( fd_snapmk_accparse_t * parse ) {
     parse->pf_cursor = pf_lim;
 
     fd_accdb_disk_meta_t const * dm = (fd_accdb_disk_meta_t const *)parse->data;
-    ulong data_len = (ulong)FD_ACCDB_SIZE_DATA( dm->size );
+    ulong data_len = (ulong)FD_ACCDB_DISK_DATA_LEN( dm->size );
     ulong rec      = meta_sz + data_len;
     if( parse->data_sz < rec ) break;     /* account data straddles frag end */
 

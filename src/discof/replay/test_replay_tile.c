@@ -1310,7 +1310,8 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 1;
-  snapmk_done( ctx, NULL, 1 );
+  ctx->snapmk.bank_held   = 1;
+  snapmk_done( ctx, NULL, 1, 700UL );
   FD_TEST( !ctx->snapmk.epoch_credits_view->credits );
   FD_TEST( ctx->snapmk.snap_finished_incr==700UL );
   FD_TEST( ctx->snapmk.snap_produced_incr_cnt==1UL );
@@ -1321,7 +1322,8 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 0;
-  snapmk_done( ctx, NULL, 1 );
+  ctx->snapmk.bank_held   = 1;
+  snapmk_done( ctx, NULL, 1, 700UL );
   FD_TEST( !ctx->snapmk.epoch_credits_view->credits );
   FD_TEST( ctx->snapmk.snap_finished_full==700UL );
   FD_TEST( ctx->snapmk.snap_produced_incr_cnt==1UL );
@@ -1332,7 +1334,8 @@ test_wait_info_produced_incr_cnt( fd_wksp_t * wksp ) {
   FD_TEST( fd_epoch_credits_view_init( ctx->snapmk.epoch_credits_view, fd_bank_epoch_credits( root ), root->epoch_credits_fork_id ) );
   ctx->snapmk.active      = 1;
   ctx->snapmk.incremental = 1;
-  snapmk_done( ctx, NULL, 0 );
+  ctx->snapmk.bank_held   = 1;
+  snapmk_done( ctx, NULL, 0, 700UL );
   FD_TEST( !ctx->snapmk.epoch_credits_view->credits );
   FD_TEST( ctx->snapmk.snap_produced_incr_cnt==1UL );
 

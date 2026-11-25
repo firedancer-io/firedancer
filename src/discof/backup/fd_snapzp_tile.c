@@ -41,7 +41,20 @@ struct fd_snapzp {
   fd_backup_overrun_t * overrun;
   fd_backup_stats_t *   stats;
   fd_accdb_t *       accdb;
-  fd_accdb_fork_id_t fork_id;
+  fd_accdb_shmem_t * accdb_shmem; /* mapped rw: visit bits */
+  uint               root_gen;    /* accdb generation of the snapshot */
+  int                full;        /* full snapshot: visit what is emitted */
+
+  /* snapzp_accdb out link: kept versions to free (fd_accdb.c "Snapshot
+     keeps").  Batched; published once per input frag. */
+  struct {
+    ulong       idx;
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       chunk;
+  } accdb_out;
+  fd_backup_emitted_msg_t emitted[1];
 
   /* compression buffer */
   ZSTD_CCtx *    zst;
@@ -192,6 +205,17 @@ unprivileged_init( fd_topo_t const *      topo,
   }
   FD_TEST( ctx->snapmk_zp_mem );
 
+  FD_TEST( tile->out_cnt==1UL );
+  fd_topo_link_t const * accdb_link = &topo->links[ tile->out_link_id[ 0 ] ];
+  FD_TEST( !strcmp( accdb_link->name, "snapzp_accdb" ) );
+  FD_TEST( accdb_link->mtu>=sizeof(fd_backup_emitted_msg_t) );
+  ctx->accdb_out.idx    = 0UL;
+  ctx->accdb_out.mem    = topo->workspaces[ topo->objs[ accdb_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->accdb_out.chunk0 = fd_dcache_compact_chunk0( ctx->accdb_out.mem, accdb_link->dcache );
+  ctx->accdb_out.wmark  = fd_dcache_compact_wmark ( ctx->accdb_out.mem, accdb_link->dcache, accdb_link->mtu );
+  ctx->accdb_out.chunk  = ctx->accdb_out.chunk0;
+  ctx->emitted->cnt     = 0U;
+
   /* discover snaprd_out link */
   ulong snaprd_wksp_id = fd_topo_find_wksp( topo, "snaprd_out" );
   FD_CHECK_ERR( snaprd_wksp_id!=ULONG_MAX, "snapzp tile not joined to snaprd_out wksp" );
@@ -213,13 +237,14 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( &ctx->disk, 0, sizeof(ctx->disk) );
 
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->snapzp.accdb_obj_id );
-  fd_accdb_shmem_t * accdb_shmem_ro = fd_accdb_shmem_join( _accdb_shmem );
-  FD_TEST( accdb_shmem_ro );
+  fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
+  FD_TEST( accdb_shmem );
+  ctx->accdb_shmem = accdb_shmem;
   ulong * epoch_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapzp.accdb_epoch_obj_id ) );
   FD_TEST( epoch_fseq );
-  ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem_ro, epoch_fseq, FD_ACCDB_FD_RO );
+  ctx->accdb = fd_accdb_join_readonly( _accdb, accdb_shmem, epoch_fseq, FD_ACCDB_FD_RO );
   FD_TEST( ctx->accdb );
-  FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem_ro, epoch_fseq ) );
+  FD_TEST( fd_backup_cache_join( ctx->acc_cache, accdb_shmem, epoch_fseq ) );
   ctx->overrun = fd_backup_overrun( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
   ctx->stats   = fd_backup_stats  ( fd_topo_obj_laddr( topo, tile->snapzp.visited_set_obj_id ) );
   FD_TEST( ctx->overrun );
@@ -290,7 +315,8 @@ msg_start( fd_snapzp_t *                 ctx,
            fd_backup_start_msg_t const * frag ) {
   FD_CHECK_CRIT( frag->snap_idx < ctx->snap_fd_cnt, "invalid snapshot pool slot" );
   ctx->snap_fd       = FD_SNAP_DIO_FD( frag->snap_idx );
-  ctx->fork_id       = (fd_accdb_fork_id_t){ .val = frag->fork_id };
+  ctx->root_gen      = frag->root_gen;
+  ctx->full          = frag->slot_lo==0UL; /* incrementals hold the root */
   ctx->snapshot_slot = frag->slot;
   ctx->slot_lo       = frag->slot_lo;
 
@@ -446,6 +472,32 @@ zip_flush( fd_snapzp_t * ctx ) {
   ctx->comp_buf.pos = 0UL;
 }
 
+/* emitted visits version acc_idx for the running full snapshot once it
+   is in the snapshot ("Snapshot keeps" in fd_accdb.c).  If rooting kept
+   it (we are second), it goes to the accdb tile to free.  Call once its
+   fields and data are copied.  emitted_flush publishes the batch. */
+
+static void
+emitted_flush( fd_snapzp_t *       ctx,
+               fd_stem_context_t * stem ) {
+  if( FD_LIKELY( !ctx->emitted->cnt ) ) return;
+  ulong sz = sizeof(uint)+ctx->emitted->cnt*sizeof(uint);
+  fd_memcpy( fd_chunk_to_laddr( ctx->accdb_out.mem, ctx->accdb_out.chunk ), ctx->emitted, sz );
+  fd_stem_publish( stem, ctx->accdb_out.idx, 0UL, ctx->accdb_out.chunk, sz, 0UL, 0UL, 0UL );
+  ctx->accdb_out.chunk = fd_dcache_compact_next( ctx->accdb_out.chunk, sz, ctx->accdb_out.chunk0, ctx->accdb_out.wmark );
+  ctx->emitted->cnt    = 0U;
+}
+
+static inline void
+emitted( fd_snapzp_t * ctx,
+         uint          acc_idx ) {
+  if( FD_UNLIKELY( !ctx->full ) ) return;
+  fd_accdb_accmeta_t * m = (fd_accdb_accmeta_t *)&ctx->acc_cache->idx.acc_pool[ acc_idx ];
+  if( FD_LIKELY( !fd_accdb_snap_visit( m, FD_VOLATILE_CONST( ctx->accdb_shmem->snap_visit ) ) ) ) return;
+  FD_CHECK_CRIT( ctx->emitted->cnt<FD_BACKUP_EMITTED_MAX, "emitted batch overflow" );
+  ctx->emitted->acc_idx[ ctx->emitted->cnt++ ] = acc_idx;
+}
+
 /* accmeta_await_evict waits until the account data belonging to the
    given index entry is evicted from cache to disk.  This is used to
    fallback to disk reads when a cache read is torn by eviction. */
@@ -529,6 +581,7 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
       continue;
     }
     FD_CHECK_ERR( err==FD_BACKUP_CACHE_SUCCESS, "unexpected cache error code" );
+    emitted( ctx, acc_idx );
     ctx->snapshot_account_cnt++;
     ctx->snapshot_account_sz += buf->size - prev_sz;
     ctx->snapshot_cached_account_cnt++;
@@ -539,6 +592,7 @@ msg_acc_cache( fd_snapzp_t *                 ctx,
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *idx->epoch_slot ) = ULONG_MAX;
   }
+
 }
 
 static void
@@ -562,7 +616,7 @@ msg_acc_delta( fd_snapzp_t *                 ctx,
     ulong lamports   = 0UL;
     ulong data_len   = 0UL;
     int   executable = 0;
-    int source = fd_accdb_read_one_nocache( ctx->accdb, ctx->fork_id, batch->pubkey[ i ].uc,
+    int source = fd_accdb_read_one_snap( ctx->accdb, ctx->root_gen, batch->pubkey[ i ].uc,
                                             &lamports, &executable, hdr->owner.uc,
                                             ctx->raw + start + sizeof(snap_acc_hdr_t), &data_len );
     FD_CHECK_CRIT( data_len<=FD_RUNTIME_ACC_SZ_MAX, "accdb returned oversized account" );
@@ -580,29 +634,6 @@ msg_acc_delta( fd_snapzp_t *                 ctx,
     ctx->snapshot_disk_account_cnt   += source==FD_ACCDB_READ_ONE_NOCACHE_DISK;
     ctx->metrics.accounts_compressed++;
   }
-}
-
-/* accmeta_disk validates that an index entry (at acc_idx with given
-   pubkey) is an on-disk rooted account.
-   (Safe while compaction and rooting are disabled, as on-disk rooted
-   accounts are pinned in the index and on-disk under these conditions.
-
-   Returns a pointer to the index entry if a matching record is found,
-   NULL otherwise.  (Never returns NULL under correct usage.) */
-
-static fd_accdb_accmeta_t const *
-accmeta_disk( fd_snapzp_t *       ctx,
-              fd_pubkey_t const * pubkey,
-              uint                size,
-              uint                acc_idx ) {
-  fd_backup_accidx_t const * idx = &ctx->acc_cache->idx;
-  if( FD_UNLIKELY( !fd_backup_accidx_valid( idx, acc_idx ) ) ) return NULL;
-
-  fd_accdb_accmeta_t const * acc = &idx->acc_pool[ acc_idx ];
-  uint es = FD_VOLATILE_CONST( acc->executable_size );
-  if( FD_UNLIKELY( FD_ACCDB_SIZE_DATA( es )!=FD_ACCDB_SIZE_DATA( size ) ) ) return NULL;
-  if( FD_UNLIKELY( memcmp( acc->key.pubkey, pubkey->uc, sizeof(fd_pubkey_t) ) ) ) return NULL;
-  return acc;
 }
 
 /* msg_acc_disk instructs snapzp to compress an account fragment that
@@ -628,7 +659,7 @@ msg_acc_disk_start( fd_snapzp_t *                ctx,
   FD_CHECK_CRIT( ctx->snap_fd>=0, "invalid snapshot file descriptor" );
   FD_CHECK_CRIT( !ctx->disk.active, "received account SOM while already processing a disk account" );
 
-  ulong data_len = (ulong)FD_ACCDB_SIZE_DATA( frag->size );
+  ulong data_len = (ulong)FD_ACCDB_DISK_DATA_LEN( frag->size );
   ulong rec_sz   = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
   FD_CHECK_CRIT( rec_sz<=RAW_BUF_SZ, "oversize snapshot account record" );
   FD_CHECK_CRIT( frag->snap_sz==rec_sz, "disk account snapshot size mismatch" );
@@ -643,15 +674,13 @@ msg_acc_disk_start( fd_snapzp_t *                ctx,
   ctx->disk.size    = frag->size;
   ctx->disk.acc_idx = frag->acc_idx;
 
-  fd_accdb_accmeta_t const * accmeta = accmeta_disk( ctx, &ctx->disk.pubkey, ctx->disk.size, ctx->disk.acc_idx );
-  FD_CHECK_CRIT( accmeta, "bug in snapshot producer: rooted account disappeared from index" );
-
+  /* The record is self-describing: no index access */
   snap_acc_hdr_t * hdr = (snap_acc_hdr_t *)( ctx->raw + ctx->raw_buf.size );
   memset( hdr, 0, sizeof(snap_acc_hdr_t) );
-  hdr->pubkey    = ctx->disk.pubkey;
-  hdr->owner     = ctx->disk.owner;
-  hdr->lamports   = FD_VOLATILE_CONST( accmeta->lamports );
-  hdr->executable = !!FD_ACCDB_SIZE_EXEC( FD_VOLATILE_CONST( accmeta->executable_size ) );
+  hdr->pubkey     = ctx->disk.pubkey;
+  hdr->owner      = ctx->disk.owner;
+  hdr->lamports   = frag->lamports;
+  hdr->executable = (uchar)FD_ACCDB_DISK_EXEC( frag->size );
   hdr->data_len   = data_len;
 
   ctx->raw_buf.size += sizeof(snap_acc_hdr_t);
@@ -719,8 +748,9 @@ msg_acc_disk( fd_snapzp_t * ctx,
       ctx->raw_buf.size += ctx->disk.data_pad;
     }
     ctx->snapshot_account_cnt++;
-    ctx->snapshot_account_sz += sizeof(snap_acc_hdr_t) + fd_ulong_align_up( (ulong)FD_ACCDB_SIZE_DATA( ctx->disk.size ), 8UL );
+    ctx->snapshot_account_sz += sizeof(snap_acc_hdr_t) + fd_ulong_align_up( (ulong)FD_ACCDB_DISK_DATA_LEN( ctx->disk.size ), 8UL );
     ctx->snapshot_disk_account_cnt++;
+    emitted( ctx, ctx->disk.acc_idx );
     ctx->metrics.accounts_compressed++;
     memset( &ctx->disk, 0, sizeof(ctx->disk) );
   }
@@ -736,22 +766,7 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
   FD_CHECK_CRIT( ctx->snap_fd>=0, "invalid snapshot file descriptor" );
   FD_CHECK_CRIT( !ctx->disk.active, "received account batch while already processing a disk account" );
 
-  fd_backup_accidx_t const * idx      = &ctx->acc_cache->idx;
-  fd_accdb_accmeta_t const * acc_pool = idx->acc_pool;
-
-  /* MLP gather of account index entries */
-  static fd_accdb_accmeta_t const dead = {0};
-  fd_accdb_accmeta_t const * gather[ FD_BACKUP_DISK_PARA ];
-  for( ulong i=0UL; i<FD_BACKUP_DISK_PARA; i++ ) {
-    uint ai = batch->acc_idx[ i ];
-    gather[ i ] = fd_backup_accidx_valid( idx, ai ) ? &acc_pool[ ai ] : &dead;
-  }
-  ulong lamports[ FD_BACKUP_DISK_PARA ];
-  uint  exec_sz [ FD_BACKUP_DISK_PARA ];
-  for( ulong i=0UL; i<FD_BACKUP_DISK_PARA; i++ ) {
-    lamports[ i ] = FD_VOLATILE_CONST( gather[ i ]->lamports        );
-    exec_sz [ i ] = FD_VOLATILE_CONST( gather[ i ]->executable_size );
-  }
+  fd_backup_accidx_t const * idx = &ctx->acc_cache->idx;
 
   /* Bounds check batch (TOCTOU susceptible, but this is an accepted
      risk, as snapmk->snapzp is a trusted link) */
@@ -771,12 +786,9 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
     fd_accdb_disk_meta_t const * dm = (fd_accdb_disk_meta_t const *)( base + batch->frag_off[ i ] );
     FD_CHECK_CRIT( (ulong)(dm+1) <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
 
-    ulong data_len = (ulong)FD_ACCDB_SIZE_DATA( dm->size );
+    /* The record is self-describing: no index access */
+    ulong data_len = (ulong)FD_ACCDB_DISK_DATA_LEN( dm->size );
     FD_CHECK_CRIT( (ulong)(dm+1)+data_len <= (ulong)ctx->snaprd_data1, "account data bounds check fail" );
-
-    /* validate that disk data matches index */
-    FD_CHECK_CRIT( FD_ACCDB_SIZE_DATA( exec_sz[ i ] )==data_len, "account query corruption detected" );
-    FD_CHECK_CRIT( !memcmp( gather[ i ]->key.pubkey, dm->pubkey, sizeof(fd_pubkey_t) ), "account query corruption detected" );
 
     ulong rec_sz   = sizeof(snap_acc_hdr_t) + fd_ulong_align_up( data_len, 8UL );
     ulong data_pad = fd_ulong_align_up( data_len, 8UL ) - data_len;
@@ -789,8 +801,8 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
     memset( hdr, 0, sizeof(snap_acc_hdr_t) );
     memcpy( hdr->pubkey.uc, dm->pubkey, sizeof(fd_pubkey_t) );
     memcpy( hdr->owner.uc,  dm->owner,  sizeof(fd_pubkey_t) );
-    hdr->lamports   = lamports[ i ];
-    hdr->executable = !!FD_ACCDB_SIZE_EXEC( exec_sz[ i ] );
+    hdr->lamports   = dm->lamports;
+    hdr->executable = (uchar)FD_ACCDB_DISK_EXEC( dm->size );
     hdr->data_len   = data_len;
     ctx->raw_buf.size += sizeof(snap_acc_hdr_t);
 
@@ -806,6 +818,7 @@ msg_acc_disk_batch( fd_snapzp_t *                      ctx,
     ctx->snapshot_account_cnt++;
     ctx->snapshot_account_sz += rec_sz;
     ctx->snapshot_disk_account_cnt++;
+    emitted( ctx, acc_idx );
     ctx->metrics.accounts_compressed++;
   }
 }
@@ -832,7 +845,7 @@ returnable_frag( fd_snapzp_t *       ctx,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-  (void)in_idx; (void)stem;
+  (void)in_idx;
   ctx->idle_cnt = 0UL;
   ulong orig = fd_frag_meta_ctl_orig( ctl );
 
@@ -882,6 +895,7 @@ returnable_frag( fd_snapzp_t *       ctx,
     FD_LOG_CRIT(( "unknown backup instruction (orig=%lu, seq=%lu)", orig, seq ));
   }
 
+  emitted_flush( ctx, stem );
   return 0;
 }
 

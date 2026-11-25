@@ -71,7 +71,7 @@ struct fd_backup_start_msg {
   ulong  slot;      /* slot number */
   ulong  slot_lo;   /* lowest appendvec slot this archive may use */
   uint   snap_idx;  /* identifies file descriptor */
-  ushort fork_id;   /* accdb fork ID */
+  uint   root_gen;  /* accdb generation of the snapshot root */
 };
 typedef struct fd_backup_start_msg fd_backup_start_msg_t;
 
@@ -90,7 +90,8 @@ typedef struct fd_backup_cache_msg fd_backup_cache_msg_t;
 struct fd_backup_disk_msg {
   fd_pubkey_t pubkey;
   fd_pubkey_t owner;
-  uint        size;
+  ulong       lamports;
+  uint        size;     /* fd_accdb_disk_meta_t size (data length, exec bit) */
   uint        acc_idx;
   uint        snap_sz;
   uint        data_sz;
@@ -116,6 +117,20 @@ struct fd_backup_delta_msg {
 };
 
 typedef struct fd_backup_delta_msg fd_backup_delta_msg_t;
+
+/* fd_backup_emitted_msg_t (snapzp_accdb link) is a batch of account
+   index entries snapzp put in the snapshot and that rooting kept for
+   it, for the accdb tile to free (fd_accdb.c "Snapshot keeps"). */
+
+/* One input frag emits at most this many accounts */
+#define FD_BACKUP_EMITTED_MAX (FD_BACKUP_CACHE_PARA>FD_BACKUP_DISK_PARA ? FD_BACKUP_CACHE_PARA : FD_BACKUP_DISK_PARA)
+
+struct fd_backup_emitted_msg {
+  uint cnt;
+  uint acc_idx[ FD_BACKUP_EMITTED_MAX ];
+};
+
+typedef struct fd_backup_emitted_msg fd_backup_emitted_msg_t;
 
 /* fd_backup_frag_t is only used to determine MTU of link */
 

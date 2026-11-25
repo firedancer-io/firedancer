@@ -400,6 +400,7 @@ fd_accdb_shmem_new( void * shmem,
 
   accdb->epoch          = 1UL;
   accdb->snapshot_sync  = FD_ACCDB_SNAPSHOT_SYNC_IDLE;
+  fd_accdb_shmem_snap_reset( accdb );
   accdb->joiner_cnt     = 0UL;
   for( ulong i=0UL; i<FD_ACCDB_MAX_JOINERS; i++ ) accdb->joiner_epochs[ i ].val = ULONG_MAX;
 

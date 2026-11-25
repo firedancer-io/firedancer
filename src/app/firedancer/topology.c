@@ -502,6 +502,7 @@ fd_topo_initialize( config_t * config ) {
   if( snapmk_enabled ) {
     fd_topob_wksp( topo, "snapmk"        );
     fd_topob_wksp( topo, "snapzp"        );
+    fd_topob_wksp( topo, "snapzp_accdb"  );
     fd_topob_wksp( topo, "snapmk_zp"     );
     fd_topob_wksp( topo, "replay_snapmk" );
     fd_topob_wksp( topo, "snapmk_out"    );
@@ -551,6 +552,7 @@ fd_topo_initialize( config_t * config ) {
     FOR(snapin_tile_cnt) fd_topob_link( topo, "snapin_ct",     "snapin_ct",     128UL,                                    0UL,                           1UL );
   }
   FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp",     "snapmk_zp",     1024UL,                                   sizeof(fd_backup_frag_t),      1UL );
+  FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapzp_accdb",  "snapzp_accdb",  1024UL,                                   sizeof(fd_backup_emitted_msg_t), 1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "replay_snapmk", "replay_snapmk", 16UL,                                     sizeof(fd_replay_snap_start_t),1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "snapmk_out",    "snapmk_out",    128UL,                                    sizeof(fd_snapmk_msg_t),       1UL );
   if( snapmk_enabled ) fd_topob_link( topo, "snaprd_out",    "snaprd_out",    16UL,                                     FD_BACKUP_RD_MTU,              1UL );
@@ -1024,6 +1026,8 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_in ( topo, "snapmk", 0UL, "metric_in", "snaprd_out",    0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     FOR(snapzp_tile_cnt) fd_topob_tile_out( topo, "snapmk", 0UL,              "snapmk_zp",     i                                       );
     FOR(snapzp_tile_cnt) fd_topob_tile_in ( topo, "snapzp", i,   "metric_in", "snapmk_zp",     i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(snapzp_tile_cnt) fd_topob_tile_out( topo, "snapzp", i,                "snapzp_accdb",  i                                       );
+    FOR(snapzp_tile_cnt) fd_topob_tile_in ( topo, "accdb",  0UL, "metric_in", "snapzp_accdb",  i,   FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_out( topo, "snapmk", 0UL,              "snapmk_out",    0UL                                     );
     /**/                 fd_topob_tile_out( topo, "snaprd", 0UL,              "snaprd_out",    0UL                                     );
   }
@@ -1362,7 +1366,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], backup_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaprd", 0UL ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
   }
-  FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  /* snapzp visits the versions it emitted (fd_accdb_snap_visit) */
+  FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ], zp_fseq,         FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ], backup_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( snapmk_enabled ) {
