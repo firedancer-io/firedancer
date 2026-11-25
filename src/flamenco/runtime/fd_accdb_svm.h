@@ -46,9 +46,10 @@ fd_accdb_svm_close_rw( fd_bank_t *             bank,
    is_vote_reward indicates the credit is an epoch vote reward (paid to
    the vote account or its inflation collector), which the runtime_reward
    telemetry event reports; the account owner cannot distinguish this
-   (custom collectors are system owned). */
+   (custom collectors are system owned).  Returns the account's lamports
+   after the credit, the current balance when lamports is 0. */
 
-void
+ulong
 fd_accdb_svm_credit( fd_bank_t *         bank,
                      fd_accdb_t *        accdb,
                      fd_capture_ctx_t *  capture_ctx,

@@ -33,3 +33,6 @@
 
 [tiles.pack]
   schedule_strategy = "perf"
+
+[tiles.dragon]
+  enabled = false

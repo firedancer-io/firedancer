@@ -45,6 +45,7 @@ struct fd_vote_rewards {
   ulong       vote_rewards;
   uint        next;
   ushort      commission;
+  uchar       rewarded;     /* a delegation of this vote account redeemed its rewards */
 };
 typedef struct fd_vote_rewards fd_vote_rewards_t;
 
