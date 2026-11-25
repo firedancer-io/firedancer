@@ -30,6 +30,9 @@
 
 FD_IMPORT_BINARY( test_elf, "src/ballet/sbpf/fixtures/hello_solana_program.so" );
 
+/* SBPF v0 ELF that imports sol_get_sysvar. */
+FD_IMPORT_BINARY( sysvar_elf, "src/ballet/sbpf/fixtures/spl_p_token.so" );
+
 static fd_hash_t const test_elf_hash = { .uc = {
   0x75U,0x96U,0xfeU,0xc1U,0xe0U,0xcaU,0xcdU,0x63U,0x4fU,0x06U,0xe5U,0xfaU,0x0cU,0x8bU,0x63U,0x3dU,
   0xd1U,0x7cU,0x3dU,0xb1U,0xc1U,0x61U,0x1bU,0xb7U,0x4fU,0x5dU,0xd1U,0x4fU,0x75U,0x36U,0xb6U,0xf9U
@@ -1414,6 +1417,166 @@ test_deploy_prefunded_programdata( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "deploy into prefunded programdata... ok" ));
 }
 
+/* SIMD-0688: a deploy is verified against the features of its own
+   slot while single_program_runtime_environment is active, and against
+   the features of the next slot while it is inactive.  The two differ
+   only at the last slot of an epoch, for a feature that activates at
+   the boundary and changes the syscall set or the accepted SBPF
+   versions. */
+
+#define TEST_LAST_SLOT (TEST_SLOTS_PER_EPOCH-1UL)
+
+/* put_feature writes the feature account at byte offset `offset` of
+   fd_features_t to the parent fork.  An active feature is also set in
+   the parent bank, as an earlier epoch boundary leaves it. */
+
+static void
+put_feature( test_env_t * env,
+             ulong        offset,
+             int          is_active ) {
+  fd_feature_t feature = { .is_active = (uchar)is_active, .activation_slot = 0UL };
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+                                   !fd_feature_iter_done( id );
+                               id = fd_feature_iter_next( id ) ) {
+    if( id->index!=(offset>>3) ) continue;
+    put_account( env->runtime->accdb, env->parent_fork, &id->id, 1UL,
+                 (uchar const *)&feature, sizeof(fd_feature_t),
+                 &fd_solana_feature_program_id, 0 );
+    if( is_active ) fd_features_set( &env->parent_bank->f.features, id, 0UL );
+    return;
+  }
+  FD_LOG_ERR(( "unknown feature offset %lu", offset ));
+}
+
+/* put_buffer writes a Buffer account holding elf to the parent fork. */
+
+static void
+put_buffer( test_env_t *  env,
+            uchar const * elf,
+            ulong         elf_sz ) {
+  ulong   dlen = BUFFER_METADATA_SIZE + elf_sz;
+  uchar * data = malloc( dlen );
+  FD_TEST( data );
+  fd_bpf_state_t state = {
+    .discriminant = FD_BPF_STATE_BUFFER,
+    .inner.buffer = { .authority_address = env->authority, .has_authority_address = 1 },
+  };
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &state, data, BUFFER_METADATA_SIZE, &out_sz ) );
+  memcpy( data+BUFFER_METADATA_SIZE, elf, elf_sz );
+  put_account( env->runtime->accdb, env->parent_fork, &test_buffer_key,
+               fd_rent_exempt_minimum_balance( &env->bank->f.rent, dlen ),
+               data, dlen, &fd_solana_bpf_loader_upgradeable_program_id, 0 );
+  free( data );
+}
+
+/* enter_child makes a new child of parent_idx at slot the executing
+   bank and returns its index. */
+
+static ulong
+enter_child( test_env_t * env,
+             ulong        parent_idx,
+             ulong        slot ) {
+  ulong child_idx = fd_svm_mini_attach_child( env->mini, parent_idx, slot );
+  env->bank    = fd_svm_mini_bank( env->mini, child_idx );
+  env->fork_id = fd_svm_mini_fork_id( env->mini, child_idx );
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->f.block_hash_queue, 12345UL );
+  fd_hash_t dummy_hash = {0};
+  fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
+  fd_blockhashes_push_new( bhq, &dummy_hash )->lamports_per_signature = 0UL;
+  return child_idx;
+}
+
+static void
+test_deploy_single_runtime_env( fd_svm_mini_t * mini ) {
+  ulong const gate_off   = offsetof( fd_features_t, single_program_runtime_environment );
+  ulong const sysvar_off = offsetof( fd_features_t, get_sysvar_syscall_enabled         );
+  ulong const no_v0_off  = offsetof( fd_features_t, disable_sbpf_v0_execution          );
+  int   const ok         = FD_EXECUTOR_INSTR_SUCCESS;
+  int   const bad        = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+
+  /* gate: 0 no account, 1 pending, 2 active.  pending is the feature
+     that activates at the epoch boundary.  The ELF either needs
+     sol_get_sysvar or is SBPF v0. */
+  struct { uint instr; ulong slot; int gate; ulong pending; int needs_sysvar; int err; } const cases[] = {
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT,     0, sysvar_off, 1, ok  },
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT,     1, sysvar_off, 1, ok  },
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT,     2, sysvar_off, 1, bad },
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT-1UL, 0, sysvar_off, 1, bad },
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT-1UL, 2, sysvar_off, 1, bad },
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT,     0, no_v0_off,  0, bad },
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT,     1, no_v0_off,  0, bad },
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT,     2, no_v0_off,  0, ok  },
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT-1UL, 0, no_v0_off,  0, ok  },
+    { FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN, TEST_LAST_SLOT-1UL, 2, no_v0_off,  0, ok  },
+    { FD_BPF_INSTR_UPGRADE,                  TEST_LAST_SLOT,     0, no_v0_off,  0, bad },
+    { FD_BPF_INSTR_UPGRADE,                  TEST_LAST_SLOT,     2, no_v0_off,  0, ok  },
+    { FD_BPF_INSTR_EXTEND_PROGRAM,           TEST_LAST_SLOT,     0, no_v0_off,  0, bad },
+    { FD_BPF_INSTR_EXTEND_PROGRAM,           TEST_LAST_SLOT,     2, no_v0_off,  0, ok  },
+  };
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    uchar const * elf    = cases[i].needs_sysvar ? sysvar_elf    : test_elf;
+    ulong         elf_sz = cases[i].needs_sysvar ? sysvar_elf_sz : test_elf_sz;
+
+    /* Upgrade and ExtendProgram act on a deployed program. */
+    if( cases[i].instr==FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN ) setup_env_undeployed( env, mini );
+    else                                                        setup_env           ( env, mini );
+    put_buffer ( env, elf, elf_sz );
+    put_feature( env, cases[i].pending, 0 );
+    if( cases[i].gate ) put_feature( env, gate_off, cases[i].gate==2 );
+
+    ulong child_idx = enter_child( env, env->parent_bank->idx, cases[i].slot );
+    FD_TEST( FD_FEATURE_ACTIVE_BANK( env->bank, single_program_runtime_environment )==( cases[i].gate==2 ) );
+    FD_TEST( !FD_FEATURE_ACTIVE_BANK_OFFSET( env->bank, cases[i].pending ) );
+    FD_TEST( ( env->bank->f.features.f[ cases[i].pending>>3 ]==cases[i].slot+1UL )==( cases[i].slot==TEST_LAST_SLOT && cases[i].gate!=2 ) );
+
+    uint const w  = FD_TXN_ACCT_CAT_WRITABLE;
+    uint const ws = FD_TXN_ACCT_CAT_WRITABLE|FD_TXN_ACCT_CAT_SIGNER;
+    fd_txn_p_t txn[1];
+    if( cases[i].instr==FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN ) {
+      struct __attribute__((packed)) { uint discriminant; ulong max_data_len; } instr_data = { cases[i].instr, elf_sz };
+      fd_pubkey_t const * accts[8] = { &env->payer, &env->programdata, &env->program, &test_buffer_key,
+                                       &fd_sysvar_rent_id, &fd_sysvar_clock_id,
+                                       &fd_solana_system_program_id, &env->authority };
+      uint                cats [8] = { ws, w, w, w, 0U, 0U, 0U, FD_TXN_ACCT_CAT_SIGNER };
+      build_loader_txn( env, txn, (uchar const *)&instr_data, sizeof(instr_data), accts, cats, 8UL );
+    } else if( cases[i].instr==FD_BPF_INSTR_UPGRADE ) {
+      uint instr_data = cases[i].instr;
+      fd_pubkey_t const * accts[7] = { &env->programdata, &env->program, &test_buffer_key, &env->payer,
+                                       &fd_sysvar_rent_id, &fd_sysvar_clock_id, &env->authority };
+      uint                cats [7] = { w, w, w, ws, 0U, 0U, FD_TXN_ACCT_CAT_SIGNER };
+      build_loader_txn( env, txn, (uchar const *)&instr_data, sizeof(instr_data), accts, cats, 7UL );
+    } else {
+      struct __attribute__((packed)) { uint discriminant; uint additional_bytes; } instr_data = { cases[i].instr, 4096U };
+      fd_pubkey_t const * accts[4] = { &env->programdata, &env->program, &fd_solana_system_program_id, &env->payer };
+      uint                cats [4] = { w, w, 0U, ws };
+      build_loader_txn( env, txn, (uchar const *)&instr_data, sizeof(instr_data), accts, cats, 4UL );
+    }
+
+    fd_txn_out_t * o = exec_single( env, txn );
+    FD_TEST( o->err.is_committable );
+    FD_TEST( ( o->err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS ? ok : o->err.exec_err )==cases[i].err );
+
+    /* A program deployed at the last slot of an epoch is first loaded
+       in the next epoch, against that epoch's features. */
+    if( cases[i].instr!=FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN ||
+        cases[i].slot!=TEST_LAST_SLOT || cases[i].err!=ok ) {
+      continue;
+    }
+    fd_svm_mini_freeze( mini, child_idx );
+    enter_child( env, child_idx, TEST_LAST_SLOT+1UL );
+    FD_TEST( FD_FEATURE_ACTIVE_BANK_OFFSET( env->bank, cases[i].pending ) );
+    build_invoke_txn( env, txn );
+    o = exec_single( env, txn );
+    FD_TEST( o->err.is_committable );
+    int not_deployed = o->err.txn_err==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR &&
+                       o->err.exec_err==FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    FD_TEST( not_deployed==( cases[i].pending==no_v0_off ) );
+  }
+  FD_LOG_NOTICE(( "deploy environment at the last slot of an epoch... ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1442,6 +1605,7 @@ main( int     argc,
   test_migration_upgrade_gates_invoke( mini );
   test_builtin_migration_prefunded_pd( mini );
   test_deploy_prefunded_programdata ( mini );
+  test_deploy_single_runtime_env    ( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

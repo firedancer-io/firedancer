@@ -126,21 +126,18 @@ deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
-  /* Agave uses the feature set from the next slot for deployment
-     verification (DELAY_VISIBILITY_SLOT_OFFSET = 1).  This matters at
-     epoch boundaries where features activate: a deployment at the last
-     slot of an epoch should see features that activate at the boundary.
-     https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank.rs#L3280-L3295 */
-  ulong deploy_slot = instr_ctx->bank->f.slot+1UL;
+  /* https://github.com/anza-xyz/agave/blob/v5.0.0-alpha.1/runtime/src/bank.rs#L2066-L2076 */
+  int   single_env  = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, single_program_runtime_environment );
+  ulong deploy_env_slot = instr_ctx->bank->f.slot + (single_env ? 0UL : 1UL);
 
   fd_vm_syscall_register_slot( syscalls,
-                               deploy_slot,
+                               deploy_env_slot,
                                &instr_ctx->bank->f.features,
                                1 );
 
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
-  fd_prog_versions_t versions = fd_prog_versions( &instr_ctx->bank->f.features, deploy_slot );
+  fd_prog_versions_t versions = fd_prog_versions( &instr_ctx->bank->f.features, deploy_env_slot );
 
   /* SIMD-0500: when active, restrict program deployment to SBPF v3+.
      Older SBPF versions remain executable.
