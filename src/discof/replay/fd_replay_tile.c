@@ -2302,6 +2302,8 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
 
   fd_vote_stakes_refresh( fd_bank_vote_stakes( bank ), bank->vote_stakes_fork_id, ctx->accdb, bank->accdb_fork_id );
 
+  if( FD_UNLIKELY( !fd_accdb_snapshot_load_written( ctx->accdb ) ) ) ctx->snapmk.base_slot = ULONG_MAX;
+
   ctx->snapshots_loading = 1;
   fd_sched_set_lthash_inband_only( ctx->sched, 1 );
 
