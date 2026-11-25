@@ -1087,7 +1087,7 @@ stream_after_credit( fd_snapct_tile_t *  ctx,
 
     case FD_SNAPCT_STATE_READING_STREAM: {
       if( FD_UNLIKELY( ctx->malformed ) ) {
-        FD_LOG_WARNING(( "the fast boot server at " FD_IP4_ADDR_FMT ":%hu did not answer, picking again",
+        FD_LOG_WARNING(( "the fast boot server at " FD_IP4_ADDR_FMT ":%hu did not serve the stream, picking again",
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
         ctx->malformed = 0;
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
@@ -1095,28 +1095,7 @@ stream_after_credit( fd_snapct_tile_t *  ctx,
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->flush_ack = 0;
         set_state( ctx, FD_SNAPCT_STATE_FLUSHING_STREAM_RESET );
-        break;
       }
-
-      if( FD_LIKELY( now<=ctx->deadline_nanos ) ) break;
-
-      fd_sspeer_t   server          = fd_sspeer_selector_query( ctx->selector, &ctx->peer.key );
-      int           has_incremental = server.incr_slot!=FD_SSPEER_SLOT_UNKNOWN;
-      ulong         stream_slot     = has_incremental ? server.incr_slot : server.full_slot;
-      uchar const * stream_hash     = has_incremental ? server.incr_hash : server.full_hash;
-      if( FD_LIKELY( !server.addr.l ||
-                     (stream_slot==ctx->fast_boot.stream_slot &&
-                      !memcmp( stream_hash, ctx->fast_boot.stream_hash, FD_HASH_FOOTPRINT )) ) ) {
-        FD_LOG_NOTICE(( "the server has not opened the fast boot stream at slot %lu yet", ctx->fast_boot.stream_slot ));
-        ctx->deadline_nanos = now+FD_SNAPCT_STREAM_ABSENT_NS;
-        break;
-      }
-
-      FD_LOG_NOTICE(( "the server has no fast boot stream at slot %lu, asking for the one at slot %lu",
-                      ctx->fast_boot.stream_slot, stream_slot ));
-      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
-      ctx->flush_ack = 0;
-      set_state( ctx, FD_SNAPCT_STATE_FLUSHING_STREAM_RESET );
       break;
     }
 

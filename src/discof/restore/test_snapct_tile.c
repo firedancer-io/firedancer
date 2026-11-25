@@ -753,35 +753,26 @@ test_stream_instance_init( void ) {
   FD_TEST( ctx->start_sent && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
   FD_TEST( !strcmp( test_start.path, "/fast-boot-stream-150-29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2.tar.zst" ) );
 
-  /* No META yet: once the wait is up the server's snapshots are
-     looked at again.  The same ones, or the server gone from the
-     selector: the wait starts over. */
+  /* No META yet and nothing failed: the load waits, however long. */
   published = test_publish_cnt;
   now       = fd_clock_tile_now( ctx->clock );
-  FD_TEST( ctx->deadline_nanos>now && ctx->deadline_nanos<=now+FD_SNAPCT_STREAM_ABSENT_NS );
+  ctx->deadline_nanos = 1L;
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && test_publish_cnt==published );
-  ctx->deadline_nanos = 0L;
-  after_credit( ctx, NULL, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->deadline_nanos>now && test_publish_cnt==published );
-  after_credit( ctx, NULL, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && test_publish_cnt==published );
-  fd_sspeer_selector_remove( ctx->selector, &key );
-  fd_sspeer_selector_process_cluster_slot( ctx->selector );
-  ctx->deadline_nanos = 0L;
-  after_credit( ctx, NULL, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPCT_STATE_READING_STREAM && ctx->deadline_nanos>now && test_publish_cnt==published );
 
-  /* The server now has an incremental at slot 160: the stream load
-     is failed and, once snapld has acked, started again at 160.
-     While the reset is acked, data, an error and a stale INIT ack
-     are ignored; only the FAIL acks count, one per path. */
+  /* The server has no stream at slot 150: it is set aside, the stream
+     load is failed and, once snapld has acked, the pick is made
+     again.  By then the server is listed again with an incremental
+     at slot 160.  While the reset is acked, data, an error and a
+     stale INIT ack are ignored; only the FAIL acks count, one per
+     path. */
+  ctx->malformed = 1;
+  after_credit( ctx, NULL, NULL, &busy );
+  FD_TEST( !fd_sspeer_selector_query( ctx->selector, &key ).addr.l && !ctx->malformed );
+  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && test_publish_cnt==published+1UL && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
   uchar incr_hash2[ FD_HASH_FOOTPRINT ]; memset( incr_hash2, 0x44, FD_HASH_FOOTPRINT );
   fd_sspeer_selector_add( ctx->selector, &key, ctx->resolved_servers[ 0 ].addr, 5000UL, 100UL, 160UL, full_hash, incr_hash2 );
   fd_sspeer_selector_process_cluster_slot( ctx->selector );
-  ctx->deadline_nanos = 0L;
-  after_credit( ctx, NULL, NULL, &busy );
-  FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && test_publish_cnt==published+1UL && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && test_publish_cnt==published+1UL );
   ctx->flush_ack_cnt = 2;
@@ -844,17 +835,14 @@ test_stream_instance_init( void ) {
   FD_TEST( test_publish_sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL && init->slot==200UL && init->snapshot_hash[ 0 ]==0x33 );
   FD_TEST( !strcmp( ctx->http_full_snapshot_name, "fast-boot-stream-200-4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4.tar.zst" ) );
 
-  /* The server moves on again before the stream answered, and the
+  /* The stream request fails before the stream answered, and the
      answer arrives while the reset is being acked: the fail was too
      late.  The stream is kept, the snapct behind it is told the
      stream that answered and the wait is over. */
   snapld_frag( ctx, FD_SNAPSHOT_MSG_CTRL_INIT_FULL, 0UL, 0UL, NULL );
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->start_sent && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_START );
-  memset( incr_hash, 0x55, FD_HASH_FOOTPRINT );
-  fd_sspeer_selector_add( ctx->selector, &key, ctx->resolved_servers[ 0 ].addr, 5000UL, 200UL, 250UL, full_hash, incr_hash );
-  fd_sspeer_selector_process_cluster_slot( ctx->selector );
-  ctx->deadline_nanos = 0L;
+  ctx->malformed = 1;
   published = test_publish_cnt;
   after_credit( ctx, NULL, NULL, &busy );
   FD_TEST( ctx->state==FD_SNAPCT_STATE_FLUSHING_STREAM_RESET && test_publish_cnt==published+1UL && test_publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );

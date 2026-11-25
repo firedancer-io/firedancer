@@ -666,19 +666,12 @@ after_credit( fd_snapld_tile_t *  ctx,
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       case FD_SSHTTP_ADVANCE_NOT_FOUND:
-        if( FD_LIKELY( ctx->fast_boot_stream.active ) ) {
-          /* The stream has not opened yet, or it ended and nothing
-             follows it yet.  The server sends us on once the next
-             one opens. */
-          if( FD_UNLIKELY( ctx->fast_boot_stream.off && !ctx->fast_boot_stream.caught_up ) ) {
-            FD_LOG_WARNING(( "the fast boot stream at slot %lu is gone from the server before it was read in full", ctx->fast_boot_stream.slot ));
-            transition_malformed( ctx, stem );
-            break;
-          }
+        if( FD_LIKELY( ctx->fast_boot_stream.caught_up ) ) {
           ctx->fast_boot_stream.wait = now+FD_SNAPLD_STREAM_RETRY_NS;
           break;
         }
-        FD_LOG_WARNING(( "%s snapshot not found at the peer", ctx->load_full ? "full" : "incremental" ));
+        FD_LOG_WARNING(( "%s not found at the peer",
+                         ctx->fast_boot_stream.active ? "fast boot stream" : ctx->load_full ? "full snapshot" : "incremental snapshot" ));
         transition_malformed( ctx, stem );
         break;
       case FD_SSHTTP_ADVANCE_ERROR:

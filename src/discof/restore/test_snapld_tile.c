@@ -397,8 +397,9 @@ retry_now( fd_snapld_tile_t * ctx ) {
 
 /* A fast boot stream: a response holds what the server has (read
    that far is reported once as caught up) and then what the stream
-   grows by, until the server closes the connection.  A 404 means the
-   stream ended with nothing after it yet, and a redirect sends the
+   grows by, until the server closes the connection.  A 404 before
+   that fails the load; after it, a 404 means the stream ended with
+   nothing after it yet, and a redirect sends the
    peer on to the next stream, which must be newer than the one that
    ended.  A request that ends is asked again from the offset, only a
    SHUTDOWN ends the load. */
@@ -442,14 +443,16 @@ test_stream( void ) {
   publish_cnt = init_cnt = 0UL;
   init_stream_download( ctx, input, &sa, 123UL, name );
   FD_TEST( init_cnt==1UL );
-  ulong meta_chunk = ctx->out_dc.chunk; /* META goes out next */
 
-  /* No stream at the server yet: ask again later. */
+  /* No stream at the server: the load fails, as for a snapshot. */
   serve_one( ctx, server, get, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
-  drive_until( ctx, &init_cnt, 1UL );
-  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && ctx->fast_boot_stream.wait!=LONG_MAX && publish_cnt==1UL );
-  ctx->fast_boot_stream.wait = 0L;
+  drive_until( ctx, &publish_cnt, 2UL );
+  FD_TEST( publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR && ctx->state==FD_SNAPSHOT_STATE_ERROR && !ctx->sent_meta );
+  FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
+  publish_cnt = init_cnt = 0UL;
+  init_stream_download( ctx, input, &sa, 123UL, name );
+  FD_TEST( init_cnt==1UL );
+  ulong meta_chunk = ctx->out_dc.chunk; /* META goes out next */
 
   /* The server had 12 bytes and the connection drops after 8: not
      caught up, asked again from the offset. */
@@ -665,13 +668,13 @@ test_stream_fail( void ) {
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_START, 0UL, sizeof(*start), 0UL, 0UL, 0UL, NULL ) );
   FD_TEST( ctx->pipeline_ready && init_cnt==1UL && publish_cnt==1UL );
 
-  /* No answer yet: the FAIL resets the load and goes down the
-     pipeline. */
+  /* No stream at the server: the load fails, the FAIL resets it and
+     goes down the pipeline. */
   serve_one( ctx, server, "GET /fast-boot-stream-123-x.tar.zst HTTP/1.1", "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n" );
-  for( int i=0; i<100; i++ ) woken_credit( ctx, &busy );
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING && !ctx->sent_meta && publish_cnt==1UL );
+  drive_until( ctx, &publish_cnt, 2UL );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_ERROR && !ctx->sent_meta && publish_sig==FD_SNAPSHOT_MSG_CTRL_ERROR );
   FD_TEST( !returnable_frag( ctx, 0UL, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL, NULL ) );
-  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE && !ctx->pipeline_ready && publish_cnt==2UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
+  FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE && !ctx->pipeline_ready && publish_cnt==3UL && publish_sig==FD_SNAPSHOT_MSG_CTRL_FAIL );
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT && http->sockfd==-1 );
 
   /* The stream answered: a FAIL is late and ignored. */
