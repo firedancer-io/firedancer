@@ -1200,7 +1200,7 @@ test_pending_control_keeps_frame_order( void ) {
 static void
 test_error_interrupts_incremental_init( void ) {
   fd_snapin_tile_t * ctx = test_ctx;
-  uchar init_mem[ 2UL ][ FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar init_mem[ 2UL ][ FD_ULONG_ALIGN_UP( sizeof(fd_ssctrl_init_t), FD_CHUNK_ALIGN ) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_memset( init_mem, 0, sizeof(init_mem) );
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_IDLE );
   ctx->in[0].wksp          = (fd_wksp_t *)init_mem[0];
@@ -1326,7 +1326,7 @@ test_fail_supersedes_pending_controls( void ) {
 static void
 test_initialized_incremental_fail_rolls_back( void ) {
   fd_snapin_tile_t * ctx = test_ctx;
-  uchar init_mem[ 2UL ][ FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar init_mem[ 2UL ][ FD_ULONG_ALIGN_UP( sizeof(fd_ssctrl_init_t), FD_CHUNK_ALIGN ) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_memset( init_mem, 0, sizeof(init_mem) );
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_IDLE );
   ctx->in[0].wksp          = (fd_wksp_t *)init_mem[0];
@@ -1568,7 +1568,7 @@ test_malformed_stream_endings( void ) {
 static void
 test_init_resets_lane_state( void ) {
   fd_snapin_tile_t * ctx = test_ctx;
-  uchar init_mem[ 2UL ][ FD_CHUNK_SZ ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar init_mem[ 2UL ][ FD_ULONG_ALIGN_UP( sizeof(fd_ssctrl_init_t), FD_CHUNK_ALIGN ) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
   fd_memset( init_mem, 0, sizeof(init_mem) );
   sync_ctx_init( ctx, 2UL, FD_SNAPSHOT_STATE_IDLE );
   ctx->in[0].wksp      = (fd_wksp_t *)init_mem[0];
