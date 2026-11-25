@@ -761,9 +761,8 @@ alpenglow_marker:
       }
       return;
     }
-    /* ctx->shred_limit is the smallest per-slot max_shred_idx, so no
-       later parse is stricter.  The result may be garbage if the frag
-       is overrun meanwhile, which the stem detects before after_frag. */
+    /* Parse against the allocated capacity.  The resolver checks the
+       slot-specific limit after the stem checks for an overrun. */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz, ctx->shred_limit );
     if( FD_UNLIKELY( !shred ) ) {
       /* shred:0 is responsible for incrementing the stats on these failed parses. */

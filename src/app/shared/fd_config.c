@@ -428,7 +428,9 @@ fd_config_fill( fd_config_t * config,
   fd_config_validate( config );
 
   config->limits.max_cost_per_block   = fd_ulong_if( !!config->development.bench.max_cost_per_block,   config->development.bench.max_cost_per_block,   FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND );
-  config->limits.max_shreds_per_block = fd_ulong_if( !!config->development.bench.max_shreds_per_block, config->development.bench.max_shreds_per_block, FD_SHRED_BLK_MAX );
+  /* An unknown genesis can use the 400ms shred budget even at 200ms. */
+  ulong min_shred_capacity = config->is_live_cluster ? FD_SHRED_BLK_MAX : FD_SHRED_PROTOCOL_BLK_MAX;
+  config->limits.max_shreds_per_block = fd_ulong_max( config->development.bench.max_shreds_per_block, min_shred_capacity );
   config->limits.max_txn_per_slot     = fd_ulong_min( config->limits.max_cost_per_block/FD_PACK_MIN_TXN_COST,
                                                       (config->limits.max_shreds_per_block*FD_SHRED_DATA_PAYLOAD_MAX - 65UL*sizeof(fd_entry_batch_header_t))/FD_TXN_MIN_SERIALIZED_SZ ); /* 64 ticks + one giant microblock */
   if( FD_LIKELY( !config->development.bench.max_cost_per_block && !config->development.bench.max_shreds_per_block ) ) FD_TEST( config->limits.max_txn_per_slot==FD_MAX_TXN_PER_SLOT );
