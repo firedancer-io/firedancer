@@ -910,7 +910,8 @@ static inline int
 fd_txn_ctx_push( fd_runtime_t *      runtime,
                  fd_txn_in_t const * txn_in,
                  fd_txn_out_t *      txn_out,
-                 fd_instr_info_t *   instr ) {
+                 fd_instr_info_t *   instr,
+                 int                 detect_overflow_early ) {
   /* Earlier checks in the permalink are redundant since Agave maintains instr stack and trace accounts separately
      https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L327-L328 */
   ulong starting_lamports_h = 0UL;
@@ -957,7 +958,12 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
      allocates out of the trace array, they are also responsible for
      incrementing the trace length variable.
      https://github.com/anza-xyz/agave/blob/v2.0.0/sdk/src/transaction_context.rs#L347-L351 */
-  if( FD_UNLIKELY( runtime->instr.trace_length>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+  ulong trace_length = runtime->instr.trace_length;
+  if( detect_overflow_early ) {
+    /* https://github.com/anza-xyz/agave/blob/v5.0.0-alpha.1/transaction-context/src/transaction.rs#L570-L585 */
+    trace_length += (ulong)TXN( txn_in->txn )->instr_cnt - (ulong)runtime->instr.current_idx - 1UL;
+  }
+  if( FD_UNLIKELY( trace_length>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
   }
 
@@ -993,6 +999,7 @@ fd_txn_ctx_push( fd_runtime_t *      runtime,
    https://github.com/anza-xyz/agave/blob/v2.0.0/program-runtime/src/invoke_context.rs#L246-L290 */
 int
 fd_instr_stack_push( fd_runtime_t *      runtime,
+                     fd_bank_t const *   bank,
                      fd_txn_in_t const * txn_in,
                      fd_txn_out_t *      txn_out,
                      fd_instr_info_t *   instr ) {
@@ -1039,7 +1046,8 @@ fd_instr_stack_push( fd_runtime_t *      runtime,
   }
   /* Push the instruction onto the stack
      https://github.com/anza-xyz/agave/blob/v2.0.0/program-runtime/src/invoke_context.rs#L289 */
-  return fd_txn_ctx_push( runtime, txn_in, txn_out, instr );
+  int detect_overflow_early = FD_FEATURE_ACTIVE_BANK( bank, early_instruction_trace_overflow_detection );
+  return fd_txn_ctx_push( runtime, txn_in, txn_out, instr, detect_overflow_early );
 }
 
 /* Pops an instruction from the instruction stack. Agave's implementation performs instruction balancing checks every time pop is called,
@@ -1113,7 +1121,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
   else                                         runtime->metrics.instr_cum++;
 
   fd_sysvar_cache_t const * sysvar_cache = runtime->sysvar_cache;
-  int instr_exec_result = fd_instr_stack_push( runtime, txn_in, txn_out, instr );
+  int instr_exec_result = fd_instr_stack_push( runtime, bank, txn_in, txn_out, instr );
   if( FD_UNLIKELY( instr_exec_result ) ) {
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
     FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );

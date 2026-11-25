@@ -2181,6 +2181,87 @@ test_stack_depth_limit( fd_svm_mini_t * mini ) {
   }
 }
 
+/* run_trace_cpi does one CPI from top-level instruction 0 of a
+   transaction with instr_cnt top-level instructions, after cpi_cnt
+   earlier CPIs.  early selects the instruction trace limit rule.
+   Returns the CPI result and the compute units it used in *cu_used. */
+
+static int
+run_trace_cpi( fd_svm_mini_t * mini,
+               int             rust_abi,
+               int             early,
+               ushort          instr_cnt,
+               ulong           cpi_cnt,
+               ulong *         cu_used ) {
+  cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
+  env_build( mini, cfg );
+  fd_vm_t *      vm = mini->vm;
+  fd_runtime_t * rt = mini->runtime;
+
+  static fd_txn_p_t  txn_p[1];
+  static fd_txn_in_t txn_in[1];
+  memset( txn_p,  0, sizeof(txn_p)  );
+  memset( txn_in, 0, sizeof(txn_in) );
+  TXN( txn_p )->instr_cnt = instr_cnt;
+  txn_in->txn             = txn_p;
+  rt->instr.stack[0].txn_in = txn_in;
+
+  vm->instr_ctx->bank->f.features.early_instruction_trace_overflow_detection = early ? 0UL : FD_FEATURE_DISABLED;
+
+  rt->instr.trace_length = 1UL + cpi_cnt;
+
+  ulong instr_va, infos_va, n_infos;
+  if( rust_abi ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
+  else           c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
+
+  cpi_syscall_fn_t fn = rust_abi ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
+  ulong cu0 = vm->cu;
+  int   got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
+  *cu_used = cu0 - vm->cu;
+  return got;
+}
+
+static void
+test_trace_overflow_early( fd_svm_mini_t * mini ) {
+  static const struct {
+    ushort instr_cnt;
+    ulong  cpi_cnt;
+    int    early;
+    int    want;
+  } cases[] = {
+    /* 64 top-level instructions leave no room for a CPI */
+    { 64,  0UL, 0, FD_VM_SUCCESS                                      },
+    { 64,  0UL, 1, FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED },
+    /* 63 top-level instructions leave room for one CPI */
+    { 63,  0UL, 1, FD_VM_SUCCESS                                      },
+    { 63,  1UL, 0, FD_VM_SUCCESS                                      },
+    { 63,  1UL, 1, FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED },
+    /* The last top-level instruction: both rules agree */
+    {  1, 62UL, 0, FD_VM_SUCCESS                                      },
+    {  1, 62UL, 1, FD_VM_SUCCESS                                      },
+    {  1, 63UL, 0, FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED },
+    {  1, 63UL, 1, FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED },
+  };
+
+  for( int abi=0; abi<2; abi++ ) {
+    for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+      ulong cu_used;
+      int got = run_trace_cpi( mini, abi==0, cases[i].early, cases[i].instr_cnt, cases[i].cpi_cnt, &cu_used );
+      if( FD_UNLIKELY( got!=cases[i].want ) ) {
+        FD_LOG_ERR(( "test_trace_overflow_early: case=%lu abi=%s want=%d got=%d", i, abi==0?"rust":"c", cases[i].want, got ));
+      }
+    }
+
+    /* A CPI over the limit is charged the same under both rules */
+    ulong cu_late;
+    ulong cu_early;
+    FD_TEST( run_trace_cpi( mini, abi==0, 0,  1, 63UL, &cu_late  )==FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED );
+    FD_TEST( run_trace_cpi( mini, abi==0, 1, 64,  0UL, &cu_early )==FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED );
+    FD_TEST( cu_late>0UL );
+    FD_TEST( cu_late==cu_early );
+  }
+}
+
 static void
 test_sequential_cpis( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
@@ -2391,6 +2472,7 @@ main( int argc, char ** argv ) {
 
   /* ===== Stack depth / sequential ===== */
   test_stack_depth_limit                  ( mini );
+  test_trace_overflow_early               ( mini );
   test_sequential_cpis                    ( mini );
   test_sequential_cpis_state_visible      ( mini );
   test_sequential_cpis_modify_same_account( mini );
