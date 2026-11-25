@@ -4,6 +4,7 @@
 #if defined(__linux__)
 
 #include "fd_mlx5.h"
+#include "../fd_net_tile.h"
 
 /* fd_mlx5 sets up raw mlx5 resources through Linux uverbs.  It does not
    depend on libibverbs or libmlx5.
@@ -99,27 +100,31 @@ typedef struct fd_mlx5_cq fd_mlx5_cq_t;
 /* fd_mlx5_rwq owns one standalone Linux receive WQ. */
 struct fd_mlx5_rwq {
   fd_mlx5_rq_wqe_t * rq;
-  fd_mlx5_cq_t *     rx_cq;
+  fd_mlx5_cq_t       rx_cq;
   uint               depth;
   uint               rq_prod;
   uint               rq_cons;
   uint *             rq_wqe_buf_chunk;
+  uint               rq_pending_cnt;
+  uint               rq_pending_chunk[ FD_MLX5_BATCH_SIZE ];
 
-  fd_mlx5_rwq_control_t *   control;
-  uint                      handle;
-  uint                      wqn;
+  fd_mlx5_rwq_control_t * control;
+  uint                    handle;
+  uint                    wqn;
 };
 typedef struct fd_mlx5_rwq fd_mlx5_rwq_t;
 
 /* fd_mlx5_tx_qp owns one send-only raw-packet QP. */
 struct fd_mlx5_tx_qp {
   fd_mlx5_sq_wqe_t *     sq;
-  fd_mlx5_cq_t *         tx_cq;
+  fd_mlx5_cq_t           tx_cq;
   uint                   depth;
   uint                   sq_prod;
   uint                   sq_posted;
   uint                   sq_cons;
   uint *                 sq_wqe_frame_sz;
+  uint *                 sq_wqe_buf_chunk; /* maps SQ WQEs to packet buffers */
+  long                   sq_flush_deadline_ticks;
 
   fd_mlx5_qp_control_t * control;
   volatile uchar *       sq_doorbell;      /* points to the SQ doorbell register in a non-cached UAR mapping. */
@@ -127,7 +132,6 @@ struct fd_mlx5_tx_qp {
   uint                   handle;           /* identifies this QP in later Linux uverbs commands. */
   uint                   qpn;              /* identifies this QP to the NIC. */
   uchar                  tx_inline_hdr_sz; /* number of Ethernet header bytes copied into each SQ WQE. */
-
 };
 typedef struct fd_mlx5_tx_qp fd_mlx5_tx_qp_t;
 
@@ -140,8 +144,6 @@ typedef struct fd_mlx5_rss_qp fd_mlx5_rss_qp_t;
 /* fd_mlx5_uverbs_tile identifies one tile's queues and packet-memory region
    during shared uverbs initialization. */
 struct fd_mlx5_uverbs_tile {
-  fd_mlx5_cq_t *    rx_cq;
-  fd_mlx5_cq_t *    tx_cq;
   fd_mlx5_rwq_t *   rwq;
   fd_mlx5_tx_qp_t * tx_qp;
   uint *            lkey;

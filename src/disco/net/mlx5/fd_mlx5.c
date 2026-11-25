@@ -1178,7 +1178,7 @@ fd_uverbs_create_tx_qp( fd_uverbs_ctx_t * uverbs,
                         fd_mlx5_pd_t *    pd,
                         uint              tx_cq_handle,
                         uint              uar_page_id ) {
-  if( FD_UNLIKELY( !uverbs || !tx_qp || !tx_qp->tx_cq || !tx_qp->sq ||
+  if( FD_UNLIKELY( !uverbs || !tx_qp || !tx_qp->sq ||
                    !tx_qp->control || !pd || pd->ctx!=uverbs ) ) {
     errno = EINVAL;
     return NULL;
@@ -1489,10 +1489,9 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
   }
   for( ulong i=0UL; i<tile_cnt; i++ ) {
     fd_mlx5_uverbs_tile_t const * tile = tiles+i;
-    if( FD_UNLIKELY( !tile->rx_cq || !tile->tx_cq || !tile->rwq || !tile->tx_qp || !tile->lkey ||
-                     !tile->packet_memory || !tile->packet_memory_sz || !tile->rwq->rq ||
-                     !tile->rwq->control || tile->rwq->rx_cq!=tile->rx_cq || tile->tx_qp->tx_cq!=tile->tx_cq ||
-                     tile->rwq->depth!=tile->rx_cq->depth || tile->tx_qp->depth!=tile->tx_cq->depth ) ) {
+    if( FD_UNLIKELY( !tile->rwq || !tile->tx_qp || !tile->lkey || !tile->packet_memory || !tile->packet_memory_sz ||
+                     !tile->rwq->rq || !tile->rwq->control || tile->rwq->depth!=tile->rwq->rx_cq.depth ||
+                     tile->tx_qp->depth!=tile->tx_qp->tx_cq.depth ) ) {
       errno = EINVAL;
       return NULL;
     }
@@ -1529,8 +1528,8 @@ fd_uverbs_init( fd_uverbs_ctx_t *       uverbs,
     uint rx_cq_handle;
     uint tx_cq_handle;
     if( FD_UNLIKELY( !fd_uverbs_alloc_uar( uverbs, &uar_page_id, &tx_qp->uar_mmap_offset )                                                       ||
-                     !fd_uverbs_create_cq( &rx_cq_handle, uverbs, tile->rx_cq, rx_comp_channel_fd, uar_page_id, caps->max_cqe )                  ||
-                     !fd_uverbs_create_cq( &tx_cq_handle, uverbs, tile->tx_cq, -1, uar_page_id, caps->max_cqe )                                  ||
+                     !fd_uverbs_create_cq( &rx_cq_handle, uverbs, &rwq->rx_cq, rx_comp_channel_fd, uar_page_id, caps->max_cqe )                  ||
+                     !fd_uverbs_create_cq( &tx_cq_handle, uverbs, &tx_qp->tx_cq, -1, uar_page_id, caps->max_cqe )                                ||
                      !fd_uverbs_register_mr( tile->lkey, pd, tile->packet_memory, tile->packet_memory_sz, tile->packet_iova, caps->max_mr_size ) ||
                      !fd_uverbs_create_tx_qp( uverbs, tx_qp, pd, tx_cq_handle, uar_page_id )                                                     ||
                      !fd_uverbs_start_tx_qp( uverbs, tx_qp )                                                                                     ||
