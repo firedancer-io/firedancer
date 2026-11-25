@@ -85,7 +85,8 @@ test_messages( fd_rng_t *    rng,
      y=p (noncanonical zero), y=p-1 (order 2), y=p+1 (noncanonical
      identity), an order 8 point, all ones, then every small-order
      point [n]T8 with both sign bits, x=0 encodings with sign=1, and
-     further noncanonical y with each sign bit. */
+     further noncanonical y with sign=1, each a distinct point or
+     decode failure. */
 #define EDGE_CNT (32UL)
   uchar enc[EDGE_CNT][32] = {{0}};
   enc[1][0] = 1; enc[2][0] = 2;
@@ -110,7 +111,7 @@ test_messages( fd_rng_t *    rng,
   fd_memcpy( enc[26], enc[5], 32UL ); enc[26][31] |= 0x80;       /* y=p+1, sign=1 */
   fd_memcpy( enc[27], enc[3], 32UL ); enc[27][31] |= 0x80;       /* y=p, sign=1: x=0 */
   fd_memcpy( enc[28], enc[7], 32UL ); enc[28][31] = 0x7f;        /* y=2^255-1 */
-  fd_memcpy( enc[29], enc[5], 32UL ); enc[29][0] = 0xef;         /* y=p+2: noncanonical, no square root */
+  fd_memcpy( enc[29], enc[5], 32UL ); enc[29][0] = 0xef; enc[29][31] |= 0x80; /* y=p+2, sign=1: noncanonical, no square root */
   fd_hex_decode( enc[30], "0000000000000000000000000000000000000000000000000000000000000080", 32UL );
   fd_hex_decode( enc[31], "f0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32UL ); /* y=p+3, sign=1 */
   for( ulong lane=0; lane<TEST_MAX; lane++ ) {

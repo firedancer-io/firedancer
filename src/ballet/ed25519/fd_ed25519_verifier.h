@@ -97,7 +97,11 @@ fd_ed25519_verifier_verify( fd_ed25519_verifier_t * verifier,
 /* fd_ed25519_verifier_verify_sigs sets results[j] to what
    fd_ed25519_verify returns for (msgs[j], msg_szs[j], sigs[j],
    public_keys[j]), for j in [0,sig_cnt), sig_cnt in
-   [1,FD_ED25519_VERIFIER_SIG_MAX] (asserted). */
+   [1,FD_ED25519_VERIFIER_SIG_MAX] (asserted), error precedence
+   included, for every input and cache state.  The input requirements
+   are fd_ed25519_verify_batch8's: inputs may alias each other but not
+   results, and only results[0,sig_cnt) and the verifier are written.
+   A verifier is used by one thread at a time. */
 
 void
 fd_ed25519_verifier_verify_sigs( fd_ed25519_verifier_t * verifier,
