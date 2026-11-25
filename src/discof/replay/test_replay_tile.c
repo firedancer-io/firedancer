@@ -316,9 +316,10 @@ static fd_hash_t         mock_footer_poh;
 #define fd_sched_get_footer(s,b)     (mock_footer_finalize ? mock_footer : ( mock_snapshot_boot || !(s) ) ? NULL : (fd_sched_get_footer)(s,b))
 static fd_lthash_value_t mock_sched_lthash_delta[ 1 ];
 #define fd_sched_lthash_delta(s,b)   ((mock_footer_finalize || !(s)) ? mock_sched_lthash_delta : (fd_sched_lthash_delta)(s,b))
-static int mock_footer_verify; /* mocked finalize still verifies certs */
+static int mock_footer_verify; /* the mocked finalize and the inline cert verify still check certs */
 #define fd_alpenglow_producer_time_bounds(b,a,l,h) do { if( mock_footer_finalize ) { *(l) = 0L; *(h) = LONG_MAX; } else (fd_alpenglow_producer_time_bounds)(b,a,l,h); } while(0)
 #define fd_runtime_block_execute_finalize(b,a,c,f,s,g) (mock_footer_finalize ? ( mock_footer_verify && (f) ? fd_alpenglow_footer_verify(b,f,s,g) : 0 ) : (fd_runtime_block_execute_finalize)(b,a,c,f,s,g))
+#define fd_alpenglow_cert_verify(b,c,t,q,s,g,h,o)      (mock_footer_finalize && !mock_footer_verify ? 0 : (fd_alpenglow_cert_verify)(b,c,t,q,s,g,h,o))
 static int mock_footer_plan_final; /* the mocked plan has a finalization cert to apply */
 static int
 mock_footer_begin_fn( fd_alpenglow_rewards_plan_t * plan ) {
@@ -437,6 +438,11 @@ setup_timing( fd_replay_tile_t * ctx,
   FD_TEST( ctx->timing_slot_pool );
   ctx->timing_rec = fd_wksp_alloc_laddr( wksp, alignof(fd_replay_txn_timing_t), FD_REPLAY_TXN_TIMING_SLOTS*ctx->max_txn_per_slot*sizeof(fd_replay_txn_timing_t), 1UL );
   FD_TEST( ctx->timing_rec );
+  ctx->task_rec = fd_wksp_alloc_laddr( wksp, alignof(fd_replay_task_timing_t), FD_REPLAY_TXN_TIMING_SLOTS*FD_REPLAY_TASK_TIMING_MAX*sizeof(fd_replay_task_timing_t), 1UL );
+  FD_TEST( ctx->task_rec );
+  ctx->ref_rec = fd_wksp_alloc_laddr( wksp, alignof(fd_replay_lthash_ref_t), FD_REPLAY_TXN_TIMING_SLOTS*FD_REPLAY_LTHASH_REF_MAX*sizeof(fd_replay_lthash_ref_t), 1UL );
+  FD_TEST( ctx->ref_rec );
+  for( ulong i=0UL; i<FD_SCHED_MAX_EXEC_TILE_CNT; i++ ) ctx->task_pending[ i ].bank_idx = ULONG_MAX;
   ctx->timing_slot_of_bank = test_timing_of_bank;
   for( ulong i=0UL; i<TEST_BANKS_MAX; i++ ) ctx->timing_slot_of_bank[ i ] = fd_timing_slot_pool_idx_null( ctx->timing_slot_pool );
 }
@@ -794,6 +800,7 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   fd_acct_addr_t acct[ 2 ];
   memset( acct,   0xa5, sizeof(fd_acct_addr_t) );
   memset( acct+1, 0x5a, sizeof(fd_acct_addr_t) );
+  uint refs[ 2 ] = { FD_SCHED_LTHASH_REF( 0UL, 0UL ), FD_SCHED_LTHASH_REF( 0UL, 1UL ) };
   ulong exec_out_idx = ctx->exec_out[ 0 ].idx;
 
   /* A request per LtHash kind carries the task's accounts, is
@@ -806,6 +813,7 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   task->lthash->exec_idx = 0UL;
   task->lthash->cnt      = 1UL;
   task->lthash->accts    = acct;
+  task->lthash->refs     = refs;
   ulong chunk = ctx->exec_out[ 0 ].chunk;
   dispatch_task( ctx, test_stem, task );
   FD_TEST( bank->refcnt==1UL );
@@ -933,6 +941,154 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   bank->cost_tracker_fork_id = USHORT_MAX;
 
   FD_LOG_NOTICE(( "pass: test_lthash_oob_routing" ));
+}
+
+/* On a node that reports them, exec tile tasks other than transactions
+   are recorded one entry each, in completion order, and the accounts
+   the LtHash tasks hashed are listed in that same order.  The capture
+   drops what does not fit, and records nothing for a bank without a
+   capture lease.  The event carries tasks, references and the per
+   transaction tile indices, which a leader block leaves at 0.  A node
+   not reporting them records only transactions. */
+static void
+test_task_timing( fd_wksp_t * wksp ) {
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  static fd_execrp_result_t result[ 1 ];
+  ctx->execrp_result        = result;
+  ctx->report_non_txn_tasks = 1;
+
+  fd_bank_t * bank = fd_banks_root( ctx->banks );
+  FD_TEST( bank );
+  bank->refcnt = 0UL;
+  timing_slot_acquire( ctx, bank->idx );
+  ulong tslot = ctx->timing_slot_of_bank[ bank->idx ];
+  FD_TEST( tslot!=fd_timing_slot_pool_idx_null( ctx->timing_slot_pool ) );
+  fd_replay_txn_timing_slot_t * slot = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
+  fd_replay_task_timing_t *     rec  = ctx->task_rec+tslot*FD_REPLAY_TASK_TIMING_MAX;
+  fd_replay_lthash_ref_t *      ref  = ctx->ref_rec +tslot*FD_REPLAY_LTHASH_REF_MAX;
+  FD_TEST( !slot->task_cnt && !slot->ref_cnt );
+
+  fd_acct_addr_t acct[ 2 ]; memset( acct, 0xa5, sizeof(acct) );
+  uint refs[ 2 ] = { FD_SCHED_LTHASH_REF( 7UL, 3UL ), FD_SCHED_LTHASH_REF_NONE };
+  fd_execrp_task_done_msg_t done[ 1 ]; memset( done, 0, sizeof(done) );
+  done->bank_idx = bank->idx;
+
+  fd_sched_task_t task[ 1 ]; memset( task, 0, sizeof(task) );
+  task->task_type        = FD_SCHED_TT_LTHASH_ADD;
+  task->lthash->bank_idx = bank->idx;
+  task->lthash->exec_idx = 0UL;
+  task->lthash->cnt      = 1UL;
+  task->lthash->accts    = acct;
+  task->lthash->refs     = refs;
+  task->lthash->spec     = 1;
+
+  /* Three speculations are three entries, each referencing its
+     account. */
+  for( ulong i=0UL; i<3UL; i++ ) {
+    dispatch_task( ctx, test_stem, task );
+    process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_LTHASH_ADD<<32) | 0UL );
+  }
+  FD_TEST( !bank->refcnt );
+  FD_TEST( slot->task_cnt==3UL && slot->ref_cnt==3UL );
+  for( ulong i=0UL; i<3UL; i++ ) {
+    FD_TEST( rec[ i ].task_type==FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_LTHASH_SPEC && rec[ i ].exec_tile_idx==0 && rec[ i ].item_cnt==1 );
+    FD_TEST( rec[ i ].done_ticks>=rec[ i ].disp_ticks );
+    FD_TEST( ref[ i ].index_in_slot==7 && ref[ i ].index_in_txn==3 );
+  }
+
+  /* A PoH task counts its microblocks and references nothing. */
+  fd_sched_task_t poh[ 1 ]; memset( poh, 0, sizeof(poh) );
+  poh->task_type          = FD_SCHED_TT_POH_HASH;
+  poh->poh_hash->bank_idx = bank->idx;
+  poh->poh_hash->exec_idx = 0UL;
+  poh->poh_hash->cnt      = 2UL;
+  dispatch_task( ctx, test_stem, poh );
+  done->poh_hash->cnt = 2UL;
+  process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_POH_HASH<<32) | 0UL );
+  FD_TEST( slot->task_cnt==4UL && rec[ 3 ].task_type==FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_POH_HASH && rec[ 3 ].item_cnt==2 && slot->ref_cnt==3UL );
+
+  /* A subtraction batch references both accounts, the second with the
+     sentinel. */
+  task->task_type    = FD_SCHED_TT_LTHASH_SUB;
+  task->lthash->cnt  = 2UL;
+  task->lthash->spec = 0;
+  dispatch_task( ctx, test_stem, task );
+  process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_LTHASH_SUB<<32) | 0UL );
+  FD_TEST( slot->task_cnt==5UL && rec[ 4 ].task_type==FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_LTHASH_SUB && rec[ 4 ].item_cnt==2 );
+  FD_TEST( slot->ref_cnt==5UL );
+  FD_TEST( ref[ 3 ].index_in_slot==7      && ref[ 3 ].index_in_txn==3   );
+  FD_TEST( ref[ 4 ].index_in_slot==0xFFFF && ref[ 4 ].index_in_txn==0xFF );
+
+  /* A full reference array keeps the task and drops the account. */
+  slot->ref_cnt = FD_REPLAY_LTHASH_REF_MAX-1UL;
+  dispatch_task( ctx, test_stem, task );
+  process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_LTHASH_SUB<<32) | 0UL );
+  FD_TEST( slot->task_cnt==6UL && rec[ 5 ].item_cnt==2 );
+  FD_TEST( slot->ref_cnt==FD_REPLAY_LTHASH_REF_MAX && ref[ FD_REPLAY_LTHASH_REF_MAX-1UL ].index_in_slot==7 );
+  slot->ref_cnt = 5UL;
+
+  /* A full task array drops the task and its references. */
+  ulong task_cnt = slot->task_cnt;
+  slot->task_cnt = FD_REPLAY_TASK_TIMING_MAX;
+  dispatch_task( ctx, test_stem, poh );
+  process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_POH_HASH<<32) | 0UL );
+  dispatch_task( ctx, test_stem, task );
+  process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_LTHASH_SUB<<32) | 0UL );
+  FD_TEST( slot->task_cnt==FD_REPLAY_TASK_TIMING_MAX && slot->ref_cnt==5UL );
+  slot->task_cnt = task_cnt;
+
+  /* A transaction completion records its tiles. */
+  fd_sched_txn_info_t txn_info[ 1 ]; memset( txn_info, 0, sizeof(txn_info) );
+  txn_info->index_in_slot           = 0UL;
+  txn_info->exec_tile_idx           = 3UL;
+  txn_info->sigverify_exec_tile_idx = 5UL;
+  timing_record_txn( ctx, bank->idx, txn_info );
+  FD_TEST( slot->cnt==1UL );
+
+  /* The event carries it all. */
+  fd_event_block_completed_t * ev = fd_wksp_alloc_laddr( wksp, alignof(fd_event_block_completed_t), sizeof(fd_event_block_completed_t), 1UL );
+  FD_TEST( ev );
+  memset( ev, 0, FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ );
+  block_completed_event_fill_timing( ctx, ev, bank );
+  FD_TEST( ev->txn_timing_cnt==1UL && ev->txn_timing[ 0 ].exec_tile_idx==3 && ev->txn_timing[ 0 ].sigverify_exec_tile_idx==5 );
+  FD_TEST( ev->exec_task_timing_cnt==task_cnt );
+  FD_TEST( ev->exec_task_timing[ 0 ].task_type==FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_LTHASH_SPEC && ev->exec_task_timing[ 0 ].exec_tile_idx==0 && ev->exec_task_timing[ 0 ].item_count==1 );
+  FD_TEST( ev->exec_task_timing[ 0 ].dispatched_time && ev->exec_task_timing[ 0 ].done_time>=ev->exec_task_timing[ 0 ].dispatched_time );
+  FD_TEST( ev->exec_task_timing[ 3 ].task_type==FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_POH_HASH && ev->exec_task_timing[ 3 ].item_count==2 );
+  FD_TEST( ev->lthash_account_ref_cnt==5UL );
+  FD_TEST( ev->lthash_account_ref[ 0 ].index_in_slot==7 && ev->lthash_account_ref[ 0 ].index_in_txn==3 );
+  FD_TEST( ev->lthash_account_ref[ 4 ].index_in_slot==65535 && ev->lthash_account_ref[ 4 ].index_in_txn==255 );
+
+  /* A leader block's transactions carry no tile. */
+  void * tables = fd_wksp_alloc_laddr( wksp, alignof(fd_leader_txn_timing_table_t), FD_LEADER_TXN_TIMING_TABLE_CNT*fd_leader_txn_timing_table_footprint( ctx->max_txn_per_slot ), 1UL );
+  FD_TEST( tables );
+  fd_leader_txn_timing_table_t * table = fd_leader_txn_timing_table( tables, 0UL, ctx->max_txn_per_slot );
+  table->slot = bank->f.slot;
+  table->cnt  = 1UL;
+  table->rec[ 0 ] = (fd_leader_txn_timing_rec_t){ .received_ns = 1L, .dispatched_ticks = fd_tickcount(), .replayed_ticks = fd_tickcount(), .poh_mixed_ticks = fd_tickcount() };
+  ctx->leader_txn_timing             = tables;
+  ctx->leader_stats.timing_table_idx = 0UL;
+  memset( ev, 0, FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ );
+  block_completed_event_fill_leader_txn_timing( ctx, ev, bank );
+  FD_TEST( ev->txn_timing_cnt==1UL && ev->txn_timing[ 0 ].exec_tile_idx==0 && ev->txn_timing[ 0 ].sigverify_exec_tile_idx==0 );
+
+  /* Without a capture lease a completion records nothing. */
+  timing_slot_release( ctx, bank->idx );
+  dispatch_task( ctx, test_stem, task );
+  process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_LTHASH_SUB<<32) | 0UL );
+  FD_TEST( ctx->task_pending[ 0 ].bank_idx==ULONG_MAX && slot->task_cnt==task_cnt && slot->ref_cnt==5UL );
+
+  /* A node not reporting these tasks records none. */
+  ctx->report_non_txn_tasks = 0;
+  timing_slot_acquire( ctx, bank->idx );
+  tslot = ctx->timing_slot_of_bank[ bank->idx ];
+  slot  = fd_timing_slot_pool_ele( ctx->timing_slot_pool, tslot );
+  dispatch_task( ctx, test_stem, task );
+  process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_LTHASH_SUB<<32) | 0UL );
+  FD_TEST( !slot->task_cnt && !slot->ref_cnt && ctx->task_pending[ 0 ].bank_idx==ULONG_MAX );
+
+  FD_LOG_NOTICE(( "pass: test_task_timing" ));
 }
 
 static void
@@ -2186,7 +2342,7 @@ test_root_from_footer( fd_wksp_t * wksp ) {
 
   /* A footer without a finalization cert completes replay but roots nothing. */
   fd_bank_t * b1 = add_replayable_block( ctx, root, 1UL, &id1 );
-  FD_TEST( !replay_block_finalize( ctx, test_stem, b1 ) );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b1, 0UL ) );
   FD_TEST( b1->state==FD_BANK_STATE_FROZEN );
   FD_TEST( ctx->consensus_root_slot==0UL && ctx->finalized_block_id_lo.slot<=ctx->consensus_root_slot );
   FD_TEST( !try_notify_consensus_root( ctx, test_stem ) );
@@ -2199,7 +2355,7 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer->notar_cert.slot     = 1UL;
   mock_footer->notar_cert.block_id = id1;
   fd_bank_t * b2 = add_replayable_block( ctx, b1, 2UL, &id2 );
-  FD_TEST( !replay_block_finalize( ctx, test_stem, b2 ) );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b2, 0UL ) );
   fd_frag_meta_t const * m = test_stem_mcaches[ out_idx ] + fd_mcache_line_idx( seq0+2UL, test_stem_depths[ out_idx ] );
   FD_TEST( m->sig==REPLAY_SIG_SLOT_COMPLETED );
   fd_replay_slot_completed_t const * completed = fd_chunk_to_laddr_const( wksp, m->chunk );
@@ -2211,7 +2367,7 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_footer->fast_final_cert.slot     = 2UL;
   mock_footer->fast_final_cert.block_id = id2;
   fd_bank_t * b3 = add_replayable_block( ctx, b2, 3UL, &id3 );
-  FD_TEST( !replay_block_finalize( ctx, test_stem, b3 ) );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b3, 0UL ) );
   expect_rooted( ctx, wksp, seq0+7UL, b2 );
   FD_TEST( ctx->votor_final->slot==ULONG_MAX );
 
@@ -2226,13 +2382,13 @@ test_root_from_footer( fd_wksp_t * wksp ) {
   mock_sched_lthash_delta->words[ 0 ] = (ushort)7;
   fd_bank_t * b4 = add_replayable_block( ctx, b3, 4UL, &id4 );
   fd_lthash_value_t before[ 1 ]; fd_memcpy( before, fd_bank_lthash_locking_query( b4 ), sizeof(fd_lthash_value_t) ); fd_bank_lthash_end_locking_query( b4 );
-  FD_TEST( !replay_block_finalize( ctx, test_stem, b4 ) );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b4, 0UL ) );
   fd_lthash_value_t folded[ 1 ]; fd_memcpy( folded, before, sizeof(fd_lthash_value_t) ); fd_lthash_add( folded, mock_sched_lthash_delta );
   FD_TEST( fd_lthash_eq( fd_bank_lthash_locking_query( b4 ), folded ) ); fd_bank_lthash_end_locking_query( b4 );
   fd_bank_t * b5 = add_replayable_block( ctx, b4, 5UL, &id5 );
   b5->lthash_mode = FD_BANK_LTHASH_MODE_INBAND; /* as block start leaves an in-band block */
   fd_memcpy( before, fd_bank_lthash_locking_query( b5 ), sizeof(fd_lthash_value_t) ); fd_bank_lthash_end_locking_query( b5 );
-  FD_TEST( !replay_block_finalize( ctx, test_stem, b5 ) );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b5, 0UL ) );
   FD_TEST( fd_lthash_eq( fd_bank_lthash_locking_query( b5 ), before ) ); fd_bank_lthash_end_locking_query( b5 );
   FD_TEST( b5->lthash_mode==FD_BANK_LTHASH_MODE_INBAND );
   fd_lthash_zero( mock_sched_lthash_delta );
@@ -2344,7 +2500,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
       ulong refcnt0    = b->refcnt;
       ulong seq0[ 2 ]  = { test_stem_seqs[ ctx->exec_out[ 0 ].idx ], test_stem_seqs[ ctx->exec_out[ 1 ].idx ] };
       ulong done0      = test_stem_seqs[ out_idx ];
-      int   dead       = replay_block_finalize( ctx, test_stem, b );
+      int   dead       = replay_block_finalize( ctx, test_stem, b, 0UL );
 
       ulong frag_cnt   = mode==0UL || mode==4UL || slice_mode ? 2UL : mode==1UL ? 1UL : 0UL;
       int   inline_bad = bad && !slice_mode && frag_cnt!=2UL; /* the bad cert verifies on replay */
@@ -2449,7 +2605,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
     mock_footer->bank_hash = sibling[ i ]->f.bank_hash;
     mock_cert_tiles = 3UL;
     for( ulong t=0UL; t<2UL; t++ ) sibling_seq0[ i ][ t ] = test_stem_seqs[ ctx->exec_out[ t ].idx ];
-    FD_TEST( !replay_block_finalize( ctx, test_stem, sibling[ i ] ) );
+    FD_TEST( !replay_block_finalize( ctx, test_stem, sibling[ i ], 0UL ) );
     FD_TEST( sibling[ i ]->footer_task_cnt==2UL && ctx->rewards_in_flight_cnt==i+1UL );
     fd_frag_meta_t const * m = test_stem_mcaches[ ctx->exec_out[ 1 ].idx ] + fd_mcache_line_idx( sibling_seq0[ i ][ 1 ], test_stem_depths[ ctx->exec_out[ 1 ].idx ] );
     FD_TEST( m->sig==((FD_EXECRP_TT_REWARDS<<32) | 1UL) );
@@ -2506,7 +2662,7 @@ test_slot_completed_keeps_leader_sentinel( fd_wksp_t * wksp ) {
   ctx->next_leader_slot = ULONG_MAX;
 
   fd_bank_t * b1 = add_replayable_block( ctx, root, 1UL, &id1 );
-  FD_TEST( !replay_block_finalize( ctx, test_stem, b1 ) );
+  FD_TEST( !replay_block_finalize( ctx, test_stem, b1, 0UL ) );
   FD_TEST( b1->state==FD_BANK_STATE_FROZEN );
 
   /* Completing a slot under Alpenglow must not disturb
@@ -4724,6 +4880,7 @@ main( int     argc,
 
   test_txn_completion_publish( wksp );              fd_wksp_reset( wksp, 42U );
   test_lthash_oob_routing( wksp );                  fd_wksp_reset( wksp, 42U );
+  test_task_timing( wksp );                         fd_wksp_reset( wksp, 42U );
   test_reward_cert_signer_count( wksp );            fd_wksp_reset( wksp, 42U );
   test_snapshot_intervals_use_block_height();
   test_snapshot_found_deleted_state( wksp );        fd_wksp_reset( wksp, 42U );

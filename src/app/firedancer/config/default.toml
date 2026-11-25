@@ -2350,6 +2350,13 @@ telemetry = true
         # development purposes.
         report_runtime_diffs = false
 
+        # Whether to report execrp tile tasks other than transaction
+        # executions.  Those are PoH hashing, LtHash subtractions and
+        # additions, footer certs, and vote rewards.  This generates a
+        # higher volume of event data.  When off, only report
+        # transaction executions and signature verifications.
+        report_non_txn_tasks = false
+
         # Whether to report every repair request sent to a peer, one
         # event per requested shred, to the remote server.  This
         # generates a high volume of events, especially while catching

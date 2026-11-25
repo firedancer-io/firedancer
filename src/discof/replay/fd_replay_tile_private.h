@@ -73,6 +73,11 @@ typedef struct fd_reception_stats fd_reception_stats_t;
 
 #define FD_REPLAY_TXN_TIMING_SLOTS (16UL)
 
+/* A block's capture holds as many exec tile tasks and LtHash account
+   references as the event does.  A heavy block drops the excess. */
+#define FD_REPLAY_TASK_TIMING_MAX FD_EVENT_BLOCK_COMPLETED_EXEC_TASK_TIMING_MAX
+#define FD_REPLAY_LTHASH_REF_MAX  FD_EVENT_BLOCK_COMPLETED_LTHASH_ACCOUNT_REF_MAX
+
 struct fd_replay_txn_timing {
   long received_ns;
 
@@ -81,16 +86,54 @@ struct fd_replay_txn_timing {
   long sigverify_done_ticks;
   long exec_disp_ticks;
   long exec_done_ticks;
+
+  uchar exec_tile_idx;
+  uchar sigverify_exec_tile_idx;
 };
 
 typedef struct fd_replay_txn_timing fd_replay_txn_timing_t;
+
+/* An exec tile task other than a transaction. */
+struct fd_replay_task_timing {
+  long   disp_ticks;
+  long   done_ticks;
+  ushort item_cnt;
+  uchar  task_type;
+  uchar  exec_tile_idx;
+};
+
+typedef struct fd_replay_task_timing fd_replay_task_timing_t;
+
+/* One account an LtHash task hashed.  See FD_SCHED_LTHASH_REF. */
+struct fd_replay_lthash_ref {
+  ushort index_in_slot;
+  uchar  index_in_txn;
+};
+
+typedef struct fd_replay_lthash_ref fd_replay_lthash_ref_t;
+
+FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT<=USHORT_MAX,       lthash_ref_index_in_slot_fits );
+FD_STATIC_ASSERT( FD_SCHED_MAX_EXEC_TILE_CNT<=UCHAR_MAX, task_timing_exec_tile_idx_fits );
+
+struct fd_replay_task_pending {
+  long  disp_ticks;
+  ulong bank_idx;
+  uint  item_cnt;
+  uint  ref_cnt;
+  uchar task_type;
+  uint  ref[ FD_SCHED_LTHASH_BATCH_MAX ];
+};
+
+typedef struct fd_replay_task_pending fd_replay_task_pending_t;
 
 struct fd_replay_txn_timing_slot {
   struct {
     ulong next;
   } pool;
 
-  ulong cnt;
+  ulong cnt;      /* Transaction records. */
+  ulong task_cnt; /* Non-transaction task records. */
+  ulong ref_cnt;  /* Account references recorded. */
 };
 
 typedef struct fd_replay_txn_timing_slot fd_replay_txn_timing_slot_t;
@@ -168,7 +211,6 @@ FD_STATIC_ASSERT( FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX>=FD_MAX_TXN_PER_SLOT, 
 struct fd_replay_footer_end {
   fd_alpenglow_rewards_plan_t plan;
   ulong                       leader_credits; /* Summed from the reward slices as they complete. */
-  ulong                       cert_next;      /* Footer certs sent to tiles so far, in fd_alpenglow_footer_certs order. */
   int                         finalized;      /* Set once BLOCK_END is processed.  The block then fully completes on its last footer task. */
 };
 typedef struct fd_replay_footer_end fd_replay_footer_end_t;
@@ -459,10 +501,16 @@ struct fd_replay_tile {
      replaying.  A block that cannot get a slot (more than
      FD_REPLAY_TXN_TIMING_SLOTS blocks replaying at once) captures
      nothing.  Slot depth is max_txn_per_slot, so the records sit in a
-     side array sized at footprint time. */
+     side array sized at footprint time.  The slot also captures the
+     block's other exec tile tasks and the accounts its LtHash tasks
+     hashed. */
   fd_replay_txn_timing_slot_t * timing_slot_pool;    /* fd_pool, FD_REPLAY_TXN_TIMING_SLOTS elements */
   fd_replay_txn_timing_t *      timing_rec;          /* [FD_REPLAY_TXN_TIMING_SLOTS*max_txn_per_slot], slot i at i*max_txn_per_slot */
+  fd_replay_task_timing_t *     task_rec;            /* [FD_REPLAY_TXN_TIMING_SLOTS*FD_REPLAY_TASK_TIMING_MAX], slot i at i*FD_REPLAY_TASK_TIMING_MAX */
+  fd_replay_lthash_ref_t *      ref_rec;             /* [FD_REPLAY_TXN_TIMING_SLOTS*FD_REPLAY_LTHASH_REF_MAX], slot i at i*FD_REPLAY_LTHASH_REF_MAX */
   ulong *                       timing_slot_of_bank; /* [max_live_slots] bank_idx -> pool idx or idx_null */
+  fd_replay_task_pending_t      task_pending[ FD_SCHED_MAX_EXEC_TILE_CNT ]; /* Indexed by exec tile. */
+  int                           report_non_txn_tasks;
 
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */

@@ -1784,6 +1784,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->replay.dump_proto_dir, config->capture.dump_proto_dir, sizeof(tile->replay.dump_proto_dir) );
     tile->replay.dump_block_to_pb = config->capture.dump_block_to_pb;
     tile->replay.report_runtime_diffs = config->development.event.report_runtime_diffs;
+    tile->replay.report_non_txn_tasks = config->development.event.report_non_txn_tasks;
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 #define PARSE_BUNDLE_PUBKEY( _tile, f ) \

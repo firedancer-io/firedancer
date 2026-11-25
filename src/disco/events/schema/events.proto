@@ -203,6 +203,17 @@ enum BlockCompletedPackEndReason {
   BLOCK_COMPLETED_PACK_END_REASON_ABANDONED = 4;  // Production was abandoned mid-slot by a reset onto another fork; only on abandoned leader blocks (abandoned_reason reset). Pack ends the block early and its summary rides on the terminating message, so microblock_count, pack costs, pack timings, and bundle_txn_count reflect what was produced before the abandonment.
 }
 
+// What the task did.
+enum BlockCompletedExecTaskTimingTaskType {
+  BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_UNSPECIFIED = 0;
+  BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_POH_HASH = 1;  // Hashed up to 16 microblocks of PoH entries.
+  BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_LTHASH_SUB = 2;  // Hashed accounts as they are on the parent fork and subtracted them, up to 32 accounts.
+  BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_LTHASH_ADD = 3;  // Hashed the block's final versions of accounts and added them, a drain batch of up to 32 accounts handed out once the block has all its FEC sets.
+  BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_LTHASH_SPEC = 4;  // A speculative addition of one account whose writers had all completed, hashed while the block was still receiving FEC sets.
+  BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_CERT_VERIFY = 5;  // Verified one footer certificate.
+  BLOCK_COMPLETED_EXEC_TASK_TIMING_TASK_TYPE_VOTE_REWARDS = 6;  // Applied one slice of the footer's vote rewards.
+}
+
 // Which system C library the validator is running against.
 enum BootLibcKind {
   BOOT_LIBC_KIND_UNSPECIFIED = 0;
@@ -1124,6 +1135,28 @@ message RuntimeTxnAccountDiffs {
   bool is_rm_vote = 12;
 }
 
+// One account hashed by one task.
+message BlockCompletedLthashAccountRef {
+  // 0-indexed position within its block of the transaction that wrote the account, the first the scheduler saw. 65535 if the scheduler did not see the account's writer.
+  uint32 index_in_slot = 1;
+  // 0-indexed position of the account in that transaction's account list. 255 if the scheduler did not see the account's writer.
+  uint32 index_in_txn = 2;
+}
+
+// One exec tile task.
+message BlockCompletedExecTaskTiming {
+  // When the task left the scheduler.
+  uint64 dispatched_time = 1;
+  // When the task's result reached the scheduler. The tile was busy from dispatched_time to here.
+  uint64 done_time = 2;
+  // What the task did.
+  BlockCompletedExecTaskTimingTaskType task_type = 3;
+  // Execution tile the task ran on, as the tile's index among the execrp tiles.
+  uint32 exec_tile_idx = 4;
+  // Items the task processed: microblocks for poh_hash, accounts for the LtHash types (also the task's entries in lthash_account_ref), 1 for cert_verify and vote_rewards.
+  uint32 item_count = 5;
+}
+
 // Timestamps for one transaction. A zero timestamp means the stage did not occur on this path, was never reached, or its stamp was unavailable.
 message BlockCompletedTxnTiming {
   // Earliest time attributable to the transaction. Replayed blocks: network arrival of the shred completing the FEC set carrying the transaction; gap to parsed_time is the internal latency to parse. Leader blocks: entry into this validator — TPU network arrival, block engine receipt (bundles), gossip receipt (votes), or creation time (self-originated).
@@ -1140,6 +1173,10 @@ message BlockCompletedTxnTiming {
   uint64 sigverify_done_time = 6;
   // When the transaction was mixed into the PoH stream, fixing its position in the block; transactions of one microblock share the stamp. 0 for blocks this validator did not produce.
   uint64 poh_mixed_time = 7;
+  // Execution tile that ran the transaction, as the tile's index among the execrp tiles. With dispatched_time and replayed_time this gives the tile's busy interval. 0 for leader blocks, which do not go through the replay scheduler and which is_leader tells apart.
+  uint32 exec_tile_idx = 8;
+  // Execution tile that verified the transaction's signatures, from sigverify_dispatched_time to sigverify_done_time, on a tile that may differ from exec_tile_idx. 0 for leader blocks.
+  uint32 sigverify_exec_tile_idx = 9;
 }
 
 // One mounted filesystem.
@@ -8934,6 +8971,10 @@ message BlockCompleted {
   uint32 repair_request_parent_count = 77;
   // Alpenglow FecRoot requests: asks a peer for a FEC set's merkle root for a specified FEC set index. Always 0 before alpenglow and for leader blocks.
   uint32 repair_request_fec_root_count = 78;
+  // The exec tile tasks other than transaction execution and signature verification, one entry per task in completion order. Together with the tile indices in txn_timing this accounts for every busy interval of every exec tile. Durations are as the scheduler sees them, from dispatch to the result landing, so they include the return hop and replay's polling delay. Only nodes with [development.event.report_non_txn_tasks] set fill this; empty otherwise, on leader blocks and on dead and abandoned rows, and best-effort like txn_timing when no capture slot was free. Truncated to the first 32768 tasks.
+  repeated BlockCompletedExecTaskTiming exec_task_timing = 79;
+  // Which account each LtHash task in exec_task_timing hashed, one entry per account, in the order the tasks completed with each task's accounts in task order. Each LtHash task in exec_task_timing owns item_count consecutive entries, which is how an entry is matched to its task. Filled only alongside exec_task_timing. An account is identified by a transaction that wrote it and by the account's position in that transaction, which fd.blocks resolves to the pubkey. The transaction is the first the scheduler saw write the account while it tracked the block. index_in_slot is the transaction's position in the block, as in txn_timing. index_in_txn indexes the transaction's account list, the static accounts in message order followed by the lookup table accounts, writable before readonly. The sentinel 65535/255 marks an account whose writer the scheduler did not see: written by start-of-block processing, or by a block that did not own its scheduler lane while its transactions were parsed, including a block demoted and promoted again. Truncated to the first 65536 accounts, which leaves the last tasks short of their item_count.
+  repeated BlockCompletedLthashAccountRef lthash_account_ref = 80;
 }
 
 // Reported once when the validator process starts. A wide fingerprint of the host, operating system, kernel, hardware, network, build, and validator configuration at launch.
