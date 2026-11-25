@@ -2354,11 +2354,10 @@ background_compact( fd_accdb_t * accdb,
   }
 
   /* The snapshot producer's disk scan finds records by exact offset,
-     so records it has not reached yet must not move: hold partitions
-     past its cursor ("Snapshot keeps"). */
-  ulong compact_end = (partition_pool_idx( accdb->partition_pool, compact )+1UL)*accdb->shmem->partition_sz;
+     so records it has not resolved yet must not move: hold partitions
+     it has not scanned ("Snapshot keeps"). */
   if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->snap_gen )!=UINT_MAX &&
-                   FD_VOLATILE_CONST( accdb->shmem->snap_rd_off )<compact_end ) ) {
+                   !fd_accdb_shmem_snap_is_scanned( accdb->shmem, partition_pool_idx( accdb->partition_pool, compact ) ) ) ) {
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
     return;
@@ -3839,8 +3838,8 @@ snap_begin( fd_accdb_t * accdb ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
   FD_TEST( !shmem->keep_cnt );
   /* Every rooted version holds the old visited value: unvisited now */
-  FD_VOLATILE( shmem->snap_visit  ) = !shmem->snap_visit;
-  FD_VOLATILE( shmem->snap_rd_off ) = 0UL;
+  FD_VOLATILE( shmem->snap_visit ) = !shmem->snap_visit;
+  for( ulong i=0UL; i<FD_ACCDB_PARTITION_CNT_MAX/64UL; i++ ) FD_VOLATILE( shmem->snap_scanned[ i ] ) = 0UL;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( shmem->snap_gen ) = accdb->fork_pool[ shmem->root_fork_id.val ].shmem->generation;
   FD_COMPILER_MFENCE();
@@ -3878,8 +3877,7 @@ fd_accdb_background( fd_accdb_t * accdb,
       if( FD_UNLIKELY( shmem->done.retiring ||
                        FD_VOLATILE_CONST( shmem->emit_pub )!=shmem->emit_done ) ) { *charge_busy = 1; return; }
       keeps_sweep( accdb );
-      FD_VOLATILE( shmem->snap_gen    ) = UINT_MAX;
-      FD_VOLATILE( shmem->snap_rd_off ) = ULONG_MAX;
+      FD_VOLATILE( shmem->snap_gen ) = UINT_MAX;
       retire_batch( accdb, shmem->done );
       fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
       *charge_busy = 1;

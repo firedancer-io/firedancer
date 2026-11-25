@@ -1364,7 +1364,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], zp_fseq,         FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], backup_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaprd", 0UL ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_ONLY  );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaprd", 0UL ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
   /* snapzp visits the versions it emitted (fd_accdb_snap_visit) */
   FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i ) ], accdb_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );

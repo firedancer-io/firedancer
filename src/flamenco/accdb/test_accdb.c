@@ -2887,7 +2887,7 @@ test_reservation_credits( void ) {
    across snapshots (fd_accdb_snap_visit).  Records are 4 MiB in 12 MiB partitions
    with a tiny cache, so rewrites push old versions to disk and fill
    partitions past the compaction threshold.  Compaction must hold
-   partitions the producer has not scanned (snap_rd_off) and relocate
+   partitions the producer has not scanned (snap_scanned) and relocate
    kept records once it has.  Also covers: a version emitted before it
    is superseded is freed at once; a rooted tombstone is kept while it
    shadows a kept version; DONE sweeps what was never emitted. */
@@ -2975,7 +2975,7 @@ test_snapshot_keeps( void ) {
   FD_TEST( shmem->root_fork_id.val==r.val );
   uint gen = shmem->snap_gen;
   FD_TEST( gen!=UINT_MAX );
-  FD_TEST( shmem->snap_rd_off==0UL );
+  for( ulong p=0UL; p<shmem->partition_max; p++ ) FD_TEST( !fd_accdb_shmem_snap_is_scanned( shmem, p ) );
 
   /* Account 0 is emitted before anything supersedes it */
   keep_check( accdb, gen, keys[ 0 ], 100UL, 0x10, 1 );
@@ -3018,8 +3018,28 @@ test_snapshot_keeps( void ) {
   for( int k=0; k<64; k++ ) drain_background( accdb );
   FD_TEST( m->compactions_completed==done_before );
 
-  /* Scan done: compaction runs, relocating kept records too */
-  FD_VOLATILE( shmem->snap_rd_off ) = ULONG_MAX;
+  /* Scanning the head of the compaction queue (earliest enqueued)
+     releases it alone */
+  ulong part_max = shmem->partition_max;
+  ulong head = ULONG_MAX, head_epoch = ULONG_MAX, queued_cnt = 0UL;
+  for( ulong p=0UL; p<part_max; p++ ) {
+    fd_accdb_shmem_partition_info_t info[ 1 ];
+    fd_accdb_shmem_partition_info( shmem, p, info );
+    if( info->compaction_state!=1 ) continue;
+    queued_cnt++;
+    if( info->compaction_epoch<head_epoch ) { head = p; head_epoch = info->compaction_epoch; }
+  }
+  FD_TEST( head!=ULONG_MAX );
+  fd_accdb_shmem_snap_scanned( shmem, head );
+  for( int k=0; k<64; k++ ) drain_background( accdb );
+  FD_TEST( m->compactions_completed==done_before+1UL );
+  if( queued_cnt>1UL ) FD_TEST( m->compactions_completed<done_before+queued_cnt );
+
+  /* The rest, relocating kept records too */
+  for( ulong p=0UL; p<part_max; p++ ) {
+    fd_accdb_shmem_snap_scanned( shmem, p );
+    for( int k=0; k<16; k++ ) drain_background( accdb );
+  }
   for( int k=0; k<256; k++ ) drain_background( accdb );
   FD_TEST( m->compactions_completed>done_before );
   keep_check( accdb, gen, keys[ 1 ], 101UL, 0x11, 0 );

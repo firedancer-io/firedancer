@@ -14,8 +14,9 @@
 #define FD_BACKUP_ORIG_FLUSH          4  /* mk->zp: flush compress buffer */
 #define FD_BACKUP_ORIG_DONE           5  /* mk->zp: stop compressing; mk->replay: free bank_idx */
 #define FD_BACKUP_ORIG_ACC_DISK_BATCH 6  /* mk->zp: batch of cold accounts within one rd frag */
-#define FD_BACKUP_ORIG_DISK_FRAG      7  /* rd->mk: accdb file frag */
+#define FD_BACKUP_ORIG_DISK_FRAG      7  /* rd->mk: accdb file frag (som/eom: first/last of a partition) */
 #define FD_BACKUP_ORIG_ACC_DELTA      8  /* mk->zp: address of account */
+#define FD_BACKUP_ORIG_DISK_END       9  /* rd->mk: end of the accdb file frags (empty) */
 
 /* FD_BACKUP_CACHE_PARA controls the batch size of ultra-sparse random
    index lookups from acc_map.  Tunes memory-level parallelism settings

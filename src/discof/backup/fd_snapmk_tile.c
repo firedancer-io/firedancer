@@ -1952,12 +1952,19 @@ snaprd_frag( fd_snapmk_t *       ctx,
              ulong               tspub ) {
   ulong frag_sz = tspub;
   FD_CHECK_CRIT( ctx->state==SNAPMK_STATE_ACCDB_DISK, "lifecycle bug" );
-  FD_CHECK_CRIT( fd_frag_meta_ctl_orig( ctl )==FD_BACKUP_ORIG_DISK_FRAG, "unexpected snaprd frag orig" );
-  FD_CHECK_CRIT( frag_sz<=FD_BACKUP_RD_MTU && frag_sz<UINT_MAX, "invalid snaprd frag data size" );
-  FD_CHECK_CRIT( frag_sz || fd_frag_meta_ctl_eom( ctl ), "empty snaprd frag" );
-
   fd_snapmk_accparse_t * parse = ctx->accparse;
   ctx->rd_seq = seq;
+
+  if( FD_UNLIKELY( fd_frag_meta_ctl_orig( ctl )==FD_BACKUP_ORIG_DISK_END ) ) {
+    FD_CHECK_CRIT( !parse->input_active, "snaprd stream ended mid-frag" );
+    ctx->disk_out_idx = -1;
+    barrier_install( ctx, stem );
+    broadcast_prepare( ctx );
+    ctx->state = SNAPMK_STATE_ACCDB_DISK_FLUSH;
+    return 0;
+  }
+  FD_CHECK_CRIT( fd_frag_meta_ctl_orig( ctl )==FD_BACKUP_ORIG_DISK_FRAG, "unexpected snaprd frag orig" );
+  FD_CHECK_CRIT( frag_sz && frag_sz<=FD_BACKUP_RD_MTU, "invalid snaprd frag data size" );
   if( FD_LIKELY( !parse->input_active ) ) {
     uchar const * data = fd_chunk_to_laddr_const( ctx->rd_in_mem, chunk );
     parse->data            = data;
@@ -2024,24 +2031,18 @@ snaprd_frag( fd_snapmk_t *       ctx,
           returns 0 only once the prestage is empty). */
       FD_CHECK_ERR( !parse->ps_cnt, "prestaged batch outlived its frag" );
 
-      /* Every record below here has been resolved against the index
-         (a record torn across frags is not yet), so compaction may move
-         the partitions behind it (fd_accdb.c "Snapshot keeps").
-         Partitions are scanned in file order. */
-      ulong rd_off = ( parse->meta_sz || parse->acc_active ) ? parse->acc_file_off : parse->src_off;
-      __atomic_store_n( &ctx->accdb_shmem->snap_rd_off, rd_off, __ATOMIC_RELEASE );
+      /* Last frag of a partition: every record in it has been
+         resolved against the index, so compaction may move it
+         (fd_accdb.c "Snapshot keeps").  Records do not cross
+         partitions. */
       if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) {
         if( FD_UNLIKELY( parse->meta_sz || parse->acc_active || parse->pub_pending ) ) {
-          FD_LOG_CRIT(( "snaprd stream ended mid-account record at accdb offset %lu "
+          FD_LOG_CRIT(( "snaprd partition ended mid-account record at accdb offset %lu "
                         "(meta_sz=%u acc_active=%i acc_off=%u acc_sz=%u pub_pending=%i)",
                         parse->src_off, parse->meta_sz, parse->acc_active,
                         parse->acc_off, parse->acc_sz, parse->pub_pending ));
         }
-        ctx->disk_out_idx = -1;
-        __atomic_store_n( &ctx->accdb_shmem->snap_rd_off, ULONG_MAX, __ATOMIC_RELEASE ); /* scan done */
-        barrier_install( ctx, stem );
-        broadcast_prepare( ctx );
-        ctx->state = SNAPMK_STATE_ACCDB_DISK_FLUSH;
+        fd_accdb_shmem_snap_scanned( ctx->accdb_shmem, sig/fd_accdb_shmem_partition_sz( ctx->accdb_shmem ) );
       }
       return 0;
     }

@@ -1,6 +1,15 @@
 #define _GNU_SOURCE
 /* fd_snaprd_tile.c is a worker thread for reading accdb disk data.
-   This tile is typically either sleeping or doing iowait. */
+   This tile is typically either sleeping or doing iowait.
+
+   It reads the partitions holding data when the scan starts, one
+   partition at a time.  Compaction holds a partition until snapmk has
+   resolved all of its records (fd_accdb.c "Snapshot keeps"), so the
+   next partition is the one compaction most likely waits on: being
+   compacted, then queued (compaction takes them in queue order), then
+   most bytes freed.  The frags of a partition are marked som (first)
+   and eom (last); an empty FD_BACKUP_ORIG_DISK_END frag ends the
+   stream.  Partitions it does not read are marked scanned at capture. */
 
 #include "fd_backup.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -23,7 +32,7 @@
 #define SNAPRD_STATE_DRAIN   4 /* waiting for in-flight accdb writes to land */
 
 #define STEM_BURST 1UL
-#define SNAPRD_PART_MAX (1UL<<13)
+#define SNAPRD_PART_MAX FD_ACCDB_PARTITION_CNT_MAX
 
 FD_STATIC_ASSERT( (FD_BACKUP_RD_MTU % 4096UL)==0UL, rd_mtu_direct_io );
 
@@ -36,17 +45,16 @@ struct fd_snaprd {
 
   ulong idle_cnt;
 
-  fd_accdb_shmem_t const * accdb;
+  fd_accdb_shmem_t * accdb;
 
-  /* these are valid while reading a snapshot of accdb partition bounds */
+  /* Partitions left to read, captured at scan start (unordered) */
   struct {
-    ulong file_off;
+    ulong idx;
     ulong sz;
   } part[ SNAPRD_PART_MAX ];
   ulong part_cnt;
-  ulong part_idx;
   ulong part_cur;      /* cursor in [0,part_sz] */
-  ulong part_sz;       /* byte size of partition */
+  ulong part_sz;       /* byte size of partition being read, 0 if none */
   ulong part_file_off; /* accdb file offset of partition */
 
   fd_accdb_shmem_writer_barrier_t barrier[ 1 ]; /* writers whose pwritev2 has yet to land */
@@ -162,21 +170,35 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->out.mtu    = out_link->mtu;
 }
 
+/* next_partition takes the partition left to read that compaction
+   most likely waits on (see top), or returns 0 if none is left. */
+
 static int
 next_partition( fd_snaprd_t * ctx ) {
-  while( ctx->part_idx<ctx->part_cnt ) {
-    ulong part_idx = ctx->part_idx++;
-    if( FD_UNLIKELY( !ctx->part[ part_idx ].sz ) ) continue;
-    ctx->part_cur      = 0UL;
-    ctx->part_sz       = ctx->part[ part_idx ].sz;
-    ctx->part_file_off = ctx->part[ part_idx ].file_off;
-    return 1;
-  }
-
   ctx->part_cur      = 0UL;
   ctx->part_sz       = 0UL;
   ctx->part_file_off = 0UL;
-  return 0;
+  if( FD_UNLIKELY( !ctx->part_cnt ) ) return 0;
+
+  /* Lowest (rank, key) wins: rank 0 compacting, 1 queued (key: queue
+     order), 2 idle (key: fewest bytes left) */
+  ulong best = 0UL, best_rank = ULONG_MAX, best_key = ULONG_MAX;
+  for( ulong i=0UL; i<ctx->part_cnt; i++ ) {
+    fd_accdb_shmem_partition_info_t info[ 1 ];
+    fd_accdb_shmem_partition_info( ctx->accdb, ctx->part[ i ].idx, info );
+    ulong rank = 2UL - info->compaction_state;
+    ulong key  = rank==1UL ? info->compaction_epoch : ULONG_MAX - info->bytes_freed;
+    if( rank<best_rank || ( rank==best_rank && key<best_key ) ) {
+      best      = i;
+      best_rank = rank;
+      best_key  = key;
+    }
+  }
+
+  ctx->part_sz       = ctx->part[ best ].sz;
+  ctx->part_file_off = ctx->part[ best ].idx*fd_accdb_shmem_partition_sz( ctx->accdb );
+  ctx->part[ best ]  = ctx->part[ --ctx->part_cnt ];
+  return 1;
 }
 
 /* backup_disk_capture determines which accdb partition ranges must be
@@ -215,11 +237,20 @@ backup_disk_capture( fd_snaprd_t * ctx ) {
 
     if( !sz ) continue;
     if( FD_UNLIKELY( info->compaction_offset>=sz ) ) continue; /* already compacted, partition effectively dead */
-    ctx->part[ ctx->part_cnt ].file_off = i*part_sz;
-    ctx->part[ ctx->part_cnt ].sz       = sz;
+    ctx->part[ ctx->part_cnt ].idx = i;
+    ctx->part[ ctx->part_cnt ].sz  = sz;
     ctx->part_cnt++;
     export_total_bytes += sz;
   }
+
+  /* Compaction may move what this scan does not read, including
+     partitions created from here on */
+  ulong next = 0UL;
+  for( ulong j=0UL; j<ctx->part_cnt; j++ ) {
+    for( ; next<ctx->part[ j ].idx; next++ ) fd_accdb_shmem_snap_scanned( ctx->accdb, next );
+    next++;
+  }
+  for( ; next<SNAPRD_PART_MAX; next++ ) fd_accdb_shmem_snap_scanned( ctx->accdb, next );
   ctx->metrics.export_progress_bytes = 0UL;
   ctx->metrics.export_total_bytes    = export_total_bytes;
 
@@ -235,9 +266,6 @@ static void
 backup_disk_drain( fd_snaprd_t * ctx ) {
   if( FD_UNLIKELY( fd_accdb_shmem_writer_barrier_poll( ctx->accdb, ctx->barrier ) ) ) return;
 
-  /* An accdb with no data on disk yields an empty stream, which snapmk
-     still has to see terminated (a zero size frag carrying eom). */
-  ctx->part_idx = 0UL;
   next_partition( ctx );
   ctx->state = SNAPRD_STATE_READ;
 }
@@ -291,6 +319,18 @@ after_credit( fd_snaprd_t *       ctx,
 
   ulong burst_rem = STEM_BURST;
   while( ctx->state==SNAPRD_STATE_READ && stem->cr_avail[ 0 ] && burst_rem-- ) {
+    ctx->idle_cnt = 0UL;
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+
+    if( FD_UNLIKELY( !ctx->part_sz ) ) {
+      /* every partition read */
+      ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_DISK_END, 0, 0, 0 );
+      fd_stem_publish( stem, 0UL, 0UL, ctx->out.chunk, 0UL, ctl, 0UL, 0UL );
+      ctx->state = SNAPRD_STATE_DONE;
+      break;
+    }
+
     ulong frag_sz = fd_ulong_min( ctx->out.mtu, ctx->part_sz-ctx->part_cur );
     ulong read_len = fd_ulong_align_up( frag_sz, 4096UL );
 
@@ -314,25 +354,18 @@ after_credit( fd_snaprd_t *       ctx,
     long t1 = fd_tickcount();
     ctx->metrics.bytes_read            += read_sz;
     ctx->metrics.export_progress_bytes += frag_sz;
-    if( FD_LIKELY( frag_sz ) ) ctx->metrics.io_blocked_ticks += (ulong)( t1-t0 );
+    ctx->metrics.io_blocked_ticks      += (ulong)( t1-t0 );
 
+    int som = !ctx->part_cur;
     ctx->part_cur += frag_sz;
-
-    int eom = 0;
-    if( FD_UNLIKELY( ctx->part_cur==ctx->part_sz && !next_partition( ctx ) ) ) {
-      ctx->state = SNAPRD_STATE_DONE;
-      eom = 1;
-    }
+    int eom = ctx->part_cur==ctx->part_sz;
+    if( eom ) next_partition( ctx );
 
     ulong sz    = fd_ulong_min( frag_sz, (ulong)USHORT_MAX );
-    ulong ctl   = fd_frag_meta_ctl( FD_BACKUP_ORIG_DISK_FRAG, 0, eom, 0 );
+    ulong ctl   = fd_frag_meta_ctl( FD_BACKUP_ORIG_DISK_FRAG, som, eom, 0 );
     ulong tspub = frag_sz;
     fd_stem_publish( stem, 0UL, src_off, chunk, sz, ctl, 0UL, tspub );
     ctx->out.chunk = fd_dcache_compact_next( chunk, read_len, ctx->out.chunk0, ctx->out.wmark );
-
-    ctx->idle_cnt = 0UL;
-    *charge_busy = 1;
-    *opt_poll_in = 0;
   }
 }
 

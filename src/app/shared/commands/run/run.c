@@ -468,9 +468,9 @@ main_pid_namespace( void * _args ) {
            not need the accounts.db fd.  Withhold it to keep the gui at
            least privilege. */
         if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) tile_uses_accdb_ro = 0;
-        /* snapmk and snapzp map the accdb shmem writable (snapshot
-           sync, emitted marks) but only read the file */
-        if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) || !strcmp( tile->name, "snapzp" ) ) ) { tile_uses_accdb = 0; tile_uses_accdb_ro = 1; }
+        /* The snapshot tiles map the accdb shmem writable (snapshot
+           sync, visit bits, scanned partitions) but only read the file */
+        if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) || !strcmp( tile->name, "snapzp" ) || !strcmp( tile->name, "snaprd" ) ) ) { tile_uses_accdb = 0; tile_uses_accdb_ro = 1; }
 
         if( FD_UNLIKELY( tile_uses_accdb ) ) {
           if( FD_UNLIKELY( -1==fcntl( FD_ACCDB_FD_RW, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));

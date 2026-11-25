@@ -73,7 +73,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
      invalidity in the offset bits (partition_offset==partition_sz),
      not the index, so it remains distinguishable even when no spare
      index value is left. */
-  if( FD_UNLIKELY( partition_cnt>(1UL<<13) ) ) return 0UL;
+  if( FD_UNLIKELY( partition_cnt>FD_ACCDB_PARTITION_CNT_MAX ) ) return 0UL;
   if( FD_UNLIKELY( !joiner_cnt || joiner_cnt>FD_ACCDB_MAX_JOINERS ) ) return 0UL;
 
   if( FD_UNLIKELY( max_accounts>=UINT_MAX ) ) return 0UL;
@@ -173,8 +173,8 @@ fd_accdb_shmem_new( void * shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( partition_cnt>(1UL<<13) ) ) {
-    FD_LOG_WARNING(( "partition_cnt must be at most %lu", 1UL<<13 ));
+  if( FD_UNLIKELY( partition_cnt>FD_ACCDB_PARTITION_CNT_MAX ) ) {
+    FD_LOG_WARNING(( "partition_cnt must be at most %lu", FD_ACCDB_PARTITION_CNT_MAX ));
     return NULL;
   }
 
@@ -539,6 +539,7 @@ fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
   }
   out->bytes_freed       = FD_VOLATILE_CONST( p->bytes_freed );
   out->compaction_offset = FD_VOLATILE_CONST( p->compaction_offset );
+  out->compaction_epoch  = FD_VOLATILE_CONST( p->compaction_ready_epoch );
   out->read_ops          = FD_VOLATILE_CONST( p->read_ops );
   out->bytes_read        = FD_VOLATILE_CONST( p->bytes_read );
   out->write_ops         = FD_VOLATILE_CONST( p->write_ops );
@@ -549,6 +550,13 @@ fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
   uchar compacting       = FD_VOLATILE_CONST( p->compacting_now );
   uchar queued           = FD_VOLATILE_CONST( p->queued );
   out->compaction_state  = compacting ? 2 : ( queued ? 1 : 0 );
+}
+
+void
+fd_accdb_shmem_snap_scanned( fd_accdb_shmem_t * accdb,
+                             ulong              partition_idx ) {
+  FD_CHECK_CRIT( partition_idx<FD_ACCDB_PARTITION_CNT_MAX, "partition index out of range" );
+  FD_ATOMIC_FETCH_AND_OR( &accdb->snap_scanned[ partition_idx>>6 ], 1UL<<(partition_idx&63UL) );
 }
 
 FD_STATIC_ASSERT( sizeof(((fd_accdb_shmem_writer_barrier_t *)0)->bits)*8UL==FD_ACCDB_MAX_JOINERS, barrier_width );

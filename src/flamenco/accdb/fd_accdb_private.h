@@ -671,10 +671,10 @@ struct fd_accdb_shmem_private {
                   rooted after it starts is born unvisited for the next.
      keep_cnt     versions kept for it (visited by rooting, not yet by
                   the producer).  Accdb tile only.
-     snap_rd_off  written by the producer: accdb file offset below
-                  which its disk scan has resolved every record.
-                  Compaction holds partitions past it.  0 on START,
-                  ULONG_MAX once the producer no longer scans disk.
+     snap_scanned bit p set: the producer's disk scan has resolved
+                  every record of partition p, or does not read it.
+                  Compaction holds unscanned partitions.  Cleared on
+                  START; set by the producer (fd_accdb_shmem_snap_scanned).
      emit_pub     batches of kept versions the producer sent to be freed
                   (fd_accdb_snap_free_kept), counted before sending.
      emit_done    of those, batches freed.  Accdb tile only.  DONE
@@ -686,7 +686,7 @@ struct fd_accdb_shmem_private {
   ulong keep_cnt;
   ulong emit_done;
   ulong emit_pub __attribute__((aligned(64)));
-  ulong snap_rd_off __attribute__((aligned(64)));
+  ulong snap_scanned[ FD_ACCDB_PARTITION_CNT_MAX/64UL ] __attribute__((aligned(64)));
 
   /* Each joiner epoch is padded to a full cache line to prevent
      false sharing between joiners writing to adjacent slots. */
@@ -822,7 +822,16 @@ fd_accdb_shmem_snap_reset( fd_accdb_shmem_t * shmem ) {
   shmem->snap_gen    = UINT_MAX;
   shmem->snap_visit  = 0U;
   shmem->keep_cnt    = 0UL;
-  shmem->snap_rd_off = ULONG_MAX;
+  memset( shmem->snap_scanned, 0, sizeof(shmem->snap_scanned) );
+}
+
+/* fd_accdb_shmem_snap_is_scanned returns 1 if the running snapshot's
+   disk scan is done with partition_idx (see snap_scanned). */
+
+static inline int
+fd_accdb_shmem_snap_is_scanned( fd_accdb_shmem_t const * shmem,
+                                ulong                    partition_idx ) {
+  return (int)( ( FD_VOLATILE_CONST( shmem->snap_scanned[ partition_idx>>6 ] )>>(partition_idx&63UL) ) & 1UL );
 }
 
 /* fd_accdb_snap_visit marks version m visited for the running snapshot
