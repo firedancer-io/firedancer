@@ -1132,11 +1132,13 @@ after_credit( fd_repair_tile_t *  ctx,
     pending_pool_ele_release   ( ctx->pending_pool,  pending );
   }
 
+  /* Discovery can reinsert the same block when its timeout queue is full.
+     Skip saturated queues so we can drain due requests below. */
   for( ulong d=sign_pool_free(  ctx->sign_pool ); d; d-- ) {
     fd_repair_t *       repair = ctx->repair;
-    fd_repair_treap_t * treap  = fd_repair_treap_ele_cnt( repair->final_treap ) ? repair->final_treap :
-                                 fd_repair_treap_ele_cnt( repair->notar_treap ) ? repair->notar_treap :
-                                 fd_repair_treap_ele_cnt( repair->eager_treap ) ? repair->eager_treap :
+    fd_repair_treap_t * treap  = fd_repair_treap_ele_cnt( repair->final_treap ) && timeout_prq_cnt( ctx->final_prq )<timeout_prq_max( ctx->final_prq ) ? repair->final_treap :
+                                 fd_repair_treap_ele_cnt( repair->notar_treap ) && timeout_prq_cnt( ctx->notar_prq )<timeout_prq_max( ctx->notar_prq ) ? repair->notar_treap :
+                                 fd_repair_treap_ele_cnt( repair->eager_treap ) && timeout_prq_cnt( ctx->eager_prq )<timeout_prq_max( ctx->eager_prq ) ? repair->eager_treap :
                                                                                   NULL;
     if( FD_UNLIKELY( !treap ) ) break;
     fd_repair_blk_t * blk = fd_repair_treap_fwd_iter_ele( fd_repair_treap_fwd_iter_init( treap, repair->blk_pool ), repair->blk_pool );
