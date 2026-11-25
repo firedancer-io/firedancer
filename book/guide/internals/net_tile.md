@@ -463,11 +463,10 @@ Ethernet frame) and must be in the range [46,1486], because the net
 tile caps the full Ethernet frame (including the 14 byte Ethernet
 header) at 1500 bytes.
 
-By default, pktgen runs an interactive console (`start`, `stop`,
-`quit`) with a live status display.  With `--non-interactive`, it
-instead generates packets for a 10 second warm up, then measures for 10
-seconds, printing results at 1 second intervals and then a summary
-at the end.
+By default, pktgen generates packets for a 10 second warm up, then
+measures for 10 seconds, printing results at 1 second intervals and
+then a summary at the end.  With `--gui`, it instead runs an
+interactive console  with a live status display.
 
 While this application will cause significant load on the Ethernet
 network, it cannot harm any other IP networks, because the packets

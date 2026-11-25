@@ -110,17 +110,15 @@ pktgen_cmd_args( int *    pargc,
   }
   args->pktgen.pkt_sz = pkt_sz;
 
-  int non_interactive = fd_env_strip_cmdline_contains( pargc, pargv, "--non-interactive" );
-  args->pktgen.interactive = !non_interactive;
+  args->pktgen.gui = fd_env_strip_cmdline_contains( pargc, pargv, "--gui" );
 }
 
 static void
 pktgen_args_help( fd_action_help_t * help ) {
   fd_action_help_arg( help, "--pkt-sz", "<bytes>", "Size of the L3 header + payload of each generated packet\n"
                                                    "(default 46, range [46,1486])" );
-  fd_action_help_arg( help, "--non-interactive", NULL, "Generate packets for a 10 s warm up, then a 10 s test,\n"
-                                                       "printing per second TX pps/bps and net busy %,\n"
-                                                       "and a TX summary, then exit" );
+  fd_action_help_arg( help, "--gui", NULL, "Run an interactive console (start, stop, quit)\n"
+                                           "with a live status display instead of a timed run" );
 }
 
 /* Hacky: Since the pktgen runs in the same process, use globals to
@@ -438,6 +436,8 @@ init_pktgen( args_t *          args,
   }
 }
 
+/* FIXME fixup screen on window size changes */
+
 static void
 run_interactive_pktgen( args_t *          args,
                         config_t *        config,
@@ -558,15 +558,13 @@ run_noninteractive_pktgen( args_t *          args,
   fflush( stdout );
 }
 
-/* FIXME fixup screen on window size changes */
-
 void
 pktgen_cmd_fn( args_t *   args,
                config_t * config ) {
   fd_net_pktgen_t pktgen[1];
   init_pktgen( args, config, pktgen );
-  if( args->pktgen.interactive ) run_interactive_pktgen( args, config, pktgen );
-  else                           run_noninteractive_pktgen( args, config, pktgen );
+  if( args->pktgen.gui ) run_interactive_pktgen( args, config, pktgen );
+  else                   run_noninteractive_pktgen( args, config, pktgen );
 }
 
 action_t fd_action_pktgen = {
@@ -576,6 +574,9 @@ action_t fd_action_pktgen = {
   .fn          = pktgen_cmd_fn,
   .perm        = dev_cmd_perm,
   .description = "Flood interface with invalid Ethernet frames",
-  .usage       = "pktgen [--pkt-sz <bytes>] [--non-interactive]",
+  .detail      = "By default, generates packets for a 10 s warm up, then a 10 s test,\n"
+                 "printing per second TX pps/bps and net busy %, and a TX summary,\n"
+                 "then exits.  With --gui, runs an interactive console instead.",
+  .usage       = "pktgen [--pkt-sz <bytes>] [--gui]",
   .args_help   = pktgen_args_help
 };
