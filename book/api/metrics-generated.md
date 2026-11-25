@@ -149,6 +149,11 @@
 | <span class="metrics-name">snapin_&#8203;account_&#8203;progress</span><br/>{snapin_&#8203;account_&#8203;result="<span class="metrics-enum">ignored</span>"} | gauge | Accounts this tile processed in the current load, by result (Ignored accounts are not inserted); sum across tiles, rewinds on retry (Dropped because an inserted duplicate was newer) |
 | <span class="metrics-name">snapin_&#8203;account_&#8203;processed</span> | counter | Accounts processed across all snapshots |
 | <span class="metrics-name">snapin_&#8203;account_&#8203;batch_&#8203;processed</span> | counter | Account batches processed across all snapshots |
+| <span class="metrics-name">snapin_&#8203;flush_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{snapin_&#8203;flush_&#8203;regime="<span class="metrics-enum">disk_&#8203;reserve</span>"} | counter | Time this tile spent flushing the account write buffer, by phase; subset of the tile's Busy regime (Reserving space in the accounts database file, including partition growth) |
+| <span class="metrics-name">snapin_&#8203;flush_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{snapin_&#8203;flush_&#8203;regime="<span class="metrics-enum">disk_&#8203;write</span>"} | counter | Time this tile spent flushing the account write buffer, by phase; subset of the tile's Busy regime (Writing the account write buffer to the accounts database file) |
+| <span class="metrics-name">snapin_&#8203;flush_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{snapin_&#8203;flush_&#8203;regime="<span class="metrics-enum">index_&#8203;insert</span>"} | counter | Time this tile spent flushing the account write buffer, by phase; subset of the tile's Busy regime (Inserting written accounts into the accounts database index) |
+| <span class="metrics-name">snapin_&#8203;flush_&#8203;regime_&#8203;duration_&#8203;nanos</span><br/>{snapin_&#8203;flush_&#8203;regime="<span class="metrics-enum">stake_&#8203;delegation</span>"} | counter | Time this tile spent flushing the account write buffer, by phase; subset of the tile's Busy regime (Updating stake delegations) |
+| <span class="metrics-name">snapin_&#8203;disk_&#8203;write_&#8203;duration_&#8203;nanos</span> | histogram | Duration of one write of the account write buffer to the accounts database file |
 
 </div>
 
