@@ -153,6 +153,7 @@ union fdctl_args {
 
   struct {
     ulong pkt_sz; /* size of the L3 header + payload */
+    int   gui;    /* 1 to run the interactive REPL with a live status display */
   } pktgen;
 
   struct {
