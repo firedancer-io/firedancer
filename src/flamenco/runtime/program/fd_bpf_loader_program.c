@@ -97,16 +97,6 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
   #undef KIBIBYTE_MUL_PAGES_SUB_1
 }
 
-struct fd_bpf_deploy_scratch {
-  uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
-  uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
-  uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-};
-typedef struct fd_bpf_deploy_scratch fd_bpf_deploy_scratch_t;
-
-FD_STATIC_ASSERT( sizeof (fd_bpf_deploy_scratch_t)<=BPF_LOADER_SERIALIZATION_FOOTPRINT, bpf_deploy_scratch_sz    );
-FD_STATIC_ASSERT( alignof(fd_bpf_deploy_scratch_t)<=FD_BPF_FRAMES_ALIGN,                bpf_deploy_scratch_align );
-
 static int
 deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
                 uchar const *             programdata,
@@ -209,13 +199,8 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
                    ulong                 programdata_size,
                    int                   disable_sbpf_v0_v1_v2_deployment ) {
-  /* The loader runs as a builtin, so its stack level holds no frame and
-     can borrow one under the same rules as fd_bpf_execute. */
-  fd_runtime_t * runtime = instr_ctx->runtime;
-  uchar *        frame   = fd_bpf_frames_acquire( runtime->bpf_frames, fd_progcache_spill_held( runtime->progcache ) );
-  int err = deploy_program( instr_ctx, programdata, programdata_size, disable_sbpf_v0_v1_v2_deployment, (fd_bpf_deploy_scratch_t *)frame );
-  fd_bpf_frames_release( runtime->bpf_frames, frame );
-  return err;
+  fd_bpf_deploy_scratch_t * scratch = fd_bpf_frames_deploy_scratch( instr_ctx->runtime->bpf_frames );
+  return deploy_program( instr_ctx, programdata, programdata_size, disable_sbpf_v0_v1_v2_deployment, scratch );
 }
 
 /* SIMD-0500 finalize gate: when the feature is active and the ELF

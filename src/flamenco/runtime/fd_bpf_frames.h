@@ -11,10 +11,14 @@
    frames are held back so the pool cannot deadlock.  This is sized so
    that contending transactions cannot starve each other for bpf frames.
 
+   Each join also owns one fd_bpf_deploy_scratch_t for program
+   deployment.
+
    fd_bpf_frames_shmem_t is the pool and fd_bpf_frames_t is one user's
    local join to it. */
 
 #include "fd_runtime_const.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 /* FD_BPF_FRAMES_HELD_CNT is the number of shared frames held back when
    each join has local_cnt local frames, and so the fewest shared frames
@@ -27,6 +31,16 @@
 
 #define FD_BPF_FRAMES_ALIGN (4096UL)
 
+/* fd_bpf_deploy_scratch_t is the scratch memory used by
+   fd_deploy_program to load and validate a program. */
+
+struct fd_bpf_deploy_scratch {
+  uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));
+  uchar sbpf_footprint[ FD_SBPF_PROGRAM_FOOTPRINT ] __attribute__((aligned(alignof(fd_sbpf_program_t))));
+  uchar programdata   [ FD_RUNTIME_ACC_SZ_MAX     ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+};
+typedef struct fd_bpf_deploy_scratch fd_bpf_deploy_scratch_t;
+
 struct fd_bpf_frames_shmem;
 typedef struct fd_bpf_frames_shmem fd_bpf_frames_shmem_t;
 
@@ -36,12 +50,12 @@ typedef struct fd_bpf_frames fd_bpf_frames_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_bpf_frames_shmem_{align,footprint,new} size and format a pool of
-   frame_cnt shared frames, plus local_cnt local frames reserved for
-   each of up to joiner_cnt_max joins.  footprint returns 0 if local_cnt
-   is more than FD_MAX_INSTRUCTION_STACK_DEPTH, frame_cnt is less than
-   FD_BPF_FRAMES_HELD_CNT( local_cnt ), or the pool would have more than
-   FD_BPF_FRAMES_CNT_MAX frames.  new returns shmem on success, NULL on
-   failure (logs details). */
+   frame_cnt shared frames, plus local_cnt local frames and one deploy
+   scratch reserved for each of up to joiner_cnt_max joins.  footprint
+   returns 0 if local_cnt is more than FD_MAX_INSTRUCTION_STACK_DEPTH,
+   frame_cnt is less than FD_BPF_FRAMES_HELD_CNT( local_cnt ), or the
+   pool would have more than FD_BPF_FRAMES_CNT_MAX frames.  new returns
+   shmem on success, NULL on failure (logs details). */
 
 FD_FN_CONST ulong
 fd_bpf_frames_shmem_align( void );
@@ -59,8 +73,8 @@ fd_bpf_frames_shmem_new( void * shmem,
 
 /* fd_bpf_frames_{align,footprint,join} size and create a local join to
    the pool at shframes in the memory at ljoin, taking the next joiner's
-   local frames.  Each user needs its own join.  join returns NULL (logs
-   details) if joiner_cnt_max users already joined. */
+   local frames and deploy scratch.  Each user needs its own join.  join
+   returns NULL (logs details) if joiner_cnt_max users already joined. */
 
 FD_FN_CONST ulong
 fd_bpf_frames_align( void );
@@ -86,6 +100,12 @@ fd_bpf_frames_acquire( fd_bpf_frames_t * join,
 void
 fd_bpf_frames_release( fd_bpf_frames_t * join,
                        uchar *           frame );
+
+/* fd_bpf_frames_deploy_scratch returns the deploy scratch owned by
+   join. */
+
+fd_bpf_deploy_scratch_t *
+fd_bpf_frames_deploy_scratch( fd_bpf_frames_t * join );
 
 FD_PROTOTYPES_END
 

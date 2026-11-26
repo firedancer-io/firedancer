@@ -23,20 +23,21 @@ struct __attribute__((aligned(FD_BPF_FRAMES_ALIGN))) fd_bpf_frames_shmem {
   ulong       local_cnt;
 
   /* local_cnt local frames for each of joiner_cnt_max joins follow,
-     then frame_pool */
+     then frame_pool, then one deploy scratch for each join */
 };
 
 struct fd_bpf_frames {
-  fd_bpf_frames_shmem_t * shmem;
-  fd_bpf_frame_t *        pool;
-  fd_bpf_frame_t *        local;
-  ulong                   local_cnt;
-  ulong                   local_used;  /* local[ 0, local_used ) are in use */
-  ulong                   reserve_cnt; /* frames held back for each of the owner and
-                                          the priority caller, the most shared
-                                          frames one stack can need */
-  int                     is_owner;
-  ulong                   held_cnt;    /* shared frames */
+  fd_bpf_frames_shmem_t *   shmem;
+  fd_bpf_frame_t *          pool;
+  fd_bpf_frame_t *          local;
+  fd_bpf_deploy_scratch_t * deploy;
+  ulong                     local_cnt;
+  ulong                     local_used;  /* local[ 0, local_used ) are in use */
+  ulong                     reserve_cnt; /* frames held back for each of the owner and
+                                            the priority caller, the most shared
+                                            frames one stack can need */
+  int                       is_owner;
+  ulong                     held_cnt;    /* shared frames */
 };
 
 FD_FN_CONST ulong
@@ -54,9 +55,10 @@ fd_bpf_frames_shmem_footprint( ulong frame_cnt,
   if( FD_UNLIKELY( joiner_cnt_max>FD_BPF_FRAMES_CNT_MAX                     ) ) return 0UL;
   if( FD_UNLIKELY( frame_cnt+joiner_cnt_max*local_cnt>FD_BPF_FRAMES_CNT_MAX ) ) return 0UL;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_bpf_frames_shmem_t), sizeof(fd_bpf_frames_shmem_t)                   );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_bpf_frame_t),        joiner_cnt_max*local_cnt*sizeof(fd_bpf_frame_t) );
-  l = FD_LAYOUT_APPEND( l, frame_pool_align(),             frame_pool_footprint( frame_cnt )               );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_bpf_frames_shmem_t),   sizeof(fd_bpf_frames_shmem_t)                   );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_bpf_frame_t),          joiner_cnt_max*local_cnt*sizeof(fd_bpf_frame_t) );
+  l = FD_LAYOUT_APPEND( l, frame_pool_align(),               frame_pool_footprint( frame_cnt )               );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_bpf_deploy_scratch_t), joiner_cnt_max*sizeof(fd_bpf_deploy_scratch_t)  );
   return FD_LAYOUT_FINI( l, fd_bpf_frames_shmem_align() );
 }
 
@@ -68,6 +70,13 @@ local_frames( fd_bpf_frames_shmem_t * shmem ) {
 static void *
 pool_mem( fd_bpf_frames_shmem_t * shmem ) {
   return (void *)fd_ulong_align_up( (ulong)( local_frames( shmem )+shmem->joiner_cnt_max*shmem->local_cnt ), frame_pool_align() );
+}
+
+static fd_bpf_deploy_scratch_t *
+deploy_scratches( fd_bpf_frames_shmem_t * shmem,
+                  fd_bpf_frame_t *        pool ) {
+  ulong pool_end = (ulong)pool_mem( shmem )+frame_pool_footprint( frame_pool_max( pool ) );
+  return (fd_bpf_deploy_scratch_t *)fd_ulong_align_up( pool_end, alignof(fd_bpf_deploy_scratch_t) );
 }
 
 void *
@@ -144,6 +153,7 @@ fd_bpf_frames_join( void * ljoin,
   join->is_owner    = 0;
   join->held_cnt    = 0UL;
   FD_TEST( join->pool );
+  join->deploy      = deploy_scratches( shmem, join->pool )+idx;
   return join;
 }
 
@@ -217,4 +227,9 @@ fd_bpf_frames_release( fd_bpf_frames_t * join,
     join->is_owner   = 0;
   }
   fd_rwlock_unwrite( &shmem->lock );
+}
+
+fd_bpf_deploy_scratch_t *
+fd_bpf_frames_deploy_scratch( fd_bpf_frames_t * join ) {
+  return join->deploy;
 }
