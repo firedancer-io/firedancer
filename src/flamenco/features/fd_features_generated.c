@@ -1796,7 +1796,8 @@ fd_feature_id_t const ids[] = {
                                  /* P1BCUMpAC7V2GRBRiJCNUgpMyWZhoqt3LKo712ePqsz */
     .name                      = "raise_block_limits_to_100m",
     .implemented               = 1,
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, move_precompile_verification_to_svm)>>3,
     .id                        = {"\x85\x6c\x3d\xbc\xfd\xf4\xf4\x8e\x9f\xfa\xe7\xd0\xf8\xfc\x84\xda\x5a\x8b\x15\x32\x54\xe0\xe1\xa2\xe4\x64\x57\x89\x94\x0b\x38\x47"},

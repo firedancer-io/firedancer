@@ -45,7 +45,7 @@
    places.  We get one bound using transactions that consume the minimum
    number of CUs and another bound using the minimum size transactions.
    The overall bound is the lower of the two.  Both use the 200ms slot
-   params with raise_block_limits_to_100m (50M CUs, 16384 shreds). */
+   params (50M CUs, 16384 shreds). */
 #define FD_MAX_TXN_PER_SLOT_CU    49019UL
 #define FD_MAX_TXN_PER_SLOT_SHRED 136306UL
 #define FD_MAX_TXN_PER_SLOT       49019UL

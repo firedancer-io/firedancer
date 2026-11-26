@@ -58,8 +58,8 @@ typedef struct fd_slot_params fd_slot_params_t;
   .ns_per_slot_adjusted               = 400000000UL-FD_TARGET_SLOT_ADJUSTMENT_NS, \
   .slots_per_year                     = 78892314.984,                             \
   .hashes_per_tick                    = FD_LEGACY_HASHES_PER_TICK,                \
-  .max_block_units                    = 60000000UL,                               \
-  .max_writable_account_units         = 24000000UL,                               \
+  .max_block_units                    = 100000000UL,                              \
+  .max_writable_account_units         = 40000000UL,                               \
   .max_block_accounts_data_size_delta = 100000000UL,                              \
   .max_shred_idx                      = 32768UL,                                  \
   .max_entry_bytes_per_slot           = FD_DEFAULT_MAX_ENTRY_BYTES_PER_SLOT,      \
@@ -73,8 +73,8 @@ typedef struct fd_slot_params fd_slot_params_t;
   .ns_per_slot_adjusted               = 350000000UL-FD_TARGET_SLOT_ADJUSTMENT_NS, \
   .slots_per_year                     = 90162645.696,                             \
   .hashes_per_tick                    = 54687UL,                                  \
-  .max_block_units                    = 52500000UL,                               \
-  .max_writable_account_units         = 21000000UL,                               \
+  .max_block_units                    = 87500000UL,                               \
+  .max_writable_account_units         = 35000000UL,                               \
   .max_block_accounts_data_size_delta = 87500000UL,                               \
   .max_shred_idx                      = 28672UL,                                  \
   .max_entry_bytes_per_slot           = 18350080UL,                               \
@@ -88,8 +88,8 @@ typedef struct fd_slot_params fd_slot_params_t;
   .ns_per_slot_adjusted               = 300000000UL-FD_TARGET_SLOT_ADJUSTMENT_NS, \
   .slots_per_year                     = 105189753.312,                            \
   .hashes_per_tick                    = 46875UL,                                  \
-  .max_block_units                    = 45000000UL,                               \
-  .max_writable_account_units         = 18000000UL,                               \
+  .max_block_units                    = 75000000UL,                               \
+  .max_writable_account_units         = 30000000UL,                               \
   .max_block_accounts_data_size_delta = 75000000UL,                               \
   .max_shred_idx                      = 24576UL,                                  \
   .max_entry_bytes_per_slot           = 15728640UL,                               \
@@ -103,8 +103,8 @@ typedef struct fd_slot_params fd_slot_params_t;
   .ns_per_slot_adjusted               = 250000000UL-FD_TARGET_SLOT_ADJUSTMENT_NS, \
   .slots_per_year                     = 126227703.974,                            \
   .hashes_per_tick                    = 39062UL,                                  \
-  .max_block_units                    = 37500000UL,                               \
-  .max_writable_account_units         = 15000000UL,                               \
+  .max_block_units                    = 62500000UL,                               \
+  .max_writable_account_units         = 25000000UL,                               \
   .max_block_accounts_data_size_delta = 62500000UL,                               \
   .max_shred_idx                      = 20480UL,                                  \
   .max_entry_bytes_per_slot           = 13107200UL,                               \
@@ -112,7 +112,7 @@ typedef struct fd_slot_params fd_slot_params_t;
   .vat_to_burn_per_epoch              = 1000000000UL,                             \
 })
 
-#define FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS (30000000UL)
+#define FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS (50000000UL)
 
 /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L171-L181 */
 #define FD_SLOT_PARAMS_200MS ((fd_slot_params_t){                                 \
@@ -121,7 +121,7 @@ typedef struct fd_slot_params fd_slot_params_t;
   .slots_per_year                     = 157784629.968,                            \
   .hashes_per_tick                    = 31250UL,                                  \
   .max_block_units                    = FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS,     \
-  .max_writable_account_units         = 12000000UL,                               \
+  .max_writable_account_units         = 20000000UL,                               \
   .max_block_accounts_data_size_delta = 50000000UL,                               \
   .max_shred_idx                      = 16384UL,                                  \
   .max_entry_bytes_per_slot           = 10485760UL,                               \

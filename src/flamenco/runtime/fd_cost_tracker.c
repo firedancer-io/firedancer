@@ -11,12 +11,12 @@
 #include "../../util/fd_hash32.h"
 
 FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT +
-                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+63UL)/64UL)<=FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS*100UL/60UL,
+                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+63UL)/64UL)<=FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS,
                   max_writable_accounts_per_slot_fits );
 FD_STATIC_ASSERT( FD_WRITE_LOCK_UNITS*(FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+1UL) +
-                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+64UL)/64UL)>FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS*100UL/60UL,
+                  FD_PACK_COST_PER_SIGNATURE*((FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT+64UL)/64UL)>FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS,
                   max_writable_accounts_per_slot_is_tight );
-FD_STATIC_ASSERT( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND==FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS*100UL/60UL, pack_upper_bound_is_200ms );
+FD_STATIC_ASSERT( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND==FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS, pack_upper_bound_is_200ms );
 
 struct account_cost {
   fd_pubkey_t account;
@@ -133,17 +133,11 @@ fd_cost_tracker_init( fd_cost_tracker_t *      cost_tracker,
                       fd_features_t const *    features,
                       fd_slot_params_t const * slot_params,
                       ulong                    slot ) {
+  (void)features; (void)slot;
   /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/bank.rs#L4809-L4816 */
   cost_tracker->block_cost_limit   = slot_params->max_block_units;
   cost_tracker->account_cost_limit = slot_params->max_writable_account_units;
   cost_tracker->data_size_limit    = slot_params->max_block_accounts_data_size_delta;
-
-  /* Only the block and account cost limits scale with the block limit
-     https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L94-L119 */
-  if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_100m ) ) {
-    cost_tracker->block_cost_limit   = fd_ulong_sat_mul( cost_tracker->block_cost_limit,   100UL ) / 60UL;
-    cost_tracker->account_cost_limit = fd_ulong_sat_mul( cost_tracker->account_cost_limit, 100UL ) / 60UL;
-  }
 
   cost_tracker->block_cost_limit = fd_ulong_max( cost_tracker->block_cost_limit, cost_tracker->bench_max_cost_per_block );
 

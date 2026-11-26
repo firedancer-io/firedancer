@@ -54,8 +54,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
 /* Bound the number of distinct writable accounts that can enter the
-   cost tracker in a 200ms block with raise_block_limits_to_100m, a 50M
-   CU block (FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS*100/60).  Clusters
+   cost tracker in a 200ms block, a 50M CU block
+   (FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS).  Clusters
    with a larger block cost limit (slower slots or [development.bench])
    are not supported.  A transaction with w writable accounts costs at
    least 720+300*w CUs and carries at most 64 writable accounts.  Thus W

@@ -224,7 +224,7 @@
   {"name":"reserve_minimal_cus_for_builtin_instructions","implemented":1,"pubkey":"C9oAhLxDBm3ssWtJx1yBGzPY55r2rArHmN1pbQn6HogH","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"raise_block_limits_to_50m","implemented":1,"pubkey":"5oMCU3JPaFLr8Zr4ct7yFA7jdk6Mw1RmB8K4u9ZbS42z","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"raise_block_limits_to_60m","implemented":1,"pubkey":"6oMCUgfY6BzZ6jwB681J6ju5Bh6CjVXbd7NeWYqiXBSu","cleaned_up":1,"hardcode_for_fuzzing":1},
-  {"name":"raise_block_limits_to_100m","implemented":1,"pubkey":"P1BCUMpAC7V2GRBRiJCNUgpMyWZhoqt3LKo712ePqsz"},
+  {"name":"raise_block_limits_to_100m","implemented":1,"pubkey":"P1BCUMpAC7V2GRBRiJCNUgpMyWZhoqt3LKo712ePqsz","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"move_precompile_verification_to_svm","implemented":1,"pubkey":"9ypxGLzkMxi89eDerRKXWDXe44UY2z4hBig4mDhNq5Dp","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"enable_transaction_loading_failure_fees","implemented":1,"pubkey":"PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"disable_partitioned_rent_collection","implemented":1,"pubkey":"2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC","cleaned_up":1,"hardcode_for_fuzzing":1},
