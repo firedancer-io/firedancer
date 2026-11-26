@@ -32,3 +32,13 @@ CPPFLAGS+=-fsanitize=undefined \
           -fsanitize=vptr \
           -fsanitize=pointer-overflow \
           -fsanitize=builtin
+
+# base.mk's -fno-strict-overflow implies -fwrapv-pointer on Clang 20+,
+# which turns -fsanitize=pointer-overflow off.  Clang takes the last of
+# the two flags, so this goes in CFLAGS, after base.mk's.  Clang <20
+# does not know -fwrapv-pointer, and GCC keeps the check either way.
+ifdef FD_USING_CLANG
+ifeq ($(shell test $(CC_MAJOR_VERSION) -ge 20 2>/dev/null && echo yes),yes)
+CFLAGS+=-fno-wrapv-pointer
+endif
+endif
