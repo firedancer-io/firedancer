@@ -6,6 +6,10 @@
 #include "../metrics/fd_metrics.h"
 #include "fd_fec_resolver.h"
 #include "fd_fec_samp.h"
+#if FD_HAS_AVX512
+#include "../../util/simd/fd_avx512.h"
+#include <stddef.h>
+#endif
 
 
 typedef struct __attribute__((packed)) {
@@ -1140,6 +1144,47 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
                 !fd_memeq( (uchar *)parsed         +fd_shred_chain_off( parsed->variant          ),
                            (uchar *)base_data_shred+fd_shred_chain_off( base_data_shred->variant ), FD_SHRED_MERKLE_ROOT_SZ );
   }
+
+  /* SIMD-0504: once a data shred is not filled to capacity, all
+     following data shreds must be empty and the last data shred must
+     have the batch complete flag.  A data shred's capacity ends where
+     its chained Merkle root begins.
+     https://github.com/anza-xyz/agave/blob/v4.5.0-rc.0/ledger/src/shred/merkle.rs#L720-L738 */
+  if( FD_LIKELY( !reject ) ) {
+    ulong full_sz = fd_shred_chain_off( ctx->data_variant );
+    int   partial;
+#if FD_HAS_AVX512
+    /* Gather the 32 size fields (one 32-bit load per shred, low 16 bits
+       are the size) into a bit mask of full shreds and a bit mask of
+       empty shreds. */
+    FD_STATIC_ASSERT( FD_FEC_SHRED_CNT==32UL, simd );
+    ulong const   stride = sizeof(set->data_shreds[ 0 ]);
+    uchar const * sz0    = set->data_shreds[ 0 ].b + offsetof( fd_shred_t, data.size );
+    wwu_t const   idx    = wwu_mul( wwu( 0U,1U,2U,3U,4U,5U,6U,7U,8U,9U,10U,11U,12U,13U,14U,15U ), wwu_bcast( stride ) );
+    wwu_t const   lo16   = wwu_bcast( 0xFFFFU );
+    wwu_t const   sz_a   = wwu_and( _mm512_i32gather_epi32( idx, sz0,             1 ), lo16 );
+    wwu_t const   sz_b   = wwu_and( _mm512_i32gather_epi32( idx, sz0+16UL*stride, 1 ), lo16 );
+    wwu_t const   full   = wwu_bcast( full_sz                 );
+    wwu_t const   empty  = wwu_bcast( FD_SHRED_DATA_HEADER_SZ );
+    uint full_m  = (uint)wwu_eq( sz_a, full  ) | ((uint)wwu_eq( sz_b, full  )<<16);
+    uint empty_m = (uint)wwu_eq( sz_a, empty ) | ((uint)wwu_eq( sz_b, empty )<<16);
+    /* after: shreds strictly after the first non-full one (0 if all are
+       full) */
+    uint not_full = ~full_m;
+    uint after    = ~(not_full ^ (not_full-1U));
+    partial  = not_full!=0U;
+    reject  |= (after & ~empty_m)!=0U;
+#else
+    partial = 0;
+    for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+      ulong data_sz = set->data_shreds[ i ].s->data.size;
+      reject  |= partial & (data_sz!=FD_SHRED_DATA_HEADER_SZ);
+      partial |= data_sz!=full_sz;
+    }
+#endif
+    reject |= partial & !(set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
+  }
+
   if( FD_UNLIKELY( reject ) ) {
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;

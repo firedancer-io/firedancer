@@ -826,6 +826,142 @@ test_slot_old( void ) {
   for( ulong i=0UL; i<FD_FEC_SHRED_CNT-1UL; i++ ) { ADD_SHRED( resolver, set->parity_shreds[ i ], OKAY ); }
 }
 
+/* reseal re-encodes the parity, rebuilds the Merkle tree and re-signs a
+   chained FEC set after its data shreds were modified. */
+static void
+reseal( fd_fec_set_t * set,
+        signer_ctx_t * signer_ctx ) {
+  uchar data_variant   = set->data_shreds  [ 0 ].s->variant;
+  uchar parity_variant = set->parity_shreds[ 0 ].s->variant;
+  ulong rs_sz          = fd_shred_chain_off( data_variant ) - FD_SHRED_SIGNATURE_SZ;
+
+  fd_reedsol_t rs[1];
+  fd_reedsol_encode_init( rs, rs_sz );
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) fd_reedsol_encode_add_data_shred  ( rs, set->data_shreds  [ i ].b+FD_SHRED_SIGNATURE_SZ   );
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) fd_reedsol_encode_add_parity_shred( rs, set->parity_shreds[ i ].b+FD_SHRED_CODE_HEADER_SZ );
+  fd_reedsol_encode_fini( rs );
+
+  fd_bmtree_node_t leaves[ 2UL*FD_FEC_SHRED_CNT ];
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+    fd_bmtree_hash_leaf( leaves+i,                  set->data_shreds  [ i ].b+FD_SHRED_SIGNATURE_SZ, fd_shred_merkle_off( set->data_shreds  [ i ].s )-FD_SHRED_SIGNATURE_SZ, FD_BMTREE_LONG_PREFIX_SZ );
+    fd_bmtree_hash_leaf( leaves+FD_FEC_SHRED_CNT+i, set->parity_shreds[ i ].b+FD_SHRED_SIGNATURE_SZ, fd_shred_merkle_off( set->parity_shreds[ i ].s )-FD_SHRED_SIGNATURE_SZ, FD_BMTREE_LONG_PREFIX_SZ );
+  }
+  uchar tree_mem[ FD_BMTREE_COMMIT_FOOTPRINT( FD_SHRED_MERKLE_LAYER_CNT ) ] __attribute__((aligned(FD_BMTREE_COMMIT_ALIGN)));
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( tree_mem, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, FD_SHRED_MERKLE_LAYER_CNT );
+  fd_bmtree_commit_append( tree, leaves, 2UL*FD_FEC_SHRED_CNT );
+  uchar * root = fd_bmtree_commit_fini( tree );
+
+  uchar sig[ 64 ];
+  test_signer( signer_ctx, sig, root );
+  for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+    fd_bmtree_get_proof( tree, set->data_shreds  [ i ].b+fd_shred_merkle_off( set->data_shreds  [ i ].s ), i                  );
+    fd_bmtree_get_proof( tree, set->parity_shreds[ i ].b+fd_shred_merkle_off( set->parity_shreds[ i ].s ), FD_FEC_SHRED_CNT+i );
+    memcpy( set->data_shreds  [ i ].s->signature, sig, 64UL );
+    memcpy( set->parity_shreds[ i ].s->signature, sig, 64UL );
+  }
+  FD_TEST( set->data_shreds  [ 0 ].s->variant==data_variant   );
+  FD_TEST( set->parity_shreds[ 0 ].s->variant==parity_variant );
+}
+
+/* test_partial_padding checks the SIMD-0504 rule that a data shred
+   below capacity is followed only by empty data shreds and that the FEC
+   set then ends in batch complete, both when the data shreds are
+   received and when they are recovered. */
+static void
+test_partial_padding( void ) {
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder ) );
+  fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+  fd_shredder_set_shred_version( shredder, SHRED_VER );
+
+  uchar const * pubkey = test_private_key+32UL;
+  fd_fec_set_t const * out_fec[1];
+  fd_shred_t const   * out_shred[1];
+  fd_bmtree_node_t     out_merkle_root[1];
+  uchar                chained_merkle_root[32] = { 0 };
+
+  fd_fec_resolver_t * r = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, 2UL, 1UL, 1UL, 64UL, SLOT_MAX, out_sets, SEED ) );
+  fd_fec_resolver_set_shred_version( r, SHRED_VER );
+
+  fd_entry_batch_meta_t meta[1];
+  fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  meta->parent_offset  = 1UL;
+  meta->block_complete = 1;
+
+  ulong full_sz = 0UL;
+  for( ulong c=0UL; c<10UL; c++ ) {
+    ulong slot = 1UL+c;
+    /* Even cases come from a short batch: data shred 5 is partial and
+       shreds 6..31 are empty.  Odd cases come from the first FEC set of
+       a long batch: all data shreds are full and none is batch
+       complete. */
+    ulong batch_sz = fd_ulong_if( c&1UL, test_bin_sz, 5000UL );
+    FD_TEST( fd_shredder_init_batch( shredder, test_bin, batch_sz, slot, meta ) );
+    fd_fec_set_t * set = next_fec_set_signed( shredder, _set, chained_merkle_root, signer_ctx );
+    fd_shredder_fini_batch( shredder );
+    full_sz = fd_shred_chain_off( set->data_shreds[ 0 ].s->variant );
+    FD_TEST( set->data_shreds[ 0 ].s->data.size==full_sz );
+
+    fd_shred_t * last = set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s;
+    int expect_ok = 1;
+    switch( c ) {
+    case 0: case 1: /* as produced */
+      break;
+    case 2: /* data after the partial shred */
+      set->data_shreds[ 7 ].s->data.size++;
+      expect_ok = 0;
+      break;
+    case 3: /* only the last data shred is partial, without batch complete */
+      last->data.size--;
+      expect_ok = 0;
+      break;
+    case 4: /* partial without batch complete */
+      last->data.flags &= (uchar)~(FD_SHRED_DATA_FLAG_DATA_COMPLETE|FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+      expect_ok = 0;
+      break;
+    case 5: /* only the last data shred is partial, with batch complete */
+      last->data.size--;
+      last->data.flags |= FD_SHRED_DATA_FLAG_DATA_COMPLETE;
+      break;
+    case 6: /* empty shred directly after full ones */
+      set->data_shreds[ 5 ].s->data.size = FD_SHRED_DATA_HEADER_SZ;
+      break;
+    case 7: /* full set with an empty last data shred */
+      last->data.size  = FD_SHRED_DATA_HEADER_SZ;
+      last->data.flags |= FD_SHRED_DATA_FLAG_DATA_COMPLETE;
+      break;
+    case 8: /* full shred after the partial one */
+      set->data_shreds[ 9 ].s->data.size = (ushort)full_sz;
+      expect_ok = 0;
+      break;
+    case 9: /* full set with a partial shred in the middle */
+      set->data_shreds[ 3 ].s->data.size--;
+      expect_ok = 0;
+      break;
+    }
+    reseal( set, signer_ctx );
+
+    /* Received: all data shreds.  Recovered: all parity shreds, under a
+       different slot so the first attempt does not shadow the second. */
+    for( ulong i=0UL; i<FD_FEC_SHRED_CNT-1UL; i++ ) ADD_SHRED( r, set->data_shreds[ i ], OKAY );
+    if( expect_ok ) ADD_SHRED( r, set->data_shreds[ FD_FEC_SHRED_CNT-1UL ], COMPLETES );
+    else            ADD_SHRED( r, set->data_shreds[ FD_FEC_SHRED_CNT-1UL ], REJECTED  );
+
+    for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
+      set->data_shreds  [ i ].s->slot += 100UL;
+      set->parity_shreds[ i ].s->slot += 100UL;
+    }
+    reseal( set, signer_ctx );
+    for( ulong i=0UL; i<FD_FEC_SHRED_CNT-1UL; i++ ) ADD_SHRED( r, set->parity_shreds[ i ], OKAY );
+    if( expect_ok ) ADD_SHRED( r, set->parity_shreds[ FD_FEC_SHRED_CNT-1UL ], COMPLETES );
+    else            ADD_SHRED( r, set->parity_shreds[ FD_FEC_SHRED_CNT-1UL ], REJECTED  );
+  }
+
+  fd_fec_resolver_delete( fd_fec_resolver_leave( r ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -843,6 +979,7 @@ main( int     argc,
   test_merkle_root();
   test_chained_merkle_shreds();
   test_slot_old();
+  test_partial_padding();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
