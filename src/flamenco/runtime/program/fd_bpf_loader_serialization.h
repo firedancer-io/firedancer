@@ -14,8 +14,6 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           fd_vm_input_region_t *    input_mem_regions,
                                           uint *                    input_mem_regions_cnt,
                                           fd_vm_acc_region_meta_t * acc_region_metas,
-                                          int                       virtual_address_space_adjustments,
-                                          int                       direct_mapping,
                                           int                       direct_account_pointers_in_program_input,
                                           uchar                     is_deprecated,
                                           ulong *                   instr_data_offset,
@@ -23,15 +21,13 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           ulong *                   serialized_bytes_written );
 
 /* input and pre_lens must come from serialize_parameters for this
-   instruction with the same ABI and mapping settings.  ABI v0 account
+   instruction with the same ABI.  ABI v0 account
    offsets use pre_lens, ignoring serialized data-length fields. */
 int
 fd_bpf_loader_input_deserialize_parameters( fd_exec_instr_ctx_t * ctx,
                                             ulong const *         pre_lens,
                                             uchar *               input,
                                             ulong                 input_sz,
-                                            int                   virtual_address_space_adjustments,
-                                            int                   direct_mapping,
                                             uchar                 is_deprecated );
 
 

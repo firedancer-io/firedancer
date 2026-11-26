@@ -12,105 +12,21 @@
      account N metadata, account N data, instruction info. ]
 
   This format by no means comprehensive, but it should give an idea of how
-  the input region is laid out. When direct mapping is not enabled, the input
-  region is stored as a single contiguous buffer. This buffer in the host
-  address space is then mapped to the VM virtual address space (the range
-  starting with 0x400...). This means to serialize into the input region, we
-  need to copy in the account metadata and account data into the buffer for
-  each account. Everything must get copied out after execution is complete.
-  A consequence of this is that a memcpy for the account data is required
-  for each serialize and deserialize operation: this can potentially become
-  expensive if there are many accounts and many nested CPI calls. Also, the
-  entire memory region is treated as writable even though many accounts are
-  read-only. This means that for all read-only accounts, a memcmp must be done
-  while deserializing to make sure that the account (meta)data has not changed.
+  the input region is laid out.
 
-  Direct mapping offers a solution to this by introducing a more sophisticated
-  memory translation protocol. Now the account data is not copied into a single
-  contiguous buffer, but instead a borrowed account's data is directly mapped
-  into the VM's virtual address space. The host memory for the input region is
-  now represented by a list of fragmented memory regions. These sub regions
-  also have different write permissions. This should solve the problem of
-  having to memcpy/memcmp account data regions (which can be up to 10MiB each).
-  There is some nuance to this, as the account data can be resized. This means
-  that memcpys for account data regions can't totally be avoided.
+  A borrowed account's data is directly mapped into the VM's virtual
+  address space.  The host memory for the input region is represented by
+  a list of fragmented memory regions with individual write permissions:
 
-  SERIALIZATION BEHAVIOR
-  ==========================================
-
-  This implementation supports three distinct serialization modes based on two
-  feature flags: virtual_address_space_adjustments and
-  account_data_direct_mapping.
-
-  MODE 1
-  --------------------------------------
-  virtual_address_space_adjustments = false
-  account_data_direct_mapping       = false
-
-  Memory Layout:
-  - Single contiguous buffer in host memory
-  - Buffer contains: [metadata1, data1, realloc_buffer1, metadata2, data2,
-    realloc_buffer2, ..., metadataN, dataN, realloc_bufferN, instruction_info]
-  - Each account gets: original data + MAX_PERMITTED_DATA_INCREASE (10KiB)
-  - Padding added to maintain 16-byte alignment between accounts
-  - Entire buffer is writable
-
-  Memory Regions:
-  - The entire input region buffer is mapped as one contiguous VM address
-    space region
-
-  Serialization Process:
-  - Account data is memcpy'd into the buffer
-  - 10KiB realloc buffer is zeroed out and appended after each account's data
-  - Alignment padding is zeroed and added after realloc buffer
-
-  Deserialization Process:
-  - Account data must be memcpy'd back from buffer to borrowed account
-  - For writable accounts: always copy data back
-  - For read-only accounts: memcmp to verify data unchanged, error if modified
-  - Account resizing allowed if account permissions permit it
-
-  MODE 2
-  -------------------------------------------
-  virtual_address_space_adjustments = true
-  account_data_direct_mapping       = false
-
-  Memory Layout:
-  - Still uses a single contiguous buffer, but organized into fragmented
-    regions.
-  - Each account now has separate regions for metadata and data+realloc.
-  - Buffer contains: [metadata1, data1+realloc1, metadata2, data2+realloc2, ...,
-    metadataN, dataN+reallocN, instruction_info].
-  - Each metadata region and data region tracked separately in
-    input_mem_regions.
-
-  Memory Regions:
   - For each account:
-    * Region 0: Account metadata (writable)
-    * Region 1: Account data + realloc space (writable if account is writable)
-  - If the account is owned by the deprecated loader, no realloc region is
-    created as the deprecated loader does not support resizing accounts.
-
-  Serialization:
-  - Account metadata serialized first, added as a memory region.
-  - Account data memcpy'd into buffer - not directly mapped.
-  - 10KiB realloc buffer zeroed and appended (not direct mapped).
-  - Data region created pointing to copied data in buffer.
-
-  MODE 3: Direct Mapping (requires virtual_address_space_adjustments)
-  -----------------------------------------------
-  virtual_address_space_adjustments = true
-  account_data_direct_mapping       = true
-
-  This is very similar to virtual_address_space_adjustments, but account
-  data is NOT copied into the input region buffer.
-
-  Instead, the data region points directly to the staging area for the
-  account in the transaction account's data. This staging area has enough
-  space to hold the account data and the realloc buffer. Changes to this
-  staging area will be written back to the account database in transaction
-  finalization.
- */
+    * Account metadata (writable), backed by the serialization buffer
+    * Account data + realloc space (writable if the account data can be
+      changed), backed by the account's staging area in the transaction.
+      This staging area has enough space to hold the account data and
+      the realloc buffer.  Changes to it are written back to the account
+      database in transaction finalization.
+  - Accounts serialized for the deprecated loader reserve exactly their
+    data length. */
 
 /* Add a new memory region to represent the input region. All of the memory
    regions here have sorted virtual addresses. These regions may or may not
@@ -139,15 +55,10 @@ new_input_mem_region( fd_vm_input_region_t * input_mem_regions,
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L128-L190 */
-/* This function handles casing for direct mapping being enabled as well as if
-   the alignment is being stored. In the case where direct mapping is not
-   enabled, we copy in the account data and a 10KiB buffer into the input region.
-   These both go into the same memory buffer.  With direct mapping, a
-   single region points to the account data and reserves address space
-   for growth.  In both cases, padding is used to maintain 8 byte
-   alignment. If alignment is not required, then a resizing buffer is not used
-   as the deprecated loader doesn't allow for resizing accounts. */
-static ulong
+/* write_account pushes the metadata serialized so far as a region, then
+   a region pointing directly to the account data that reserves address
+   space for growth (is_loader_v1: exactly the data length). */
+static void
 write_account( fd_borrowed_account_t *   account,
                uchar                     instr_acc_idx,
                uchar * *                 serialized_params,
@@ -155,9 +66,7 @@ write_account( fd_borrowed_account_t *   account,
                fd_vm_input_region_t *    input_mem_regions,
                uint *                    input_mem_regions_cnt,
                fd_vm_acc_region_meta_t * acc_region_metas,
-               int                       is_loader_v1,
-               int                       virtual_address_space_adjustments,
-               int                       direct_mapping ) {
+               int                       is_loader_v1 ) {
 
   uchar const * data = account ? fd_borrowed_account_get_data( account )     : NULL;
   ulong         dlen = account ? fd_borrowed_account_get_data_len( account ) : 0UL;
@@ -165,94 +74,35 @@ write_account( fd_borrowed_account_t *   account,
   acc_region_metas[instr_acc_idx].original_data_len = dlen;
   acc_region_metas[instr_acc_idx].acc               = account->acc;
   acc_region_metas[instr_acc_idx].touched           = account->touched;
+  acc_region_metas[instr_acc_idx].region_idx        = *input_mem_regions_cnt;
 
-  /* Legacy behavior: no virtual_address_space_adjustments (also implies no direct mapping)
-     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L132-L142 */
-  if( !virtual_address_space_adjustments ) {
-    /* Copy the account data into input region buffer */
-    fd_memcpy( *serialized_params, data, dlen );
-    *serialized_params += dlen;
+  /* Push the region for the metadata that has just been serialized.
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L143 */
+  ulong region_sz = (ulong)(*serialized_params) - (ulong)(*serialized_params_start);
+  new_input_mem_region( input_mem_regions, input_mem_regions_cnt, *serialized_params_start, region_sz, region_sz, 1U, ULONG_MAX );
 
-    if( FD_LIKELY( !is_loader_v1 ) ) {
-      /* Zero out padding bytes and max permitted data increase */
-      ulong align_offset = fd_ulong_align_up( dlen, FD_BPF_ALIGN_OF_U128 ) - dlen;
-      fd_memset( *serialized_params, 0, MAX_PERMITTED_DATA_INCREASE + align_offset );
-      *serialized_params += MAX_PERMITTED_DATA_INCREASE + align_offset;
-    }
-    acc_region_metas[instr_acc_idx].region_idx = UINT_MAX;
-  } else { /* virtual_address_space_adjustments == true */
+  /* Calculate address space reserved for account (data + realloc space)
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L152-L159 */
+  ulong address_space_reserved = !is_loader_v1 ?
+    fd_ulong_sat_add( dlen, MAX_PERMITTED_DATA_INCREASE ) : dlen;
 
-    /* Set up account region metadata */
-    acc_region_metas[instr_acc_idx].region_idx = *input_mem_regions_cnt;
-
-    /* First, push on the region for the metadata that has just been serialized.
-       This function will push the metadata in the serialized_params from
-       serialized_params_start to serialized_params as a region to the input
-       memory regions array.
-
-       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L143 */
-    ulong region_sz = (ulong)(*serialized_params) - (ulong)(*serialized_params_start);
-    new_input_mem_region( input_mem_regions, input_mem_regions_cnt, *serialized_params_start, region_sz, region_sz, 1U, ULONG_MAX );
-
-    /* If direct mapping isn't enabled, then copy the account data in directly
-       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L145-L151 */
-    if( !direct_mapping ) {
-      fd_memcpy( *serialized_params, data, dlen );
-      *serialized_params += dlen;
-      if( FD_LIKELY( !is_loader_v1 ) ) {
-        fd_memset( *serialized_params, 0, MAX_PERMITTED_DATA_INCREASE );
-        *serialized_params += MAX_PERMITTED_DATA_INCREASE;
-      }
-    }
-
-    /* Calculate address space reserved for account (data + realloc space)
-       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L152-L159 */
-    ulong address_space_reserved = !is_loader_v1 ?
-      fd_ulong_sat_add( dlen, MAX_PERMITTED_DATA_INCREASE ) : dlen;
-
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L160-L170 */
-    if( address_space_reserved > 0 ) {
-      int err = 0;
-      uchar is_writable = !!(fd_borrowed_account_can_data_be_changed( account, &err ) && !err);
-
-      if( !direct_mapping ) {
-        /* Create region pointing to the copied data in buffer
-           https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L161-L165 */
-        uchar * data_start = *serialized_params - address_space_reserved;
-        new_input_mem_region( input_mem_regions, input_mem_regions_cnt, data_start, dlen, address_space_reserved, is_writable, instr_acc_idx );
-      } else {
-        /* Direct mapping: create region pointing directly to account data */
-        new_input_mem_region( input_mem_regions, input_mem_regions_cnt, data, dlen, address_space_reserved, is_writable, instr_acc_idx );
-      }
-    }
-
-    *serialized_params_start = *serialized_params;
-
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L171-L187 */
-    if( FD_LIKELY( !is_loader_v1 ) ) {
-      ulong align_offset = fd_ulong_align_up( dlen, FD_BPF_ALIGN_OF_U128 ) - dlen;
-      if( !direct_mapping ) {
-        /* If direct mapping is not enabled, we do not align the start of each
-           region metadata to FD_BPF_ALIGN_OF_U128, but we do align the start
-           of the actual contents of the metadata region.
-
-           This follows Agave's logic
-           https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L174-L177 */
-        fd_memset( *serialized_params, 0, align_offset );
-        *serialized_params += align_offset;
-      } else {
-        /* If direct mapping is enabled, we align the start of each region
-           metadata to FD_BPF_ALIGN_OF_U128. */
-        fd_memset( *serialized_params, 0, FD_BPF_ALIGN_OF_U128 );
-        *serialized_params       += FD_BPF_ALIGN_OF_U128;
-        *serialized_params_start += fd_ulong_sat_sub( FD_BPF_ALIGN_OF_U128, align_offset );
-      }
-    }
-
-    return region_sz + address_space_reserved;
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L160-L170 */
+  if( address_space_reserved > 0 ) {
+    int err = 0;
+    uchar is_writable = !!(fd_borrowed_account_can_data_be_changed( account, &err ) && !err);
+    new_input_mem_region( input_mem_regions, input_mem_regions_cnt, data, dlen, address_space_reserved, is_writable, instr_acc_idx );
   }
 
-  return 0UL;
+  *serialized_params_start = *serialized_params;
+
+  /* Align the start of the next metadata region to FD_BPF_ALIGN_OF_U128.
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L171-L187 */
+  if( FD_LIKELY( !is_loader_v1 ) ) {
+    ulong align_offset = fd_ulong_align_up( dlen, FD_BPF_ALIGN_OF_U128 ) - dlen;
+    fd_memset( *serialized_params, 0, FD_BPF_ALIGN_OF_U128 );
+    *serialized_params       += FD_BPF_ALIGN_OF_U128;
+    *serialized_params_start += fd_ulong_sat_sub( FD_BPF_ALIGN_OF_U128, align_offset );
+  }
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L473 */
@@ -262,8 +112,6 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
                                          fd_vm_input_region_t *    input_mem_regions,
                                          uint *                    input_mem_regions_cnt,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
-                                         int                       virtual_address_space_adjustments,
-                                         int                       direct_mapping,
                                          int                       direct_account_pointers_in_program_input,
                                          ulong *                   instr_data_offset,
                                          ulong *                   account_pointers_offset,
@@ -384,9 +232,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
         input_mem_regions,
         input_mem_regions_cnt,
         acc_region_metas,
-        0,
-        virtual_address_space_adjustments,
-        direct_mapping );
+        0 );
 
       /* write_account may have pushed a new region(s) */
       curr_region_vaddr = *input_mem_regions_cnt == 0U ? 0UL :
@@ -447,10 +293,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
 static int
 fd_bpf_loader_input_deserialize_for_abiv1( fd_exec_instr_ctx_t * ctx,
                                            ulong const *         pre_lens,
-                                           uchar *               buffer,
-                                           ulong                 buffer_sz,
-                                           int                   virtual_address_space_adjustments,
-                                           int                   direct_mapping ) {
+                                           uchar *               buffer ) {
   /* TODO: An optimization would be to skip ahead through non-writable accounts */
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L601 */
   ulong start = 0UL;
@@ -499,9 +342,6 @@ fd_bpf_loader_input_deserialize_for_abiv1( fd_exec_instr_ctx_t * ctx,
       start += sizeof(ulong); // data length
 
       ulong pre_len = pre_lens[i];
-      ulong alignment_offset = fd_ulong_align_up( pre_len, FD_BPF_ALIGN_OF_U128 ) - pre_len;
-
-      uchar * post_data = buffer+start;
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L640-L644 */
       if( FD_UNLIKELY( fd_ulong_sat_sub( post_len, pre_len )>MAX_PERMITTED_DATA_INCREASE ||
@@ -509,42 +349,8 @@ fd_bpf_loader_input_deserialize_for_abiv1( fd_exec_instr_ctx_t * ctx,
         return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
       }
 
-      int can_data_be_changed_err = 0;
-      if( !virtual_address_space_adjustments ) {
-        /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L645-L655 */
-
-        /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L646-L648 */
-        if( FD_UNLIKELY( start + post_len > buffer_sz ) ) {
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-        }
-
-        /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/program-runtime/src/serialization.rs#L648-L652 */
-        int can_data_be_resized_err = 0;
-        if( fd_borrowed_account_can_data_be_resized( &view_acc, post_len, &can_data_be_resized_err ) ) {
-          int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, post_len );
-          if( FD_UNLIKELY( set_data_err ) ) {
-            return set_data_err;
-          }
-        } else {
-          if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &view_acc )!=post_len ||
-                           ( post_len && memcmp( fd_borrowed_account_get_data( &view_acc ), post_data, post_len ) ) ) ) {
-            return can_data_be_resized_err;
-          }
-        }
-
-      } else if( !direct_mapping && fd_borrowed_account_can_data_be_changed( &view_acc, &can_data_be_changed_err ) ) {
-        /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L657-L659 */
-        if( FD_UNLIKELY( start + post_len > buffer_sz ) ) {
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-        }
-
-        /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L655-L661 */
-        int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, post_len );
-        if( FD_UNLIKELY( set_data_err ) ) {
-          return set_data_err;
-        }
-      } else if( fd_borrowed_account_get_data_len( &view_acc ) != post_len ) {
-        /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L661-L663 */
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L661-L663 */
+      if( fd_borrowed_account_get_data_len( &view_acc ) != post_len ) {
         int set_data_length_err = fd_borrowed_account_set_data_length( &view_acc, post_len );
         if( FD_UNLIKELY( set_data_length_err ) ) {
           return set_data_length_err;
@@ -552,11 +358,7 @@ fd_bpf_loader_input_deserialize_for_abiv1( fd_exec_instr_ctx_t * ctx,
       }
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L664-L672 */
-      if( !( virtual_address_space_adjustments && direct_mapping ) ) {
-        start += fd_ulong_sat_add( MAX_PERMITTED_DATA_INCREASE, fd_ulong_sat_add( pre_len, alignment_offset ) );
-      } else {
-        start += FD_BPF_ALIGN_OF_U128;
-      }
+      start += FD_BPF_ALIGN_OF_U128;
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L673 */
       start += sizeof(ulong); // rent epoch
@@ -578,8 +380,6 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
                                          fd_vm_input_region_t *    input_mem_regions,
                                          uint *                    input_mem_regions_cnt,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
-                                         int                       virtual_address_space_adjustments,
-                                         int                       direct_mapping,
                                          ulong *                   instr_data_offset,
                                          ulong *                   serialized_bytes_written ) {
   /* Transaction sanitisation limits the number of instruction accounts to
@@ -658,8 +458,7 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
 
       write_account( &view_acc, (uchar)i,
         &serialized_params, &curr_serialized_params_start,
-        input_mem_regions, input_mem_regions_cnt, acc_region_metas, 1,
-        virtual_address_space_adjustments, direct_mapping );
+        input_mem_regions, input_mem_regions_cnt, acc_region_metas, 1 );
 
       /* write_account may have pushed a new region(s) */
       curr_region_vaddr = *input_mem_regions_cnt == 0U ? 0UL :
@@ -709,9 +508,7 @@ static int
 fd_bpf_loader_input_deserialize_for_abiv0( fd_exec_instr_ctx_t * ctx,
                                            ulong const *         pre_lens,
                                            uchar *               input,
-                                           ulong                 input_sz,
-                                           int                   virtual_address_space_adjustments,
-                                           int                   direct_mapping ) {
+                                           ulong                 input_sz ) {
   uchar *       input_cursor      = input;
   uchar         acc_idx_seen[256] = {0};
 
@@ -744,40 +541,16 @@ fd_bpf_loader_input_deserialize_for_abiv0( fd_exec_instr_ctx_t * ctx,
       input_cursor += sizeof(ulong); /* lamports */
       input_cursor += sizeof(ulong); /* data length */
 
-      ulong   pre_len   = pre_lens[i];
-      uchar * post_data = input_cursor;
+      ulong pre_len = pre_lens[i];
 
-      /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.0/program-runtime/src/serialization.rs#L446-L450 */
-      int can_data_be_changed_err = 0;
-      if( !virtual_address_space_adjustments ) {
-        int can_data_be_resized_err = 0;
-        if( fd_borrowed_account_can_data_be_resized( &view_acc, pre_len, &can_data_be_resized_err ) ) {
-          int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, pre_len );
-          if( FD_UNLIKELY( set_data_err ) ) {
-            return set_data_err;
-          }
-        } else if( fd_borrowed_account_get_data_len( &view_acc ) != pre_len ||
-                   ( pre_len && memcmp( post_data, fd_borrowed_account_get_data( &view_acc ), pre_len ) ) ) {
-          return can_data_be_resized_err;
-        }
-      } else if( !direct_mapping && fd_borrowed_account_can_data_be_changed( &view_acc, &can_data_be_changed_err ) ) {
-        /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L453-L459 */
-        int set_data_err = fd_borrowed_account_set_data_from_slice( &view_acc, post_data, pre_len );
-        if( FD_UNLIKELY( set_data_err ) ) {
-          return set_data_err;
-        }
-      } else if( fd_borrowed_account_get_data_len( &view_acc ) != pre_len ) {
-        /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L459-L461 */
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L459-L461 */
+      if( fd_borrowed_account_get_data_len( &view_acc ) != pre_len ) {
         int set_data_length_err = fd_borrowed_account_set_data_length( &view_acc, pre_len );
         if( FD_UNLIKELY( set_data_length_err ) ) {
           return set_data_length_err;
         }
       }
 
-      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L462-L464 */
-      if( !( virtual_address_space_adjustments && direct_mapping ) ) {
-        input_cursor += pre_len;
-      }
       input_cursor += sizeof(fd_pubkey_t) + /* owner */
                       sizeof(uchar) +       /* executable */
                       sizeof(ulong);        /* rent_epoch*/
@@ -798,8 +571,6 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           fd_vm_input_region_t *    input_mem_regions,
                                           uint *                    input_mem_regions_cnt,
                                           fd_vm_acc_region_meta_t * acc_region_metas,
-                                          int                       virtual_address_space_adjustments,
-                                          int                       direct_mapping,
                                           int                       direct_account_pointers_in_program_input,
                                           uchar                     is_deprecated,
                                           ulong *                   instr_data_offset,
@@ -817,13 +588,11 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
     *account_pointers_offset = ULONG_MAX;
     return fd_bpf_loader_input_serialize_for_abiv0( instr_ctx, pre_lens,
                                                     input_mem_regions, input_mem_regions_cnt,
-                                                    acc_region_metas, virtual_address_space_adjustments,
-                                                    direct_mapping, instr_data_offset, serialized_bytes_written );
+                                                    acc_region_metas, instr_data_offset, serialized_bytes_written );
   } else {
     return fd_bpf_loader_input_serialize_for_abiv1( instr_ctx, pre_lens,
                                                     input_mem_regions, input_mem_regions_cnt,
-                                                    acc_region_metas, virtual_address_space_adjustments,
-                                                    direct_mapping, direct_account_pointers_in_program_input,
+                                                    acc_region_metas, direct_account_pointers_in_program_input,
                                                     instr_data_offset, account_pointers_offset,
                                                     serialized_bytes_written );
   }
@@ -835,14 +604,10 @@ fd_bpf_loader_input_deserialize_parameters( fd_exec_instr_ctx_t * ctx,
                                             ulong const *         pre_lens,
                                             uchar *               input,
                                             ulong                 input_sz,
-                                            int                   virtual_address_space_adjustments,
-                                            int                   direct_mapping,
                                             uchar                 is_deprecated ) {
   if( FD_UNLIKELY( is_deprecated ) ) {
-    return fd_bpf_loader_input_deserialize_for_abiv0(
-      ctx, pre_lens, input, input_sz, virtual_address_space_adjustments, direct_mapping );
+    return fd_bpf_loader_input_deserialize_for_abiv0( ctx, pre_lens, input, input_sz );
   } else {
-    return fd_bpf_loader_input_deserialize_for_abiv1(
-      ctx, pre_lens, input, input_sz, virtual_address_space_adjustments, direct_mapping );
+    return fd_bpf_loader_input_deserialize_for_abiv1( ctx, pre_lens, input );
   }
 }

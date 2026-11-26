@@ -297,7 +297,7 @@
   shadow[ frame_cnt ].r10 = reg[10];                                                                        \
   shadow[ frame_cnt ].pc  = pc;                                                                             \
   if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
-  reg[10]                += vm->stack_frame_sz * vm->stack_push_frame_count;                                \
+  reg[10]                += vm->stack_frame_sz;                                                             \
   /* We subtract the heap cost in the BPF loader */
 
   goto interp_exec; /* Silly but to avoid unused label warning in some configurations */

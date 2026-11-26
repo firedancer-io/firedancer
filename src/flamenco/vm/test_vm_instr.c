@@ -466,9 +466,6 @@ run_input( test_input_t const * input,
       /* mem_regions_cnt                        */ input->region_boundary_cnt ? input->region_boundary_cnt : 1,
       /* mem_regions_accs                       */ NULL,
       /* is_deprecated                          */ 0,
-      /* direct mapping                         */ 0,
-      /* syscall_parameter_address_restrictions */ 0,
-      /* virtual_address_space_adjustments      */ 0,
       /* dump_syscall_to_pb                     */ 0,
       /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );

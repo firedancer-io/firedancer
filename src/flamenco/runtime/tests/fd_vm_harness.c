@@ -147,9 +147,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   fd_vm_input_region_t    input_mem_regions[1000]                  = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t acc_region_metas[256]                    = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                    = 0U;
-  int                     direct_mapping                           = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
-  int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( ctx->bank, syscall_parameter_address_restrictions );
-  int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
   int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
   uchar      program_id_idx = ctx->instr->program_id;
@@ -173,8 +170,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                                       input_mem_regions,
                                                       &input_mem_regions_cnt,
                                                       acc_region_metas,
-                                                      virtual_address_space_adjustments,
-                                                      direct_mapping,
                                                       direct_account_pointers_in_program_input,
                                                       is_deprecated,
                                                       &instr_data_offset,
@@ -205,9 +200,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
               input_mem_regions_cnt,
               acc_region_metas,
               is_deprecated,
-              direct_mapping,
-              syscall_parameter_address_restrictions,
-              virtual_address_space_adjustments,
               0 /* dump_syscall_to_pb */,
               (ulong[ FD_VM_REG_CNT ]){ 0 } /* r2 is set by the fuzzer below */ );
 
@@ -302,11 +294,10 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   /* Capture input regions */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
 
-  /* Don't compare input data regions if execution failed and
-     virtual_address_space_adjustments is enabled, because
+  /* Skip comparing input data regions if execution failed, because
      Agave leaks data into the input regions under these circumstances. */
   ulong input_regions_size = 0UL;
-  if( syscall_err && virtual_address_space_adjustments ) {
+  if( syscall_err ) {
     effects->input_data_regions       = NULL;
     effects->input_data_regions_count = 0UL;
   } else {
@@ -365,8 +356,6 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   *effects = (fd_exec_test_vm_serialization_effects_t){0};
 
   /* Determine feature flags and is_deprecated */
-  int direct_mapping                           = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
-  int virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
   int direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
   uchar      program_id_idx = ctx->instr->program_id;
@@ -395,8 +384,6 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
     input_mem_regions,
     &input_mem_regions_cnt,
     acc_region_metas,
-    virtual_address_space_adjustments,
-    direct_mapping,
     direct_account_pointers_in_program_input,
     is_deprecated,
     &instr_data_offset,
