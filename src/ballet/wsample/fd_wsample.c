@@ -332,7 +332,13 @@ fd_wsample_new_add( void * shmem,
   for( ulong h=0UL; h<sampler->height; h++ ) {
     ulong parent = (i-1UL)/R;
     ulong child_idx = i-1UL - R*parent; /* in [0, R) */
+#if FD_HAS_AVX512 && R==9
+    __mmask8 mask = _mm_cmplt_epi16_mask( _mm_set1_epi16( (short)child_idx ), _mm_setr_epi16( 1, 2, 3, 4, 5, 6, 7, 8 ) );
+    wwv_t    left_sum = wwv_ld( tree[ parent ].left_sum );
+    wwv_st( tree[ parent ].left_sum, wwv_add_if( mask, left_sum, wwv_bcast( weight ), left_sum ) );
+#else
     for( ulong k=child_idx; k<R-1UL; k++ )  tree[ parent ].left_sum[ k ] += weight;
+#endif
     i = parent;
   }
 
