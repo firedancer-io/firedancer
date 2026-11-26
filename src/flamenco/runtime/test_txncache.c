@@ -316,7 +316,7 @@ test_bucket_cnt( void ) {
   FD_TEST( fd_txncache_bucket_cnt( 1UL )==1UL );
   FD_TEST( fd_txncache_bucket_cnt( 8UL )==1UL );
   FD_TEST( fd_txncache_bucket_cnt( 9UL )==2UL );
-  FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==12255UL );
+  FD_TEST( fd_txncache_bucket_cnt( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT )==24510UL );
 }
 
 static void
@@ -324,9 +324,9 @@ test_page_sizing( void ) {
   ulong const max_active_slots = 2199UL;
   ulong const max_txn_per_slot = FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT;
 
-  FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot )==17158UL );
-  FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot )==17158UL );
-  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot, ULONG_MAX )==4396961792UL ); /* production */
+  FD_TEST( fd_txncache_max_txnpages              ( max_active_slots, max_txn_per_slot )==32118UL );
+  FD_TEST( fd_txncache_max_txnpages_per_blockhash( max_active_slots, max_txn_per_slot )==32118UL );
+  FD_TEST( fd_txncache_shmem_footprint( 2048UL, max_txn_per_slot, ULONG_MAX )==8243187712UL ); /* production */
 
   /* development.bench.max_cost_per_block = 540M: 2*529,411 txns per
      slot. */

@@ -45,10 +45,11 @@
    places.  We get one bound using transactions that consume the minimum
    number of CUs and another bound using the minimum size transactions.
    The overall bound is the lower of the two.  Both use the 200ms slot
-   params (50M CUs, 16384 shreds). */
-#define FD_MAX_TXN_PER_SLOT_CU    49019UL
+   params with the largest SIMD-0698 block limit (100M CUs, 16384
+   shreds). */
+#define FD_MAX_TXN_PER_SLOT_CU    98039UL
 #define FD_MAX_TXN_PER_SLOT_SHRED 136306UL
-#define FD_MAX_TXN_PER_SLOT       49019UL
+#define FD_MAX_TXN_PER_SLOT       98039UL
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT<=FD_MAX_TXN_PER_SLOT_CU&&FD_MAX_TXN_PER_SLOT<=FD_MAX_TXN_PER_SLOT_SHRED, max_txn_per_slot );
 FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT>=FD_MAX_TXN_PER_SLOT_CU||FD_MAX_TXN_PER_SLOT>=FD_MAX_TXN_PER_SLOT_SHRED, max_txn_per_slot );
 

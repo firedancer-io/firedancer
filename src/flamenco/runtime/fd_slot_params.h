@@ -114,6 +114,10 @@ typedef struct fd_slot_params fd_slot_params_t;
 
 #define FD_SLOT_PARAMS_200MS_MAX_BLOCK_UNITS (50000000UL)
 
+/* The largest block limit any SIMD-0698 raise_block_limit_to_* feature
+   gate sets. */
+#define FD_SIMD_0698_MAX_BLOCK_UNITS (100000000UL)
+
 /* https://github.com/anza-xyz/agave/blob/v4.2/runtime/src/slot_params.rs#L171-L181 */
 #define FD_SLOT_PARAMS_200MS ((fd_slot_params_t){                                 \
   .ns_per_slot                        = 200000000UL,                              \

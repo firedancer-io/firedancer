@@ -181,11 +181,11 @@
 #define FD_RDISP_UNSTAGED         ULONG_MAX
 #define FD_RDISP_MAX_ACCT_PER_TXN FD_TXN_ACCT_ADDR_MAX
 
-/* 62,500,000 CUs gets 3137 transactions with 64 writers and one with 34
-   writers for a total of 200,802.  Then we add 8k for inflation
+/* 100,000,000 CUs gets 5020 transactions with 64 writers and one with
+   2 writers for a total of 321,282.  Then we add 8k for inflation
    rewards, 10 for sysvars, 4000 for vote accounts, and a bit of
    padding. */
-#define FD_RDISP_MAX_WRITERS_PER_BLOCK 217354UL
+#define FD_RDISP_MAX_WRITERS_PER_BLOCK 337834UL
 
 #define FD_RDISP_LTHASH_PSEUDO_TXN 0x80000000UL
 

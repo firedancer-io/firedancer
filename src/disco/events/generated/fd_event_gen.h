@@ -430,18 +430,18 @@ struct fd_event_block_completed {
   ulong                                 pack_data_bytes;                           /* Bytes pack's cost model reserved for block content: transaction payloads plus a 48-byte header per microblock, net of rebates settled by slot end. Excludes tick entries; can exceed the block's actual content by rebates unsettled at slot end. A size, not a compute measure. 0 for blocks this validator did not produce. */
   int                                   pack_end_reason;                           /* Why block production stopped; not_leader for blocks this validator did not produce. */
   ulong                                 bundle_txn_count;                          /* Bundled transactions pack scheduled during production, counted whether or not the bundle survived to the block (aborted bundles are skipped at PoH mixin). 0 for blocks this validator did not produce. */
-  ulong                                 txn_timing_cnt;                            /* Number of txn_timing entries (<= 49019) */
+  ulong                                 txn_timing_cnt;                            /* Number of txn_timing entries (<= 98039) */
   int                                   votor_repaired;                            /* Whether the block reached replay after a votor event named that block and we repaired that version, rather than through the version received over turbine. Always false before alpenglow, and false for blocks this validator produced as leader. A slot can report both, on separate rows. */
   uint                                  repair_request_shred_block_id_count;       /* Alpenglow ShredForBlockId requests, analogous to legacy window requests. Asks a peer for a specific missing shred, addressed by the block id it belongs to. Always 0 before alpenglow and for leader blocks. */
   uint                                  repair_request_parent_count;               /* Alpenglow ParentAndFecCount requests, analogous to legacy orphan requests. Asks a peer for the block's parent and its FEC set count. Always 0 before alpenglow and for leader blocks. */
   uint                                  repair_request_fec_root_count;             /* Alpenglow FecRoot requests: asks a peer for a FEC set's merkle root for a specified FEC set index. Always 0 before alpenglow and for leader blocks. */
-  fd_event_block_completed_txn_timing_t txn_timing[ 49019UL ];                     /* Per-transaction timestamps, one entry per transaction in block order. Replayed blocks: stamped by the replay scheduler. Leader blocks: stamped by the production pipeline. Columns exclusive to the other path are 0. Empty on dead and abandoned replay rows; an abandoned leader block reports the transactions mixed into the block before production was abandoned. Otherwise best-effort: empty when no capture slot was free (more than 16 blocks replaying at once) or the production timing table was unavailable. Empty does not mean the block had no transactions. (dynamic: stored at end, shipped at used length) */
+  fd_event_block_completed_txn_timing_t txn_timing[ 98039UL ];                     /* Per-transaction timestamps, one entry per transaction in block order. Replayed blocks: stamped by the replay scheduler. Leader blocks: stamped by the production pipeline. Columns exclusive to the other path are 0. Empty on dead and abandoned replay rows; an abandoned leader block reports the transactions mixed into the block before production was abandoned. Otherwise best-effort: empty when no capture slot was free (more than 16 blocks replaying at once) or the production timing table was unavailable. Empty does not mean the block had no transactions. (dynamic: stored at end, shipped at used length) */
 };
 typedef struct fd_event_block_completed fd_event_block_completed_t;
 
 #define FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ (offsetof(fd_event_block_completed_t, txn_timing))
 
-#define FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX (49019UL)
+#define FD_EVENT_BLOCK_COMPLETED_TXN_TIMING_MAX (98039UL)
 
 FD_STATIC_ASSERT( sizeof(((fd_event_block_completed_t *)0)->txn_timing[0])%8UL==0UL, block_completed_txn_timing_align );
 
@@ -457,7 +457,7 @@ fd_event_block_completed_footprint( fd_event_block_completed_t const * msg ) {
 
 /* Worst-case encoded size of a block_completed event (envelope + Event
    submsg + inner submsg + all fields, padded for encoder slack). */
-#define FD_EVENT_BLOCK_COMPLETED_BUF_MAX (5638323UL)
+#define FD_EVENT_BLOCK_COMPLETED_BUF_MAX (11275623UL)
 
 /* Snapshot production result. */
 #define FD_EVENT_SNAPSHOT_CREATED_RESULT_SUCCESS                       (1) /* The snapshot was produced and published to the local snapshot directory. */
@@ -1351,7 +1351,7 @@ fd_event_report_runtime_txn( fd_event_runtime_txn_t const * msg ) {
    of each dynamic array. */
 static inline void
 fd_event_report_block_completed( fd_event_block_completed_t const * msg ) {
-  FD_TEST( msg->txn_timing_cnt<=49019UL );
+  FD_TEST( msg->txn_timing_cnt<=98039UL );
   fd_event_report_iov_t iov[] = {
     { (void const *)msg, FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ },
     { (void const *)msg->txn_timing, msg->txn_timing_cnt*sizeof(msg->txn_timing[0]) },

@@ -85,8 +85,9 @@ typedef struct fd_sched fd_sched_t;
    stake account in a single partition, could potentially escape that
    bound.
 
-   FIXME These should scale with CU and block time. */
-#define FD_SCHED_LTHASH_TXN_WRITERS_MAX  (200802UL)
+   The transaction bound covers the largest supported block limit, see
+   FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT. */
+#define FD_SCHED_LTHASH_TXN_WRITERS_MAX  (321282UL)
 #define FD_SCHED_LTHASH_START_WRITES_MAX (FD_RDISP_MAX_WRITERS_PER_BLOCK-FD_SCHED_LTHASH_TXN_WRITERS_MAX)
 
 struct fd_sched_alut_ctx {

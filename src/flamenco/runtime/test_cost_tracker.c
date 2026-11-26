@@ -28,6 +28,54 @@ test_cost_tracker_init_reconciliation( fd_cost_tracker_t * ct ) {
   FD_TEST( ct->data_size_limit   ==50000000UL );
 }
 
+/* SIMD-0698: the largest active stage sets the block limit, the
+   account and data size limits keep their slot params values. */
+static void
+test_cost_tracker_simd_0698( fd_cost_tracker_t * ct ) {
+  ulong const   SLOT = 10UL;
+  fd_features_t f;
+
+  fd_features_disable_all( &f );
+  FD_FEATURE_SET_ACTIVE( &f, raise_block_limit_to_60m, 0UL );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_200MS, SLOT );
+  FD_TEST( ct->block_cost_limit  ==60000000UL );
+  FD_TEST( ct->account_cost_limit==20000000UL );
+  FD_TEST( ct->data_size_limit   ==50000000UL );
+
+  /* Not yet active at SLOT */
+  FD_FEATURE_SET_ACTIVE( &f, raise_block_limit_to_70m, SLOT+1UL );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_200MS, SLOT );
+  FD_TEST( ct->block_cost_limit==60000000UL );
+
+  FD_FEATURE_SET_ACTIVE( &f, raise_block_limit_to_70m, SLOT );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_200MS, SLOT );
+  FD_TEST( ct->block_cost_limit==70000000UL );
+
+  /* Largest stage wins regardless of activation order */
+  fd_features_disable_all( &f );
+  FD_FEATURE_SET_ACTIVE( &f, raise_block_limit_to_100m, 0UL );
+  FD_FEATURE_SET_ACTIVE( &f, raise_block_limit_to_90m,  5UL );
+  FD_FEATURE_SET_ACTIVE( &f, raise_block_limit_to_80m,  0UL );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_200MS, SLOT );
+  FD_TEST( ct->block_cost_limit  ==100000000UL );
+  FD_TEST( ct->account_cost_limit==20000000UL  );
+  FD_TEST( ct->data_size_limit   ==50000000UL  );
+
+  fd_features_disable_all( &f );
+  FD_FEATURE_SET_ACTIVE( &f, raise_block_limit_to_90m, 0UL );
+  FD_FEATURE_SET_ACTIVE( &f, raise_block_limit_to_80m, 0UL );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_200MS, SLOT );
+  FD_TEST( ct->block_cost_limit==90000000UL );
+
+  /* Stages set an absolute limit, also on slower slots */
+  fd_features_disable_all( &f );
+  FD_FEATURE_SET_ACTIVE( &f, raise_block_limit_to_60m, 0UL );
+  fd_cost_tracker_init( ct, &f, &FD_SLOT_PARAMS_400MS, SLOT );
+  FD_TEST( ct->block_cost_limit  ==60000000UL  );
+  FD_TEST( ct->account_cost_limit==40000000UL  );
+  FD_TEST( ct->data_size_limit   ==100000000UL );
+}
+
 static void
 test_cost_tracker_block_limit( fd_cost_tracker_t * ct ) {
   ulong const slot = 10UL;
@@ -217,6 +265,7 @@ int main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "fd_cost_tracker_footprint: %lu", fd_cost_tracker_footprint() ));
 
   test_cost_tracker_init_reconciliation( cost_tracker );
+  test_cost_tracker_simd_0698( cost_tracker );
   test_cost_tracker_block_limit( cost_tracker );
   test_cost_tracker_account_limit( cost_tracker );
   test_cost_tracker_txn_cost_sum( cost_tracker );

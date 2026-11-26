@@ -29,9 +29,9 @@
    hashes requires 20 bytes (only the first 20 of the 32 bytes of the
    hash are used, since this is sufficient to avoid collisions).
    For example, without any other overhead, 31 unrooted blocks with
-   49,019 transactions each would require the txn cache to store
+   98,039 transactions each would require the txn cache to store
 
-     31 * 49,019 * 20 = 0.030 GB
+     31 * 98,039 * 20 = 0.061 GB
 
    Of memory.  But, we can't query, insert, and remove quickly from a
    flat array.  We make a few trade-offs to achieve good performance

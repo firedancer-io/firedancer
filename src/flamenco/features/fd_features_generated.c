@@ -2474,6 +2474,41 @@ fd_feature_id_t const ids[] = {
     .implemented               = 1,
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, raise_block_limit_to_60m)>>3,
+    .id                        = {"\x0a\x8c\x98\x32\x7e\x83\x87\x18\x8d\x1f\x24\x6e\x6d\x44\x12\x0d\x8b\x06\x66\xb6\x5f\xe1\x85\xb6\x7b\x0f\xa7\xd3\x2e\xd8\x6c\xb9"},
+                                 /* iBRL9Qs3HzfcseQX3qveEVdSeWebqW9AT4UEoiTis1A */
+    .name                      = "raise_block_limit_to_60m",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, raise_block_limit_to_70m)>>3,
+    .id                        = {"\x0a\x8c\x98\x3c\x10\xa0\x29\xe4\xfb\x69\xd5\x94\xa1\x9d\xe2\x81\xdd\x80\x4d\x36\x5f\xd9\x04\xb0\xfd\xce\x86\x23\x6d\x01\x02\x14"},
+                                 /* iBRLacTyPUjZT3FbojPK8wVJmnaWzu3SiMktZxk4szT */
+    .name                      = "raise_block_limit_to_70m",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, raise_block_limit_to_80m)>>3,
+    .id                        = {"\x0a\x8c\x98\x36\x16\x0a\x41\xd1\xea\x95\x1a\xd3\x6e\x24\x02\xb8\x7a\xa6\xe3\xac\xb3\xaf\xc3\x88\x28\x26\x47\x49\x80\xc2\x6f\xe1"},
+                                 /* iBRLJsQJEcYfkvGkwUQMNGZNq32FmKEJcSgPHRygwtc */
+    .name                      = "raise_block_limit_to_80m",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, raise_block_limit_to_90m)>>3,
+    .id                        = {"\x0a\x8c\x98\x36\xc0\x9e\x1a\xa6\x5e\x9e\x87\x54\x50\x0b\xa4\x2e\x2b\x0a\x66\x09\x30\x88\x4f\x77\xfc\xc2\x1e\x58\x96\xe2\x2d\x57"},
+                                 /* iBRLLdADRxQBWUjSKf2tSStb4H3JDckTNCBtp5ohh4i */
+    .name                      = "raise_block_limit_to_90m",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, raise_block_limit_to_100m)>>3,
+    .id                        = {"\x0a\x8c\x98\x38\xdc\x58\x59\xf3\xdc\xb2\x86\x45\x20\x7c\x8f\xe0\x42\xbd\x8f\x64\x84\xa6\xd7\x39\x08\xe4\x29\xc3\xd9\x26\x78\xe7"},
+                                 /* iBRLSB8aewZRgj8UNDerrC5uQfJwC5nrs2MYd5JDXtr */
+    .name                      = "raise_block_limit_to_100m",
+    .implemented               = 1,
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2484,11 +2519,13 @@ struct fd_feature_id_lookup_entry {
 typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 
 #define MAP_PERFECT_NAME      fd_feature_id_lookup
-#define MAP_PERFECT_LG_TBL_SZ 12
+#define MAP_PERFECT_LG_TBL_SZ 13
 #define MAP_PERFECT_T         fd_feature_id_lookup_entry_t
-#define MAP_PERFECT_HASH_C    13394U
+#define MAP_PERFECT_HASH_C    563U
 #define MAP_PERFECT_KEY_T     ulong
 #define MAP_PERFECT_ZERO_KEY  0UL
+#define MAP_PERFECT_HASH_PP( u ) (((MAP_PERFECT_HASH_C*(((u)^((u)>>32))&UINT_MAX))&UINT_MAX)>>(32-MAP_PERFECT_LG_TBL_SZ))
+#define MAP_PERFECT_HASH_R(  u ) ((MAP_PERFECT_HASH_C*(uint)((u)^((u)>>32)))>>(32-MAP_PERFECT_LG_TBL_SZ))
 
 #define MAP_PERFECT_0   0x2577305f7cc65fe7UL, .val = &ids[0]
 #define MAP_PERFECT_1   0x7095d36bc836da32UL, .val = &ids[1]
@@ -2806,6 +2843,11 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_313 0xb06b659889ad900cUL, .val = &ids[313]
 #define MAP_PERFECT_314 0x3a5381b36b7bfef7UL, .val = &ids[314]
 #define MAP_PERFECT_315 0xfe63230578b26cf7UL, .val = &ids[315]
+#define MAP_PERFECT_316 0x1887837e32988c0aUL, .val = &ids[316]
+#define MAP_PERFECT_317 0xe429a0103c988c0aUL, .val = &ids[317]
+#define MAP_PERFECT_318 0xd1410a1636988c0aUL, .val = &ids[318]
+#define MAP_PERFECT_319 0xa61a9ec036988c0aUL, .val = &ids[319]
+#define MAP_PERFECT_320 0xf35958dc38988c0aUL, .val = &ids[320]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -3132,4 +3174,9 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_allow_prefunded_programdata
 FD_STATIC_ASSERT( offsetof( fd_features_t, pass_input_metadata_in_vm_r3_r5                         )>>3==313UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, single_program_runtime_environment                      )>>3==314UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, early_instruction_trace_overflow_detection              )>>3==315UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limit_to_60m                                )>>3==316UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limit_to_70m                                )>>3==317UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limit_to_80m                                )>>3==318UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limit_to_90m                                )>>3==319UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limit_to_100m                               )>>3==320UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

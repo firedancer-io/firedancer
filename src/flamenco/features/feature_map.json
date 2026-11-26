@@ -314,5 +314,10 @@
   {"name":"loader_v3_allow_prefunded_programdata","implemented":1,"pubkey":"63Zvc4ixE2NQsP1ef9R5AWQyty96BhRp7NiSuejUmXGM"},
   {"name":"pass_input_metadata_in_vm_r3_r5","implemented":1,"pubkey":"r3r5hXFhEZLB2VCDXmUysuDZj4oMbtW8JRVUqvQSgqE"},
   {"name":"single_program_runtime_environment","implemented":1,"pubkey":"Hh4mTuC2AVFALH78RjiL8Rih1CcLxXpm4ehXCJNsUei1"},
-  {"name":"early_instruction_trace_overflow_detection","implemented":1,"pubkey":"HeqqMQXVqavmiJsGTEXgCMydzMEWiiQTAgbs9KVKJVww"}
+  {"name":"early_instruction_trace_overflow_detection","implemented":1,"pubkey":"HeqqMQXVqavmiJsGTEXgCMydzMEWiiQTAgbs9KVKJVww"},
+  {"name":"raise_block_limit_to_60m","implemented":1,"pubkey":"iBRL9Qs3HzfcseQX3qveEVdSeWebqW9AT4UEoiTis1A"},
+  {"name":"raise_block_limit_to_70m","implemented":1,"pubkey":"iBRLacTyPUjZT3FbojPK8wVJmnaWzu3SiMktZxk4szT"},
+  {"name":"raise_block_limit_to_80m","implemented":1,"pubkey":"iBRLJsQJEcYfkvGkwUQMNGZNq32FmKEJcSgPHRygwtc"},
+  {"name":"raise_block_limit_to_90m","implemented":1,"pubkey":"iBRLLdADRxQBWUjSKf2tSStb4H3JDckTNCBtp5ohh4i"},
+  {"name":"raise_block_limit_to_100m","implemented":1,"pubkey":"iBRLSB8aewZRgj8UNDerrC5uQfJwC5nrs2MYd5JDXtr"}
 ]
