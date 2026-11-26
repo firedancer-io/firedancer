@@ -1,10 +1,4 @@
-/* Unit tests for CPI semantics.
-
-   Covers a variety of CPI behaviours, as well as how these differ under
-   the direct mapping feature gates:
-   - syscall_parameter_address_restrictions
-   - virtual_address_space_adjustments
-   - account_data_direct_mapping */
+/* Unit tests for CPI semantics. */
 
 #include "fd_vm_syscall.h"
 #include "../test_vm_util.h"
@@ -22,7 +16,7 @@
 #define LAMPORTS    1000000UL
 #define INIT_DLEN   8UL
 
-/* ABI v1 per-account serialization layout (matches test_cpi_shared_data_addr.c):
+/* ABI v1 per-account serialization layout:
    80-byte header + 8-byte data_len + data (8-aligned) + 10240 realloc + 8 rent_epoch */
 #define ACCT_META_SZ       88UL
 #define ACCT_DLEN_OFF      (ACCT_META_SZ - sizeof(ulong))
@@ -72,10 +66,10 @@ typedef struct {
 typedef struct {
   uchar acct_idx;                /* index into cfg->accts[] */
   uchar omit             : 1;    /* skip this entry from account_infos */
-  uchar bad_key          : 1;    /* corrupt SPAR key check */
-  uchar bad_owner        : 1;    /* corrupt SPAR owner check */
-  uchar bad_lamports     : 1;    /* corrupt SPAR lamports check */
-  uchar bad_data         : 1;    /* corrupt SPAR data check */
+  uchar bad_key          : 1;    /* corrupt key pointer check */
+  uchar bad_owner        : 1;    /* corrupt owner pointer check */
+  uchar bad_lamports     : 1;    /* corrupt lamports pointer check */
+  uchar bad_data         : 1;    /* corrupt data pointer check */
   uchar dlen_override_set: 1;    /* if 1, write claimed_data_len_override; else write real dlen */
   ulong claimed_data_len_override;
 } info_spec_t;
@@ -84,8 +78,6 @@ typedef struct cpi_test_cfg cpi_test_cfg_t;
 typedef void (*pre_cpi_hook_t)( cpi_test_cfg_t const * cfg );
 
 struct cpi_test_cfg {
-  /* Feature gates */
-  int spar, vasa, dm;
   int is_deprecated;
 
   /* Callee program text (built via build_*_text helpers) */
@@ -231,10 +223,6 @@ env_build( fd_svm_mini_t *        mini,
 
   fd_features_disable_all( &bank->f.features );
   bank->f.features.loosen_cpi_size_restriction = 0UL;
-  /* Activate per-cfg feature gates by setting their slot to 0 (always-on). */
-  if( cfg->spar ) bank->f.features.syscall_parameter_address_restrictions = 0UL;
-  if( cfg->vasa ) bank->f.features.virtual_address_space_adjustments      = 0UL;
-  if( cfg->dm   ) bank->f.features.account_data_direct_mapping            = 0UL;
 
   /* Build txn_out: index 0 is the program; indices 1.. are the cfg accounts */
   static fd_txn_out_t txn_out[1];
@@ -339,9 +327,6 @@ env_build( fd_svm_mini_t *        mini,
     TEST_VM_DEFAULT_SBPF_VERSION,
     NULL, NULL, mini->sha256, NULL, 0U,
     arm, (uchar)cfg->is_deprecated,
-    FD_FEATURE_ACTIVE_BANK( bank, account_data_direct_mapping ),
-    FD_FEATURE_ACTIVE_BANK( bank, syscall_parameter_address_restrictions ),
-    FD_FEATURE_ACTIVE_BANK( bank, virtual_address_space_adjustments ),
     0, (ulong[ FD_VM_REG_CNT ]){ 0 }
   ) );
 
@@ -369,7 +354,7 @@ setup_input_region_for_cfg( fd_vm_t * vm, cpi_test_cfg_t const * cfg ) {
   memset( input_buf, 0, sizeof(input_buf) );
 
   /* Per outer account, write the canonical pubkey/owner/lamports/dlen bytes
-     into input_buf so the SPAR pointer-equality checks find consistent data. */
+     into input_buf so the pointer-equality checks find consistent data. */
   for( ulong i=0UL; i<cfg->n_outer; i++ ) {
     acct_spec_t const * spec = &cfg->accts[ cfg->outer[i].acct_idx ];
     memcpy( input_buf + canonical_key_off  ( i ), spec->pubkey, 32 );
@@ -388,7 +373,7 @@ setup_input_region_for_cfg( fd_vm_t * vm, cpi_test_cfg_t const * cfg ) {
   }
 
   /* Initialize all region slots to the same backing buffer.  The runtime
-     under VASA writes to input_mem_regions[ region_idx + 1 ] for per-account
+     writes to input_mem_regions[ region_idx + 1 ] for per-account
      region updates; sharing the buffer is harmless because each slot has
      independent {region_sz, is_writable} fields. */
   for( ulong i=0UL; i<sizeof(input_regs)/sizeof(input_regs[0]); i++ ) {
@@ -488,9 +473,9 @@ rust_cpi_build( fd_vm_t *              vm,
       .is_signer         = cfg->cpi_meta_signer  [i],
       .is_writable       = cfg->cpi_meta_writable[i],
     };
-    /* SPAR-corruption switches: nudge to a still-8-byte-aligned but wrong
-       address.  +1 would break alignment on the Rc dereference and trigger
-       a VM error before the SPAR equality check fires. */
+    /* Pointer-corruption switches: nudge to a still-8-byte-aligned but
+       wrong address.  +1 would break alignment on the Rc dereference and
+       trigger a VM error before the equality check fires. */
     if( cfg->infos[i].bad_key      ) info->pubkey_addr       += 8UL;
     if( cfg->infos[i].bad_owner    ) info->owner_addr        += 8UL;
     if( cfg->infos[i].bad_lamports ) info->lamports_box_addr += 8UL;
@@ -540,7 +525,7 @@ c_cpi_build( fd_vm_t *              vm,
   memcpy( &vm->heap[h], callee_program_pubkey.uc, 32 ); h += 32;
 
   /* Fill in the meta pubkey_addr to point at the canonical input-region
-     pubkey vaddr (same as the SPAR check expects). */
+     pubkey vaddr (same as the pointer check expects). */
   for( ulong i=0UL; i<cfg->n_infos; i++ ) {
     fd_vm_c_account_meta_t * m = (fd_vm_c_account_meta_t *)( vm->heap + metas_off
         + i*sizeof(fd_vm_c_account_meta_t) );
@@ -685,48 +670,28 @@ static void
 run_matrix( fd_svm_mini_t *  mini,
             cpi_test_cfg_t * cfg,
             char const *     name,
-            int              expected_err[4][2][2] ) {
-  static int const combo_spar[4] = { 0, 1, 1, 1 };
-  static int const combo_vasa[4] = { 0, 0, 1, 1 };
-  static int const combo_dm  [4] = { 0, 0, 0, 1 };
-  for( int c=0; c<4; c++ ) {
-    for( int dep=0; dep<2; dep++ ) {
-      for( int abi=0; abi<2; abi++ ) {
-        cfg->spar          = combo_spar[c];
-        cfg->vasa          = combo_vasa[c];
-        cfg->dm            = combo_dm  [c];
-        cfg->is_deprecated = dep;
-        int want = expected_err[c][dep][abi];
-        if( want == INT_MIN ) continue;  /* skip this cell */
-        int got = run_one( mini, cfg, /*rust_abi=*/!abi );
-        if( FD_UNLIKELY( got != want ) ) {
-          fd_txn_out_t * txo = mini->vm->instr_ctx->txn_out;
-          FD_LOG_ERR(( "%s: combo=%d dep=%d abi=%s expected=%d got=%d "
-                       "(txn.err.exec_err=%d idx=%u)",
-                       name, c, dep, abi==0 ? "rust" : "c", want, got,
-                       txo->err.exec_err, txo->err.exec_err_idx ));
-        }
+            int              expected_err[2][2] ) {
+  for( int dep=0; dep<2; dep++ ) {
+    for( int abi=0; abi<2; abi++ ) {
+      cfg->is_deprecated = dep;
+      int want = expected_err[dep][abi];
+      int got = run_one( mini, cfg, /*rust_abi=*/!abi );
+      if( FD_UNLIKELY( got != want ) ) {
+        fd_txn_out_t * txo = mini->vm->instr_ctx->txn_out;
+        FD_LOG_ERR(( "%s: dep=%d abi=%s expected=%d got=%d "
+                     "(txn.err.exec_err=%d idx=%u)",
+                     name, dep, abi==0 ? "rust" : "c", want, got,
+                     txo->err.exec_err, txo->err.exec_err_idx ));
       }
     }
   }
 }
 
-/* Fill expected_err[4][2][2] with a single value across every cell. */
+/* Fill expected_err[2][2] with a single value across every cell. */
 static void
-expect_all( int e[4][2][2], int err ) {
-  for( int c=0; c<4; c++ ) for( int d=0; d<2; d++ ) for( int a=0; a<2; a++ )
-    e[c][d][a] = err;
-}
-
-/* Fill expected_err with `combo0` for combo 0 and `combo123` for combos 1-3. */
-static void
-expect_combo0_vs_rest( int e[4][2][2], int combo0, int combo123 ) {
-  for( int d=0; d<2; d++ ) for( int a=0; a<2; a++ ) {
-    e[0][d][a] = combo0;
-    e[1][d][a] = combo123;
-    e[2][d][a] = combo123;
-    e[3][d][a] = combo123;
-  }
+expect_all( int e[2][2], int err ) {
+  for( int d=0; d<2; d++ ) for( int a=0; a<2; a++ )
+    e[d][a] = err;
 }
 
 /* Initialize a single-account writable cfg: one acct (acct1, owned by callee
@@ -877,7 +842,7 @@ test_escalation_writable( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->outer[0].is_writable = 0;  /* outer readonly, CPI tries writable -> escalation */
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION );
   run_matrix( mini, cfg, "test_escalation_writable", e );
 }
 
@@ -887,7 +852,7 @@ test_signer_demotion( fd_svm_mini_t * mini ) {
   cfg->outer[0].is_signer = 1;
   /* CPI signer stays 0: legitimate demotion */
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_signer_demotion", e );
 }
 
@@ -899,7 +864,7 @@ test_cpi_demotion_input_region_not_clobbered( fd_svm_mini_t * mini ) {
   cfg->accts[0].data_fill = 0xAA;
   cfg->cpi_meta_writable[0] = 0;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_cpi_demotion_input_region_not_clobbered", e );
 }
 
@@ -908,7 +873,7 @@ test_missing_account( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->infos[0].omit = 1;  /* excluded from the user-facing account_infos */
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
   run_matrix( mini, cfg, "test_missing_account", e );
 }
 
@@ -923,7 +888,7 @@ test_duplicate_accounts( fd_svm_mini_t * mini ) {
   cfg->infos[1] = (info_spec_t){ .acct_idx=0 };
   cfg->cpi_meta_writable[1] = 1;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_duplicate_accounts", e );
 }
 
@@ -940,7 +905,7 @@ test_executable_account( fd_svm_mini_t * mini ) {
   cfg->infos[1] = (info_spec_t){ .acct_idx=1 };
   cfg->cpi_meta_writable[1] = 0;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_executable_account", e );
 }
 
@@ -954,7 +919,7 @@ test_cpi_dup_writable_or_merge( fd_svm_mini_t * mini ) {
   cfg->infos[1] = (info_spec_t){ .acct_idx=0 };
   cfg->cpi_meta_writable[1] = 0;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_cpi_dup_writable_or_merge", e );
 }
 
@@ -973,7 +938,7 @@ test_cpi_dup_signer_or_merge( fd_svm_mini_t * mini ) {
   cfg->cpi_meta_writable[1] = 0;
   cfg->cpi_meta_signer  [1] = 0;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_cpi_dup_signer_or_merge", e );
 }
 
@@ -982,7 +947,7 @@ test_empty_data_account( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->accts[0].dlen = 0UL;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_empty_data_account", e );
 }
 
@@ -992,7 +957,7 @@ test_max_data_length( fd_svm_mini_t * mini ) {
   cfg->accts[0].dlen      = 1024UL;
   cfg->accts[0].data_fill = 0x55;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_max_data_length", e );
 }
 
@@ -1004,7 +969,7 @@ test_zero_account_cpi( fd_svm_mini_t * mini ) {
   cfg->n_infos = 0;
   cfg->cpi_meta_writable[0] = 0;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_zero_account_cpi", e );
 }
 
@@ -1013,7 +978,7 @@ test_zero_data_cpi( fd_svm_mini_t * mini ) {
   /* data_len=0 is the default in both ABI builders. */
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_zero_data_cpi", e );
 }
 
@@ -1039,7 +1004,7 @@ test_max_instruction_accounts_at_limit( fd_svm_mini_t * mini ) {
     cfg->cpi_meta_writable[i] = 1;
   }
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_max_instruction_accounts_at_limit", e );
 }
 
@@ -1075,7 +1040,7 @@ test_account_infos_at_max_limit( fd_svm_mini_t * mini ) {
     cfg->cpi_meta_writable[i] = 1;
   }
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_account_infos_at_max_limit", e );
 }
 
@@ -1116,7 +1081,7 @@ test_carrier_overflow_max_instruction_accounts( fd_svm_mini_t * mini ) {
     cfg->cpi_meta_writable[i] = 1;
   }
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_carrier_overflow_max_instruction_accounts", e );
 }
 
@@ -1134,79 +1099,59 @@ test_mixed_carrier( fd_svm_mini_t * mini ) {
   cfg->infos[1] = (info_spec_t){ .acct_idx=1 };
   cfg->cpi_meta_writable[1] = 0;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_mixed_carrier", e );
 }
 
 static void
-test_spar_bad_owner( fd_svm_mini_t * mini ) {
+test_bad_owner_addr( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->infos[0].bad_owner = 1;
 
-  int e[4][2][2];
-  expect_combo0_vs_rest( e, FD_VM_SUCCESS, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-  run_matrix( mini, cfg, "test_spar_bad_owner", e );
+  int e[2][2];
+  expect_all( e, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+  run_matrix( mini, cfg, "test_bad_owner_addr", e );
 }
 
 static void
-test_spar_bad_lamports( fd_svm_mini_t * mini ) {
-  /* combo 0 is unspecified: bad_lamports nudges the Rc address; the
-     dereference at the wrong vaddr produces unpredictable downstream errors. */
+test_bad_lamports_addr( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->infos[0].bad_lamports = 1;
 
-  int e[4][2][2];
-  expect_combo0_vs_rest( e, INT_MIN, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-  run_matrix( mini, cfg, "test_spar_bad_lamports", e );
+  int e[2][2];
+  expect_all( e, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+  run_matrix( mini, cfg, "test_bad_lamports_addr", e );
 }
 
 static void
-test_spar_bad_data( fd_svm_mini_t * mini ) {
+test_bad_data_addr( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->infos[0].bad_data = 1;
 
-  /* combo 0 Rust: Rc dereference at shifted heap address yields garbage; skip.
-     combo 0 C   : data_addr direct shift still maps; empirically SUCCESS. */
-  int e[4][2][2];
-  for(int d=0;d<2;d++) {
-    e[0][d][0] = INT_MIN;
-    e[0][d][1] = FD_VM_SUCCESS;
-    for(int c=1;c<4;c++) for(int a=0;a<2;a++) e[c][d][a] = FD_VM_SYSCALL_ERR_INVALID_POINTER;
-  }
-  run_matrix( mini, cfg, "test_spar_bad_data", e );
+  int e[2][2];
+  expect_all( e, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+  run_matrix( mini, cfg, "test_bad_data_addr", e );
 }
 
 static void
 test_account_infos_array_in_input_region( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
 
-  static int const cs[4] = { 0, 1, 1, 1 };
-  static int const cv[4] = { 0, 0, 1, 1 };
-  static int const cd[4] = { 0, 0, 0, 1 };
+  for( int dep=0; dep<2; dep++ ) {
+    for( int abi=0; abi<2; abi++ ) {
+      cfg->is_deprecated=dep;
+      env_build( mini, cfg );
+      fd_vm_t * vm = mini->vm;
 
-  for( int c=0; c<4; c++ ) {
-    for( int dep=0; dep<2; dep++ ) {
-      for( int abi=0; abi<2; abi++ ) {
-        cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->is_deprecated=dep;
-        env_build( mini, cfg );
-        fd_vm_t * vm = mini->vm;
+      ulong instr_va, dummy_infos, n_infos;
+      if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &dummy_infos, &n_infos );
+      else         c_cpi_build   ( vm, cfg, &instr_va, &dummy_infos, &n_infos );
 
-        ulong instr_va, dummy_infos, n_infos;
-        if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &dummy_infos, &n_infos );
-        else         c_cpi_build   ( vm, cfg, &instr_va, &dummy_infos, &n_infos );
+      ulong infos_va = FD_VM_MEM_MAP_INPUT_REGION_START;
+      cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
+      int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
 
-        ulong infos_va = FD_VM_MEM_MAP_INPUT_REGION_START;
-        cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-        int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
-
-        if( cs[c] ) {
-          FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
-        } else {
-          /* SPAR off: AccountInfo struct at input_buf[0] has pubkey_addr=0,
-             dereferences unmapped vaddr 0 -> SEGFAULT. */
-          FD_TEST( got == FD_VM_SYSCALL_ERR_SEGFAULT );
-        }
-      }
+      FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
     }
   }
 }
@@ -1215,26 +1160,19 @@ static void
 test_account_info_struct_in_input_region( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
 
-  static int const cs[4] = { 0, 1, 1, 1 };
-  static int const cv[4] = { 0, 0, 1, 1 };
-  static int const cd[4] = { 0, 0, 0, 1 };
+  for( int dep=0; dep<2; dep++ ) {
+    cfg->is_deprecated=dep;
+    env_build( mini, cfg );
+    fd_vm_t * vm = mini->vm;
 
-  for( int c=0; c<4; c++ ) {
-    for( int dep=0; dep<2; dep++ ) {
-      cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->is_deprecated=dep;
-      env_build( mini, cfg );
-      fd_vm_t * vm = mini->vm;
+    ulong instr_va, infos_va, n_infos;
+    rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
 
-      ulong instr_va, infos_va, n_infos;
-      rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
+    fd_vm_rust_account_info_t * info = (fd_vm_rust_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
+    info->lamports_box_addr = FD_VM_MEM_MAP_INPUT_REGION_START;
 
-      fd_vm_rust_account_info_t * info = (fd_vm_rust_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
-      info->lamports_box_addr = FD_VM_MEM_MAP_INPUT_REGION_START;
-
-      int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
-      if( cs[c] ) FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
-      else        (void)got;  /* implementation-specific */
-    }
+    int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
+    FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
   }
 }
 
@@ -1242,93 +1180,49 @@ static void
 test_data_refcell_vec_in_input_region( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
 
-  static int const cs[4] = { 0, 1, 1, 1 };
-  static int const cv[4] = { 0, 0, 1, 1 };
-  static int const cd[4] = { 0, 0, 0, 1 };
+  for( int dep=0; dep<2; dep++ ) {
+    cfg->is_deprecated=dep;
+    env_build( mini, cfg );
+    fd_vm_t * vm = mini->vm;
 
-  for( int c=0; c<4; c++ ) {
-    for( int dep=0; dep<2; dep++ ) {
-      cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->is_deprecated=dep;
+    ulong instr_va, infos_va, n_infos;
+    rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
+
+    fd_vm_rust_account_info_t * info = (fd_vm_rust_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
+    info->data_box_addr = FD_VM_MEM_MAP_INPUT_REGION_START;
+
+    int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
+    FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
+  }
+}
+
+static void
+test_data_in_rodata( fd_svm_mini_t * mini ) {
+  cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
+
+  for( int dep=0; dep<2; dep++ ) {
+    for( int abi=0; abi<2; abi++ ) {
+      cfg->is_deprecated=dep;
       env_build( mini, cfg );
       fd_vm_t * vm = mini->vm;
 
       ulong instr_va, infos_va, n_infos;
-      rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
+      if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
+      else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
 
-      fd_vm_rust_account_info_t * info = (fd_vm_rust_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
-      info->data_box_addr = FD_VM_MEM_MAP_INPUT_REGION_START;
-
-      int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
-      if( cs[c] ) FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
-      else        (void)got;
-    }
-  }
-}
-
-static void
-test_data_in_rodata_under_no_spar( fd_svm_mini_t * mini ) {
-  cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
-
-  static int const cs[4] = { 0, 1, 1, 1 };
-  static int const cv[4] = { 0, 0, 1, 1 };
-  static int const cd[4] = { 0, 0, 0, 1 };
-
-  for( int c=0; c<4; c++ ) {
-    for( int dep=0; dep<2; dep++ ) {
-      for( int abi=0; abi<2; abi++ ) {
-        cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->is_deprecated=dep;
-        env_build( mini, cfg );
-        fd_vm_t * vm = mini->vm;
-
-        ulong instr_va, infos_va, n_infos;
-        if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
-        else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
-
-        if( abi==0 ) {
-          fd_vm_rust_account_info_t * info = (fd_vm_rust_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
-          fd_vm_rc_refcell_vec_t * vec = (fd_vm_rc_refcell_vec_t *)( vm->heap + (info->data_box_addr - HEAP_VA(0)) );
-          vec->addr = FD_VM_MEM_MAP_RODATA_REGION_START;
-        } else {
-          fd_vm_c_account_info_t * info = (fd_vm_c_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
-          info->data_addr = FD_VM_MEM_MAP_RODATA_REGION_START;
-        }
-
-        cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-        int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
-        if( cs[c] ) FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
-        else        FD_TEST( got != FD_VM_SUCCESS );
+      if( abi==0 ) {
+        fd_vm_rust_account_info_t * info = (fd_vm_rust_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
+        fd_vm_rc_refcell_vec_t * vec = (fd_vm_rc_refcell_vec_t *)( vm->heap + (info->data_box_addr - HEAP_VA(0)) );
+        vec->addr = FD_VM_MEM_MAP_RODATA_REGION_START;
+      } else {
+        fd_vm_c_account_info_t * info = (fd_vm_c_account_info_t *)( vm->heap + (infos_va - HEAP_VA(0)) );
+        info->data_addr = FD_VM_MEM_MAP_RODATA_REGION_START;
       }
+
+      cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
+      int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
+      FD_TEST( got == FD_VM_SYSCALL_ERR_INVALID_POINTER );
     }
-  }
-}
-
-static void
-test_caller_lamports_box_in_rodata_under_no_spar( fd_svm_mini_t * mini ) {
-  for( int abi=0; abi<2; abi++ ) {
-    cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
-    cfg->spar=0; cfg->vasa=0; cfg->dm=0;
-
-    env_build( mini, cfg );
-    fd_vm_t * vm = mini->vm;
-    ulong instr_va, infos_va, n_infos;
-    if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
-    else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
-
-    if( abi==0 ) {
-      fd_vm_rust_account_info_t * info = (fd_vm_rust_account_info_t *)
-        ( vm->heap + (infos_va - HEAP_VA(0)) );
-      fd_vm_rc_refcell_ref_t * rc = (fd_vm_rc_refcell_ref_t *)
-        ( vm->heap + (info->lamports_box_addr - HEAP_VA(0)) );
-      rc->addr = FD_VM_MEM_MAP_RODATA_REGION_START;
-    } else {
-      fd_vm_c_account_info_t * info = (fd_vm_c_account_info_t *)
-        ( vm->heap + (infos_va - HEAP_VA(0)) );
-      info->lamports_addr = FD_VM_MEM_MAP_RODATA_REGION_START;
-    }
-
-    cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-    int got = fn( vm, instr_va, infos_va, 1UL, 0UL, 0UL );
-    (void)got;
   }
 }
 
@@ -1338,15 +1232,15 @@ test_length_grow_propagation( fd_svm_mini_t * mini ) {
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, 100UL );
   cfg->accts[0].data_fill = 0xAA;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == 100UL );
   FD_TEST( *(ulong *)( input_buf + canonical_dlen_off( 0UL ) ) == 100UL );
 
-  /* SPAR+deprecated: address_space_reserved = orig_data_len = 8; post=100 -> INVALID_REALLOC. */
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
-  for( int c=1;c<4;c++) for( int a=0;a<2;a++) e[c][1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+  /* Deprecated: address_space_reserved = orig_data_len = 8; post=100 -> INVALID_REALLOC. */
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
+  for( int a=0; a<2; a++ ) e[1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
   run_matrix( mini, cfg, "test_length_grow_propagation", e );
 }
 
@@ -1357,13 +1251,13 @@ test_length_shrink_propagation( fd_svm_mini_t * mini ) {
   cfg->accts[0].dlen      = 16UL;
   cfg->accts[0].data_fill = 0xBB;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == 4UL );
   FD_TEST( *(ulong *)( input_buf + canonical_dlen_off( 0UL ) ) == 4UL );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_length_shrink_propagation", e );
 }
 
@@ -1374,12 +1268,12 @@ test_lamports_change( fd_svm_mini_t * mini ) {
 
   /* set_lamports succeeds, then fd_instr_stack_push detects lamport sum
      imbalance (no balancing subtract) -> UNBALANCED_INSTR. */
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   FD_TEST( g_acct_entries[0]->lamports == LAMPORTS + 1000UL );
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   run_matrix( mini, cfg, "test_lamports_change", e );
 }
 
@@ -1388,55 +1282,49 @@ test_owner_change( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->pre_cpi_hook = hook_owner_system_program;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( !memcmp( g_acct_entries[0]->owner, fd_solana_system_program_id.uc, 32 ) );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_owner_change", e );
 }
 
 static void
-test_region_size_update_under_vasa( fd_svm_mini_t * mini ) {
+test_region_size_update( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, 100UL );
 
-  static int const cs[4] = { 0, 1, 1, 1 };
-  static int const cv[4] = { 0, 0, 1, 1 };
-  static int const cd[4] = { 0, 0, 0, 1 };
-
-  for( int c=0; c<4; c++ ) {
-    for( int dep=0; dep<2; dep++ ) {
-      for( int abi=0; abi<2; abi++ ) {
-        cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->is_deprecated=dep;
-        int err = run_one( mini, cfg, /*rust_abi=*/!abi );
-        if( cfg->spar && dep ) {
-          FD_TEST( err == FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
-          continue;
-        }
-        FD_TEST( err == FD_VM_SUCCESS );
-        FD_TEST( *(ulong *)( input_buf + canonical_dlen_off( 0UL ) ) == 100UL );
+  for( int dep=0; dep<2; dep++ ) {
+    for( int abi=0; abi<2; abi++ ) {
+      cfg->is_deprecated=dep;
+      int err = run_one( mini, cfg, /*rust_abi=*/!abi );
+      if( dep ) {
+        FD_TEST( err == FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
+        continue;
       }
+      FD_TEST( err == FD_VM_SUCCESS );
+      FD_TEST( *(ulong *)( input_buf + canonical_dlen_off( 0UL ) ) == 100UL );
     }
   }
 }
 
 static void
-test_region_size_shrink_under_vasa( fd_svm_mini_t * mini ) {
+test_region_size_shrink( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, 16UL );
   cfg->accts[0].dlen      = 64UL;
   cfg->accts[0].data_fill = 0xCC;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == 16UL );
   FD_TEST( *(ulong *)( input_buf + canonical_dlen_off( 0UL ) ) == 16UL );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
-  run_matrix( mini, cfg, "test_region_size_shrink_under_vasa", e );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
+  run_matrix( mini, cfg, "test_region_size_shrink", e );
 }
 
 static void
@@ -1445,13 +1333,13 @@ test_region_size_unchanged_when_callee_no_modify( fd_svm_mini_t * mini ) {
   cfg->accts[0].dlen      = 32UL;
   cfg->accts[0].data_fill = 0x55;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == 32UL );
   FD_TEST( *(ulong *)( input_buf + canonical_dlen_off( 0UL ) ) == 32UL );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_region_size_unchanged_when_callee_no_modify", e );
 }
 
@@ -1460,7 +1348,7 @@ test_lamports_noop( fd_svm_mini_t * mini ) {
   /* No hook: lamports already match -> early-out in update_callee_acc. */
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_lamports_noop", e );
 }
 
@@ -1470,7 +1358,7 @@ test_owner_noop( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->pre_cpi_hook = hook_owner_same;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_owner_noop", e );
 }
 
@@ -1479,7 +1367,7 @@ test_data_noop( fd_svm_mini_t * mini ) {
   /* Data bytes match (both zero) -> set_data_from_slice no-change path. */
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_data_noop", e );
 }
 
@@ -1491,7 +1379,7 @@ test_lamports_change_readonly( fd_svm_mini_t * mini ) {
   cfg->cpi_meta_writable[0] = 0;
   cfg->pre_cpi_hook = hook_lamports_plus1000;
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   run_matrix( mini, cfg, "test_lamports_change_readonly", e );
 }
 
@@ -1502,7 +1390,7 @@ test_owner_change_readonly( fd_svm_mini_t * mini ) {
   cfg->cpi_meta_writable[0] = 0;
   cfg->pre_cpi_hook = hook_owner_system_program;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_owner_change_readonly", e );
 }
 
@@ -1511,7 +1399,7 @@ test_owner_change_to_system_program( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->pre_cpi_hook = hook_owner_system_program;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_owner_change_to_system_program", e );
 }
 
@@ -1520,12 +1408,12 @@ test_lamports_uint64_max( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->pre_cpi_hook = hook_lamports_uint64_max;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   FD_TEST( g_acct_entries[0]->lamports == ULONG_MAX );
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   run_matrix( mini, cfg, "test_lamports_uint64_max", e );
 }
 
@@ -1534,12 +1422,12 @@ test_lamports_drain_to_zero( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->pre_cpi_hook = hook_lamports_zero;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   FD_TEST( g_acct_entries[0]->lamports == 0UL );
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   run_matrix( mini, cfg, "test_lamports_drain_to_zero", e );
 }
 
@@ -1548,13 +1436,13 @@ test_multi_field_update_in_cpi( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->pre_cpi_hook = hook_lamports_and_owner;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   FD_TEST( g_acct_entries[0]->lamports == LAMPORTS + 500UL );
   FD_TEST( !memcmp( g_acct_entries[0]->owner, fd_solana_system_program_id.uc, 32 ) );
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   run_matrix( mini, cfg, "test_multi_field_update_in_cpi", e );
 }
 
@@ -1565,12 +1453,12 @@ test_owner_change_last_ordering( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->pre_cpi_hook = hook_owner_alt;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( !memcmp( g_acct_entries[0]->owner, acct1_alt_owner.uc, 32 ) );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_owner_change_last_ordering", e );
 }
 
@@ -1580,12 +1468,12 @@ static void
 test_executable_flag_immutable_via_cpi( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->executable == 0 );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_executable_flag_immutable_via_cpi", e );
 }
 
@@ -1594,12 +1482,12 @@ test_caller_view_propagated_via_update_callee_acc( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->pre_cpi_hook = hook_lamports_plus777;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   FD_TEST( g_acct_entries[0]->lamports == LAMPORTS + 777UL );
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   run_matrix( mini, cfg, "test_caller_view_propagated_via_update_callee_acc", e );
 }
 
@@ -1609,13 +1497,13 @@ test_realloc_cap_exact_boundary( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, EXACT );
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == EXACT );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
-  for(int c=1;c<4;c++) for(int a=0;a<2;a++) e[c][1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
+  for( int a=0; a<2; a++ ) e[1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
   run_matrix( mini, cfg, "test_realloc_cap_exact_boundary", e );
 }
 
@@ -1625,13 +1513,13 @@ test_realloc_to_exact_cap( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, EXACT );
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == EXACT );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
-  for(int c=1;c<4;c++) for(int a=0;a<2;a++) e[c][1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
+  for( int a=0; a<2; a++ ) e[1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
   run_matrix( mini, cfg, "test_realloc_to_exact_cap", e );
 }
 
@@ -1641,7 +1529,7 @@ test_realloc_cap_exceeded( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, OVER );
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
   run_matrix( mini, cfg, "test_realloc_cap_exceeded", e );
 }
 
@@ -1654,7 +1542,7 @@ test_callee_modifies_outer_readonly( fd_svm_mini_t * mini ) {
   cfg->outer[0].is_writable = 0;
   cfg->cpi_meta_writable[0] = 0;
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED );
   run_matrix( mini, cfg, "test_callee_modifies_outer_readonly", e );
 }
 
@@ -1664,14 +1552,14 @@ test_empty_grown_to_nonzero( fd_svm_mini_t * mini ) {
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, 64UL );
   cfg->accts[0].dlen = 0UL;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == 64UL );
   FD_TEST( *(ulong *)( input_buf + canonical_dlen_off( 0UL ) ) == 64UL );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
-  for(int c=1;c<4;c++) for(int a=0;a<2;a++) e[c][1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
+  for( int a=0; a<2; a++ ) e[1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
   run_matrix( mini, cfg, "test_empty_grown_to_nonzero", e );
 }
 
@@ -1684,7 +1572,7 @@ test_already_at_max_grow_attempt( fd_svm_mini_t * mini ) {
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, OVER );
   cfg->accts[0].dlen = INIT_42;
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
   run_matrix( mini, cfg, "test_already_at_max_grow_attempt", e );
 }
 
@@ -1694,13 +1582,13 @@ test_callee_writes_within_data( fd_svm_mini_t * mini ) {
   cfg->text_sz = build_write_data_text( cfg->text_buf, 0UL, 0xAB, 8UL );
   cfg->accts[0].dlen = 16UL;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   uchar * d = g_acct_entries[0]->data;
   for( ulong i=0UL; i<8UL; i++ ) FD_TEST( d[i] == 0xAB );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_callee_writes_within_data", e );
 }
 
@@ -1710,15 +1598,15 @@ test_callee_writes_past_dlen( fd_svm_mini_t * mini ) {
   cfg->text_sz = build_grow_then_write_text( cfg->text_buf, 0UL, 16UL, 0xCC, 12UL );
   cfg->accts[0].dlen = 4UL;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == 16UL );
   uchar * d = g_acct_entries[0]->data;
   for( ulong i=0UL; i<12UL; i++ ) FD_TEST( d[i] == 0xCC );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
-  for(int c=1;c<4;c++) for(int a=0;a<2;a++) e[c][1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
+  for( int a=0; a<2; a++ ) e[1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
   run_matrix( mini, cfg, "test_callee_writes_past_dlen", e );
 }
 
@@ -1731,13 +1619,13 @@ test_growth_budget_exhausted( fd_svm_mini_t * mini ) {
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, EXACT );
   cfg->accts[0].dlen = INIT_75;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == EXACT );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
-  for(int c=1;c<4;c++) for(int a=0;a<2;a++) e[c][1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
+  for( int a=0; a<2; a++ ) e[1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
   run_matrix( mini, cfg, "test_growth_budget_exhausted", e );
 }
 
@@ -1757,14 +1645,14 @@ test_multi_account_realloc_within_budget( fd_svm_mini_t * mini ) {
   cfg->infos[1] = (info_spec_t){ .acct_idx=1 };
   cfg->cpi_meta_writable[1] = 1;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == INIT_DLEN );
   FD_TEST( g_acct_entries[1]->data_len == 100UL );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
-  for(int c=1;c<4;c++) for(int a=0;a<2;a++) e[c][1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
+  for( int a=0; a<2; a++ ) e[1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
   run_matrix( mini, cfg, "test_multi_account_realloc_within_budget", e );
 }
 
@@ -1775,47 +1663,45 @@ test_shrink_to_zero( fd_svm_mini_t * mini ) {
   cfg->accts[0].dlen      = 64UL;
   cfg->accts[0].data_fill = 0xDD;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == 0UL );
   FD_TEST( *(ulong *)( input_buf + canonical_dlen_off( 0UL ) ) == 0UL );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_shrink_to_zero", e );
 }
 
 static void
 test_shrink_below_orig_data_len( fd_svm_mini_t * mini ) {
-  /* Shrink 64 -> 32; address_space_reserved=64 still covers post=32 even under SPAR+dep. */
+  /* Shrink 64 -> 32; address_space_reserved=64 still covers post=32 even when deprecated. */
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->text_sz = build_set_data_len_text( cfg->text_buf, 0UL, 32UL );
   cfg->accts[0].dlen      = 64UL;
   cfg->accts[0].data_fill = 0xEE;
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   FD_TEST( g_acct_entries[0]->data_len == 32UL );
   FD_TEST( *(ulong *)( input_buf + canonical_dlen_off( 0UL ) ) == 32UL );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_shrink_below_orig_data_len", e );
 }
 
 static void
 test_dm_shared_account_first_write( fd_svm_mini_t * mini ) {
-  /* Combo 3 only: documents Firedancer has no CoW under DM. */
+  /* Documents Firedancer has no CoW under direct mapping. */
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->text_sz = build_write_data_text( cfg->text_buf, 0UL, 0xDD, 8UL );
   cfg->accts[0].dlen = 16UL;
 
-  int e[4][2][2];
-  for(int c=0;c<4;c++) for(int d=0;d<2;d++) for(int a=0;a<2;a++) e[c][d][a] = INT_MIN;
-  for(int d=0;d<2;d++) for(int a=0;a<2;a++) e[3][d][a] = FD_VM_SUCCESS;
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_dm_shared_account_first_write", e );
 
-  cfg->spar=1; cfg->vasa=1; cfg->dm=1; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err == FD_VM_SUCCESS );
   uchar * d = g_acct_entries[0]->data;
@@ -1834,7 +1720,7 @@ test_callee_readonly_with_caller_changed_dlen( fd_svm_mini_t * mini ) {
   cfg->cpi_meta_writable[0] = 0;
   cfg->pre_cpi_hook = hook_dlen_to_100;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_callee_readonly_with_caller_changed_dlen", e );
 }
 
@@ -1845,7 +1731,7 @@ test_callee_readonly_with_caller_changed_owner( fd_svm_mini_t * mini ) {
   cfg->cpi_meta_writable[0] = 0;
   cfg->pre_cpi_hook = hook_owner_system_program;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_callee_readonly_with_caller_changed_owner", e );
 }
 
@@ -1875,7 +1761,7 @@ test_pda_signer_valid( fd_svm_mini_t * mini ) {
   cfg->signers[0].seed_lens[1] = 1;
   cfg->signers[0].seed_data[1][0] = bump;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_pda_signer_valid", e );
 }
 
@@ -1891,7 +1777,7 @@ test_pda_signer_invalid_seeds( fd_svm_mini_t * mini ) {
   cfg->signers[0].seed_lens[0] = 10;
   memcpy( cfg->signers[0].seed_data[0], "wrong_seed", 10 );
 
-  int e[4][2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION );
+  int e[2][2]; expect_all( e, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION );
   run_matrix( mini, cfg, "test_pda_signer_invalid_seeds", e );
 }
 
@@ -1927,7 +1813,7 @@ test_pda_signer_multiple( fd_svm_mini_t * mini ) {
   cfg->signers[0].seed_lens[1] = 1;
   cfg->signers[0].seed_data[1][0] = bump23;
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_pda_signer_multiple", e );
 }
 
@@ -1936,7 +1822,7 @@ test_empty_signer_seeds( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   /* n_signers=0 is the default. */
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_empty_signer_seeds", e );
 }
 
@@ -2141,41 +2027,35 @@ static void
 test_stack_depth_limit( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
 
-  static int const cs[4] = { 0, 1, 1, 1 };
-  static int const cv[4] = { 0, 0, 1, 1 };
-  static int const cd[4] = { 0, 0, 0, 1 };
+  for( int dep=0; dep<2; dep++ ) {
+    for( int abi=0; abi<2; abi++ ) {
+      cfg->is_deprecated=dep;
+      env_build( mini, cfg );
+      fd_vm_t * vm = mini->vm;
 
-  for( int c=0; c<4; c++ ) {
-    for( int dep=0; dep<2; dep++ ) {
-      for( int abi=0; abi<2; abi++ ) {
-        cfg->spar=cs[c]; cfg->vasa=cv[c]; cfg->dm=cd[c]; cfg->is_deprecated=dep;
-        env_build( mini, cfg );
-        fd_vm_t * vm = mini->vm;
+      ulong instr_va, infos_va, n_infos;
+      if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
+      else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
 
-        ulong instr_va, infos_va, n_infos;
-        if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
-        else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
+      fd_runtime_t * rt = mini->runtime;
+      for( ulong lvl=1UL; lvl < FD_MAX_INSTRUCTION_STACK_DEPTH; lvl++ ) {
+        fd_instr_info_t * fi = &rt->instr.trace[ lvl ];
+        memset( fi, 0, sizeof(*fi) );
+        fi->program_id = 0U;
+        rt->instr.stack[ lvl ] = (fd_exec_instr_ctx_t){
+          .instr   = fi,
+          .runtime = rt,
+          .txn_out = vm->instr_ctx->txn_out,
+          .bank    = vm->instr_ctx->bank,
+        };
+      }
+      rt->instr.trace_length = FD_MAX_INSTRUCTION_STACK_DEPTH;
+      rt->instr.stack_sz     = (uchar)FD_MAX_INSTRUCTION_STACK_DEPTH;
 
-        fd_runtime_t * rt = mini->runtime;
-        for( ulong lvl=1UL; lvl < FD_MAX_INSTRUCTION_STACK_DEPTH; lvl++ ) {
-          fd_instr_info_t * fi = &rt->instr.trace[ lvl ];
-          memset( fi, 0, sizeof(*fi) );
-          fi->program_id = 0U;
-          rt->instr.stack[ lvl ] = (fd_exec_instr_ctx_t){
-            .instr   = fi,
-            .runtime = rt,
-            .txn_out = vm->instr_ctx->txn_out,
-            .bank    = vm->instr_ctx->bank,
-          };
-        }
-        rt->instr.trace_length = FD_MAX_INSTRUCTION_STACK_DEPTH;
-        rt->instr.stack_sz     = (uchar)FD_MAX_INSTRUCTION_STACK_DEPTH;
-
-        cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
-        int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
-        if( FD_UNLIKELY( got != FD_EXECUTOR_INSTR_ERR_CALL_DEPTH ) ) {
-          FD_LOG_ERR(( "test_stack_depth_limit: combo=%d dep=%d abi=%s got=%d", c, dep, abi==0?"rust":"c", got ));
-        }
+      cpi_syscall_fn_t fn = (abi==0) ? fd_vm_syscall_cpi_rust : fd_vm_syscall_cpi_c;
+      int got = fn( vm, instr_va, infos_va, n_infos, 0UL, 0UL );
+      if( FD_UNLIKELY( got != FD_EXECUTOR_INSTR_ERR_CALL_DEPTH ) ) {
+        FD_LOG_ERR(( "test_stack_depth_limit: dep=%d abi=%s got=%d", dep, abi==0?"rust":"c", got ));
       }
     }
   }
@@ -2271,7 +2151,7 @@ test_sequential_cpis( fd_svm_mini_t * mini ) {
     FD_TEST( run_one( mini, cfg, /*rust_abi=*/abi==0 ) == FD_VM_SUCCESS );
   }
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_sequential_cpis", e );
 }
 
@@ -2288,7 +2168,7 @@ test_sequential_cpis_state_visible( fd_svm_mini_t * mini ) {
   uchar * d2 = g_acct_entries[0]->data;
   for( ulong i=0UL; i<4UL; i++ ) FD_TEST( d2[i] == 0xBB );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
   run_matrix( mini, cfg, "test_sequential_cpis_state_visible", e );
 }
 
@@ -2308,8 +2188,8 @@ test_sequential_cpis_modify_same_account( fd_svm_mini_t * mini ) {
   uchar * d2 = g_acct_entries[0]->data;
   for( ulong i=0UL; i<8UL; i++ ) FD_TEST( d2[i] == 0xFF );
 
-  int e[4][2][2]; expect_all( e, FD_VM_SUCCESS );
-  for( int c=1;c<4;c++) for(int a=0;a<2;a++) e[c][1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+  int e[2][2]; expect_all( e, FD_VM_SUCCESS );
+  for( int a=0; a<2; a++ ) e[1][a] = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
   run_matrix( mini, cfg, "test_sequential_cpis_modify_same_account", e );
 }
 
@@ -2318,11 +2198,11 @@ test_callee_returns_error( fd_svm_mini_t * mini ) {
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->text_sz = build_error_return_text( cfg->text_buf, 42UL );
 
-  cfg->spar=0; cfg->vasa=0; cfg->dm=0; cfg->is_deprecated=0;
+  cfg->is_deprecated=0;
   int err_observed = run_one( mini, cfg, /*rust_abi=*/1 );
   FD_TEST( err_observed != FD_VM_SUCCESS );
 
-  int e[4][2][2]; expect_all( e, err_observed );
+  int e[2][2]; expect_all( e, err_observed );
   run_matrix( mini, cfg, "test_callee_returns_error", e );
 }
 
@@ -2405,22 +2285,21 @@ main( int argc, char ** argv ) {
   test_mixed_carrier                            ( mini );
 
   /* ===== Pointer equality checks ===== */
-  test_spar_bad_owner                             ( mini );
-  test_spar_bad_lamports                          ( mini );
-  test_spar_bad_data                              ( mini );
-  test_account_infos_array_in_input_region        ( mini );
-  test_account_info_struct_in_input_region        ( mini );
-  test_data_refcell_vec_in_input_region           ( mini );
-  test_data_in_rodata_under_no_spar               ( mini );
-  test_caller_lamports_box_in_rodata_under_no_spar( mini );
+  test_bad_owner_addr                     ( mini );
+  test_bad_lamports_addr                  ( mini );
+  test_bad_data_addr                      ( mini );
+  test_account_infos_array_in_input_region( mini );
+  test_account_info_struct_in_input_region( mini );
+  test_data_refcell_vec_in_input_region   ( mini );
+  test_data_in_rodata                     ( mini );
 
   /* ===== lamports / owner / data update propagation ===== */
   test_length_grow_propagation                     ( mini );
   test_length_shrink_propagation                   ( mini );
   test_lamports_change                             ( mini );
   test_owner_change                                ( mini );
-  test_region_size_update_under_vasa               ( mini );
-  test_region_size_shrink_under_vasa               ( mini );
+  test_region_size_update                          ( mini );
+  test_region_size_shrink                          ( mini );
   test_region_size_unchanged_when_callee_no_modify ( mini );
   test_lamports_noop                               ( mini );
   test_owner_noop                                  ( mini );

@@ -158,9 +158,6 @@ main( int     argc,
       /* mem_regions_cnt                        */ 0UL,
       /* mem_regions_accs                       */ NULL,
       /* is_deprecated                          */ 0,
-      /* direct mapping                         */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
-      /* syscall_parameter_address_restrictions */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
-      /* virtual_address_space_adjustments      */ FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
       /* dump_syscall_to_pb                     */ 0,
       /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 }
   );

@@ -93,7 +93,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
   }
 
-  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
@@ -134,7 +134,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
   }
 
-  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
@@ -192,7 +192,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
   }
 
-  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
@@ -242,7 +242,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
   }
 
-  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
@@ -292,7 +292,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
   }
 
-  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }
@@ -706,7 +706,7 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
   }
 
-  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_SYSCALL_ERR_INVALID_POINTER;
   }

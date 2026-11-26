@@ -586,9 +586,6 @@ fd_vm_init(
    uint                      mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar                     is_deprecated,
-   int                       direct_mapping,
-   int                       syscall_parameter_address_restrictions,
-   int                       virtual_address_space_adjustments,
    int                       dump_syscall_to_pb,
    ulong const               reg[ FD_VM_REG_CNT ] ) {
 
@@ -638,20 +635,8 @@ fd_vm_init(
   vm->input_mem_regions_cnt                  = mem_regions_cnt;
   vm->acc_region_metas                       = acc_region_metas;
   vm->is_deprecated                          = is_deprecated;
-  vm->direct_mapping                         = direct_mapping;
-  vm->syscall_parameter_address_restrictions = syscall_parameter_address_restrictions;
-  vm->virtual_address_space_adjustments      = virtual_address_space_adjustments;
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/vm.rs#L99-L103 */
-  if( FD_UNLIKELY( FD_VM_SBPF_STACK_FRAME_GAPS( sbpf_version ) && !virtual_address_space_adjustments ) ) {
-    vm->stack_frame_sz                       = FD_VM_STACK_FRAME_SZ;
-    vm->stack_push_frame_count               = 2UL;
-  } else if ( FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( sbpf_version ) ) {
-    vm->stack_frame_sz                       = 0UL;
-    vm->stack_push_frame_count               = 0UL;
-  } else {
-    vm->stack_frame_sz                       = FD_VM_STACK_FRAME_SZ;
-    vm->stack_push_frame_count               = 1UL;
-  }
+  vm->stack_frame_sz                         = FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( sbpf_version ) ? 0UL : FD_VM_STACK_FRAME_SZ;
 
   vm->segv_vaddr                             = ULONG_MAX;
   vm->segv_access_len                        = 0UL;

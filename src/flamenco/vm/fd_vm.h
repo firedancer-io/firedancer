@@ -210,12 +210,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   ulong magic;    /* ==FD_VM_MAGIC */
 
-  int   direct_mapping;                         /* If direct mapping feature flag is enabled */
-  int   syscall_parameter_address_restrictions; /* If syscall_parameter_address_restrictions feature flag is enabled */
-  int   virtual_address_space_adjustments;      /* If virtual_address_space_adjustments feature flag is enabled */
-
   ulong stack_frame_sz;                  /* Stack frame size in bytes; 0 for manually adjusted stacks */
-  ulong stack_push_frame_count;          /* The number of stack frames to adjust the stack by on every stack push */
 
   /* Agave uses the segv vaddr in several different cases, including:
      - Determining whether or not to return a regular or stack access violation
@@ -236,8 +231,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   fd_vm_shadow_t shadow[ FD_VM_STACK_FRAME_MAX ] __attribute__((aligned(16)));
 
   /* Stack storage, indexed [0,FD_VM_STACK_MAX).  Fixed stack frames
-     occupy FD_VM_STACK_FRAME_SZ bytes each.  When enabled, guard gaps
-     exist only in the VM address space, not in this host buffer.
+     occupy FD_VM_STACK_FRAME_SZ bytes each.
      reg[10] holds a VM stack address, not an offset into this array. */
   uchar stack[ FD_VM_STACK_MAX ] __attribute__((aligned(FD_VM_HOST_REGION_ALIGN)));
 
@@ -257,7 +251,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527872UL)
+#define FD_VM_FOOTPRINT (527840UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -323,9 +317,6 @@ fd_vm_init(
    uint                      mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar                     is_deprecated,
-   int                       direct_mapping,
-   int                       syscall_parameter_address_restrictions,
-   int                       virtual_address_space_adjustments,
    int                       dump_syscall_to_pb,
    ulong const               reg[ FD_VM_REG_CNT ] );
 

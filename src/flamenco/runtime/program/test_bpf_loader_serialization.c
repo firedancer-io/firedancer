@@ -58,8 +58,6 @@ struct fixture_input {
   ulong                     num_instr_accounts;
   ulong                     instr_data_len;
   fd_pubkey_t               program_id;
-  uchar                     virtual_address_space_adj;
-  uchar                     direct_mapping;
   uchar                     direct_account_pointers_in_program_input;
   uchar                     is_deprecated;
 };
@@ -335,8 +333,6 @@ parse_input( fd_alloc_t *      alloc,
     else if( fd_jtok_str_eq( &k, "instruction_accounts" ) ) { if( FD_UNLIKELY( parse_instr_accounts( alloc, j, in ) ) ) return -1; }
     else if( fd_jtok_str_eq( &k, "instruction_data"     ) ) { if( FD_UNLIKELY( b64_decode( j, &in->instr_data, &in->instr_data_len ) ) ) return -1; }
     else if( fd_jtok_str_eq( &k, "program_id"           ) ) { if( FD_UNLIKELY( b64_pubkey( j, &in->program_id ) ) ) return -1; }
-    else if( fd_jtok_str_eq( &k, "virtual_address_space_adjustments"        ) ) { if( FD_UNLIKELY( parse_bool( j, &in->virtual_address_space_adj                ) ) ) return -1; }
-    else if( fd_jtok_str_eq( &k, "account_data_direct_mapping"              ) ) { if( FD_UNLIKELY( parse_bool( j, &in->direct_mapping                           ) ) ) return -1; }
     else if( fd_jtok_str_eq( &k, "direct_account_pointers_in_program_input" ) ) { if( FD_UNLIKELY( parse_bool( j, &in->direct_account_pointers_in_program_input ) ) ) return -1; }
     else if( fd_jtok_str_eq( &k, "is_deprecated_loader"                     ) ) { if( FD_UNLIKELY( parse_bool( j, &in->is_deprecated                            ) ) ) return -1; }
   }
@@ -566,8 +562,8 @@ run_fixture( fd_svm_mini_t * mini,
   int program_idx = find_program_index( in );
   FD_TEST( program_idx>=0 );
 
-  FD_LOG_NOTICE(( "  %s: %lu accounts, virtual_address_space_adj=%d, direct_mapping=%d, direct_account_pointers=%d, is_deprecated=%d",
-                  in->name, in->num_accounts, in->virtual_address_space_adj, in->direct_mapping,
+  FD_LOG_NOTICE(( "  %s: %lu accounts, direct_account_pointers=%d, is_deprecated=%d",
+                  in->name, in->num_accounts,
                   in->direct_account_pointers_in_program_input, in->is_deprecated ));
 
   uchar **            storage = NULL;
@@ -590,7 +586,6 @@ run_fixture( fd_svm_mini_t * mini,
 
   int result = fd_bpf_loader_input_serialize_parameters(
       ctx, pre_lens, regions, &region_cnt, acc_metas,
-      in->virtual_address_space_adj, in->direct_mapping,
       in->direct_account_pointers_in_program_input,
       in->is_deprecated,
       &idata_offset, &aptr_offset, &serialized_sz );
@@ -640,7 +635,6 @@ run_fixture( fd_svm_mini_t * mini,
       }
       /* Deserializing the unmodified buffer reads pre_lens and the metas */
       if( ok && fd_bpf_loader_input_deserialize_parameters( ctx, pre_lens, serialized, serialized_sz,
-                                                             in->virtual_address_space_adj, in->direct_mapping,
                                                              in->is_deprecated ) ) {
         FD_LOG_WARNING(( "deserialize failed on the unmodified buffer" ));
         ok = 0;
@@ -692,8 +686,6 @@ touch_vm_haddr( fd_vm_input_region_t * regions,
 static void
 test_touched_case( fd_svm_mini_t * mini,
                    fd_alloc_t *    alloc,
-                   int             vasa,
-                   int             dm,
                    int             action,
                    int const       expect[4] ) {
   static uchar data1[16] = { 1, 2, 3 };
@@ -713,8 +705,7 @@ test_touched_case( fd_svm_mini_t * mini,
   fixture_input_t in = {
     .name = "touched", .accounts = accs, .instr_accounts = iaccs,
     .num_accounts = 4UL, .num_instr_accounts = 3UL,
-    .program_id = { .ul = { 0x10 } },
-    .virtual_address_space_adj = (uchar)vasa, .direct_mapping = (uchar)dm
+    .program_id = { .ul = { 0x10 } }
   };
 
   uchar **            storage = NULL;
@@ -731,7 +722,7 @@ test_touched_case( fd_svm_mini_t * mini,
   fd_memset( pre_lens, 0xA5, sizeof(pre_lens) ); /* not zeroed in fd_bpf_execute either */
   fd_memset( regions,  0xA5, sizeof(regions)  );
   fd_memset( metas,    0xA5, sizeof(metas)    );
-  FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, pre_lens, regions, &region_cnt, metas, vasa, dm, 0, 0, &idata_off, &aptr_off, &ser_sz ) );
+  FD_TEST( !fd_bpf_loader_input_serialize_parameters( ctx, pre_lens, regions, &region_cnt, metas, 0, 0, &idata_off, &aptr_off, &ser_sz ) );
   uchar * ser = ctx->runtime->bpf_loader_serialization.frame[ ctx->runtime->instr.stack_sz-1UL ];
 
   for( ulong i=0UL; i<4UL; i++ ) FD_TEST( !ctx->txn_out->accounts.touched[ i ] );
@@ -760,12 +751,12 @@ test_touched_case( fd_svm_mini_t * mini,
     break;
   }
 
-  FD_TEST( !fd_bpf_loader_input_deserialize_parameters( ctx, pre_lens, ser, ser_sz, vasa, dm, 0 ) );
+  FD_TEST( !fd_bpf_loader_input_deserialize_parameters( ctx, pre_lens, ser, ser_sz, 0 ) );
 
   for( ulong i=0UL; i<4UL; i++ ) {
     int got = ctx->txn_out->accounts.touched[ i ];
     if( FD_UNLIKELY( got!=expect[ i ] ) ) {
-      FD_LOG_ERR(( "vasa=%d dm=%d action=%d: account %lu touched=%d, expected %d", vasa, dm, action, i, got, expect[ i ] ));
+      FD_LOG_ERR(( "action=%d: account %lu touched=%d, expected %d", action, i, got, expect[ i ] ));
     }
   }
   fd_bpf_frames_release( ctx->runtime->bpf_frames, ctx->runtime->bpf_loader_serialization.frame[ 0 ] );
@@ -775,21 +766,14 @@ test_touched_case( fd_svm_mini_t * mini,
 static void
 test_touched( fd_svm_mini_t * mini,
               fd_alloc_t *    alloc ) {
-  /* Copying modes: deserialization writes back the data of every
-     writable, program owned account (set_data_from_slice). */
-  for( int vasa=0; vasa<2; vasa++ ) {
-    test_touched_case( mini, alloc, vasa, 0, TOUCH_NONE,     (int[4]){ 0, 1, 0, 0 } );
-    test_touched_case( mini, alloc, vasa, 0, TOUCH_SAME_LAM, (int[4]){ 0, 1, 0, 0 } );
-    test_touched_case( mini, alloc, vasa, 0, TOUCH_ADD_LAM,  (int[4]){ 0, 1, 1, 0 } );
-  }
-  /* Direct mapping: only a write into the account's data region, or a
-     change of a field written back on deserialization, touches. */
-  test_touched_case( mini, alloc, 1, 1, TOUCH_NONE,     (int[4]){ 0, 0, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_RD_DATA1, (int[4]){ 0, 0, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_WR_DATA1, (int[4]){ 0, 1, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_WR_DATA2, (int[4]){ 0, 0, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_SAME_LAM, (int[4]){ 0, 0, 0, 0 } );
-  test_touched_case( mini, alloc, 1, 1, TOUCH_ADD_LAM,  (int[4]){ 0, 0, 1, 0 } );
+  /* Only a write into the account's data region, or a change of a field
+     written back on deserialization, touches. */
+  test_touched_case( mini, alloc, TOUCH_NONE,     (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_RD_DATA1, (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_WR_DATA1, (int[4]){ 0, 1, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_WR_DATA2, (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_SAME_LAM, (int[4]){ 0, 0, 0, 0 } );
+  test_touched_case( mini, alloc, TOUCH_ADD_LAM,  (int[4]){ 0, 0, 1, 0 } );
   FD_LOG_NOTICE(( "touched parity... ok" ));
 }
 

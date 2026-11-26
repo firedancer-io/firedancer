@@ -161,16 +161,12 @@ typedef struct fd_vm_rc_refcell_ref fd_vm_rc_refcell_ref_t;
    Essentially, it caches the results of translations that have been
    performed leading up to the CPI.
    vm_data_vaddr retains the caller's VM data address for account
-   synchronization.  With direct mapping, serialized_data is NULL;
-   account data uses the mapped account region rather than a separate
-   serialized copy.
+   synchronization.
  */
 struct fd_vm_cpi_caller_account {
   void *        lamports;         /* ulong, possibly unaligned */
   fd_pubkey_t * owner;
   ulong         orig_data_len;
-  uchar *       serialized_data; /* NULL if direct mapping */
-  ulong         serialized_data_len;
   ulong         vm_data_vaddr;
   void *        ref_to_len_in_vm; /* ulong, possibly unaligned */
 };
