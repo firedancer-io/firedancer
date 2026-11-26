@@ -153,6 +153,7 @@ struct fd_config_net {
   struct {
     char xdp_mode[ 8 ]; /* "drv", "skb" or "auto" */
     int  xdp_zero_copy; /* true/false or "auto" */
+    int  experimental_prebind_fill; /* publish physical FILL before bind */
     char poll_mode[ 16 ]; /* "prefbusy", "softirq" or "auto" */
 
     uint xdp_rx_queue_size;

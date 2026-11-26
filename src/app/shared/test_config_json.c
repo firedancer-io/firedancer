@@ -142,6 +142,19 @@ main( int     argc,
     }
   }
 
+  /* The experimental prebind switch is reported as a JSON boolean. */
+  for( int enabled=0; enabled<=1; enabled++ ) {
+    static char prebind_json[ 262144 ];
+    config->net.xdp.experimental_prebind_fill = enabled;
+    FD_TEST( fd_config_to_json( config, prebind_json, sizeof(prebind_json) ) );
+    FD_TEST( strstr( prebind_json, enabled ? "\"experimental_prebind_fill\":true"
+                                         : "\"experimental_prebind_fill\":false" ) );
+    FD_TEST( !strstr( prebind_json, enabled ? "\"experimental_prebind_fill\":false"
+                                          : "\"experimental_prebind_fill\":true" ) );
+    FD_TEST( !strstr( prebind_json, "\"experimental_prebind_fill\":\"" ) );
+  }
+  config->net.xdp.experimental_prebind_fill = 0;
+
   /* external service urls are fully redacted */
   FD_TEST( !strstr( json, "SECRET" ) );
   FD_TEST( !strstr( json, "hunter2" ) );
