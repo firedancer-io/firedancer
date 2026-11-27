@@ -174,6 +174,12 @@ struct fd_config_net {
   } iavf;
 
   struct {
+    char socket_path[ PATH_MAX ];
+    uint rx_queue_size;
+    uint tx_queue_size;
+  } vhost;
+
+  struct {
     uint receive_buffer_size;
     uint send_buffer_size;
   } socket;

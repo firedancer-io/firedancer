@@ -317,6 +317,27 @@ deliberate exception with lint-allow="<rule id>")
     <counter name="NonFdPktRx" summary="Packets received by IAVF VFs that are not intended for Firedancer" />
 </tile>
 
+<tile name="vhost">
+    <counter name="PktRx" summary="Packets successfully published to output links" />
+    <counter name="PktRxBytes" summary="Bytes of packets successfully published to output links" />
+    <counter name="PktRxDropped" enum="PktRxDropReason" summary="Received packets dropped, by reason" />
+    <counter name="GrePktRx" summary="GRE packets decapsulated and published; subset of PktRx" />
+    <counter name="VlanPktRx" summary="VLAN-tagged packets with the tag stripped in software and published; subset of PktRx" />
+    <gauge name="RxBufferUsed" summary="RX buffers awaiting consumption by the tile" />
+    <gauge name="RxBufferFree" summary="RX buffers currently posted to the vhost-user backend" />
+    <counter name="PktTxCompleted" summary="Packets completed by the vhost-user backend for transmission" />
+    <counter name="PktTxCompletedBytes" summary="Bytes of packets completed by the vhost-user backend" />
+    <counter name="PktTxDropped" enum="PktTxDropReason" summary="Transmit jobs dropped, by reason" />
+    <counter name="PktTxRouted" enum="PktTxRouteResult" summary="Transmit jobs accepted after route resolution, by result" />
+    <counter name="PktTxSlowPathRouted" enum="PktTxSlowPathReason" summary="Transmit jobs that failed userland routing and selected the kernel fallback, by reason" />
+    <counter name="PktTxLoopbackFailed" summary="Loopback transmit jobs dropped because the socket send failed or accepted only part of a batch" />
+    <counter name="GrePktTxSubmitted" summary="GRE transmit jobs submitted to the vhost-user backend or a kernel socket" />
+    <counter name="PktTxSlowPathSubmitted" summary="Packets submitted to a kernel socket on the slow path" />
+    <gauge name="TxBufferUsed" summary="TX buffers pending or submitted to the vhost-user backend" />
+    <gauge name="TxBufferFree" summary="TX buffers available for a new transmit job" />
+    <counter name="NonFdPktRx" summary="Packets received over vhost-user that are not intended for Firedancer" />
+</tile>
+
 <enum name="SendmmsgResult">
     <int value="0" name="Success" label="Success" />
     <int value="1" name="BufferFull" label="ENOBUFS, EAGAIN error" />

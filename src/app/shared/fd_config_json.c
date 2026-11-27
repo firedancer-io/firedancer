@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24464608UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24468712UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -168,6 +168,7 @@ static char const * const jw_reported_keys[] = {
   "net.xdp.rss_queue_mode",
   "net.xdp.listen_gre",
   "net.xdp.native_bond",
+  "net.vhost.socket_path",
   "tiles.bundle.tls_domain_name",
   "tiles.bundle.tip_distribution_program_addr",
   "tiles.bundle.tip_payment_program_addr",
@@ -469,6 +470,11 @@ fd_config_to_json( fd_config_t const * config,
     jw_obj_open( &w, "iavf" );
       jw_ulong( &w, "rx_queue_size", config->net.iavf.rx_queue_size );
       jw_ulong( &w, "tx_queue_size", config->net.iavf.tx_queue_size );
+    jw_obj_close( &w );
+    jw_obj_open( &w, "vhost" );
+      jw_path ( &w, "socket_path",   config->net.vhost.socket_path );
+      jw_ulong( &w, "rx_queue_size", config->net.vhost.rx_queue_size );
+      jw_ulong( &w, "tx_queue_size", config->net.vhost.tx_queue_size );
     jw_obj_close( &w );
   jw_obj_close( &w );
 

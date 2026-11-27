@@ -662,6 +662,27 @@ fd_config_validate( fd_config_t const * config ) {
       FD_LOG_ERR(( "invalid iavf net tile count %u: must be between 1 and %lu",
                    config->layout.net_tile_count, FD_IAVF_TILE_MAX ));
     }
+  } else if( 0==strcmp( config->net.provider, "vhost" ) ) {
+    if( FD_UNLIKELY( !config->is_dev ) ) {
+      FD_LOG_ERR(( "`net.provider = \"vhost\"` is a development-only feature and is only supported in firedancer-dev" ));
+    }
+    CFG_HAS_NON_EMPTY( net.vhost.socket_path );
+    CFG_HAS_POW2( net.vhost.rx_queue_size );
+    CFG_HAS_POW2( net.vhost.tx_queue_size );
+    if( FD_UNLIKELY( config->net.vhost.rx_queue_size<FD_VHOST_QUEUE_DEPTH_MIN ||
+                     config->net.vhost.rx_queue_size>FD_VHOST_QUEUE_DEPTH_MAX ) ) {
+      FD_LOG_ERR(( "invalid vhost RX queue depth %u: must be in [%u,%u]",
+                   config->net.vhost.rx_queue_size, FD_VHOST_QUEUE_DEPTH_MIN, FD_VHOST_QUEUE_DEPTH_MAX ));
+    }
+    if( FD_UNLIKELY( config->net.vhost.tx_queue_size<FD_VHOST_QUEUE_DEPTH_MIN ||
+                     config->net.vhost.tx_queue_size>FD_VHOST_QUEUE_DEPTH_MAX ) ) {
+      FD_LOG_ERR(( "invalid vhost TX queue depth %u: must be in [%u,%u]",
+                   config->net.vhost.tx_queue_size, FD_VHOST_QUEUE_DEPTH_MIN, FD_VHOST_QUEUE_DEPTH_MAX ));
+    }
+    if( FD_UNLIKELY( config->layout.net_tile_count!=FD_VHOST_TILE_MAX ) ) {
+      FD_LOG_ERR(( "invalid vhost net tile count %u: must be %lu",
+                   config->layout.net_tile_count, FD_VHOST_TILE_MAX ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );
@@ -724,6 +745,7 @@ fd_config_load( int           is_local_cluster,
                 fd_config_t * config,
                 int           dev ) {
   memset( config, 0, sizeof(config_t) );
+  config->is_dev = dev;
   config->boot_timestamp_nanos = fd_log_wallclock();
 
   FD_STATIC_ASSERT( sizeof(config->launch_cpus)==8UL*fd_cpuset_word_cnt, launch_cpus );

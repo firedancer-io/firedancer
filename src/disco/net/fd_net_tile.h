@@ -8,6 +8,7 @@
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "iavf/fd_iavf.h"
+#include "vhost/fd_vhost.h"
 
 struct fd_topo;
 typedef struct fd_topo fd_topo_t;
@@ -197,6 +198,12 @@ fd_iavf_tile_fib4_join( fd_fib4_t *                 out,
                         fd_topo_t const *           topo,
                         struct fd_topo_tile const * tile,
                         int                         main_table );
+
+fd_fib4_t *
+fd_vhost_tile_fib4_join( fd_fib4_t *                 out,
+                         fd_topo_t const *           topo,
+                         struct fd_topo_tile const * tile,
+                         int                         main_table );
 
 #if defined(__linux__)
 
