@@ -33,6 +33,7 @@ stem_init( void ) {
 }
 
 static uchar                  ch_mem[ 32UL<<20 ] __attribute__((aligned(128)));
+static uchar                  ml_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ] __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN)));
 static fd_failover_tile_ctx_t ctl[ 1 ];
 
 #define OUR_BOOT_ID (1000UL)
@@ -71,6 +72,8 @@ controller_init( int holds ) {
   ctx->own_gossip.port       = fd_ushort_bswap( OWN_GOSSIP_PORT );
   ctx->channel               = fd_failover_channel_join( fd_failover_channel_new( ch_mem ) );
   FD_TEST( ctx->channel );
+  ctx->mleaders              = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ml_mem ) );
+  FD_TEST( ctx->mleaders );
   ctx->channel->self_hello = ctx->hello;
   ctx->session.state       = fd_failover_channel_state( ctx->channel );
   return ctx;
@@ -575,8 +578,10 @@ test_result_wait_peer_restart( void ) {
   fd_adminctl_failover_req_t req = { .version=FD_ADMINCTL_FAILOVER_PAYLOAD_VERSION, .cmd=FD_ADMINCTL_FAILOVER_CMD_HANDOFF };
   ctx->bus_req.nonce = 8UL;
   fd_memcpy( ctx->bus_req.payload, &req, sizeof(req) );
+  ulong seq = stem->seqs[ 0 ];
   serve_bus_request( ctx, stem, 1000L );
   FD_TEST( ctx->action==FD_FAILOVER_ACTION_IDLE && !ctx->request.id && !ctx->cmd_nonce );
+  FD_TEST( stem->seqs[ 0 ]==seq+1UL && pub_mcache[ seq%8UL ].sig==FD_FAILOVER_BUS_RESPONSE );
   fd_failover_bus_msg_t const * out = (fd_failover_bus_msg_t const *)bus_mem;
   FD_TEST( out->nonce==8UL && out->result==FD_ADMINCTL_RESULT_SUCCESS );
   controller_fini( ctx );
