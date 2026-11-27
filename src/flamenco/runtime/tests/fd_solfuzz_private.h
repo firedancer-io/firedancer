@@ -75,10 +75,10 @@ fd_solfuzz_pb_restore_features( fd_features_t *                    features,
    region of the accounts with Agave. This function clears the
    data field on each captured account in this case. */
 void
-fd_solfuzz_direct_mapping_handle_cu_exhaustion( ulong                       cu_avail,
-                                                int                         has_err,
-                                                fd_exec_test_acct_state_t * accounts,
-                                                uint                   accounts_cnt );
+fd_solfuzz_handle_cu_exhaustion( ulong                       cu_avail,
+                                 int                         has_err,
+                                 fd_exec_test_acct_state_t * accounts,
+                                 uint                        accounts_cnt );
 
 /* Create feature accounts for all active features in the given feature
    set, with an activation slot of 0.  Skip any feature whose pubkey

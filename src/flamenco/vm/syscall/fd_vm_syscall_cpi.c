@@ -285,15 +285,9 @@ fd_vm_cpi_update_caller_account_region( fd_vm_t *                              v
     fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[ translated_account->index_in_caller ];
     fd_vm_input_region_t *    region          = &vm->input_mem_regions[ acc_region_meta->region_idx + 1UL ];
 
-    /* Note that we don't special-case direct mapping here, as Agave does,
-       because we do not create regions using CoW upon resize like Agave does.
-
-       Therefore we do not need the logic in the Agave code to create a new
-       region, as we have already created all the regions for each account.
-
-       Therefore we do not have equivalents of Agave's
-       modify_memory_region_of_account and create_memory_region_of_account
-       functions, but we instead inline this logic directly below. */
+    /* Serialization already created a data region for every account,
+       so Agave's modify_memory_region_of_account and
+       create_memory_region_of_account reduce to the update below. */
     /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1301-L1307 */
     /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/serialization.rs#L23-L35 */
     region->region_sz = (uint)fd_borrowed_account_get_data_len( borrowed_account );

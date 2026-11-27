@@ -1692,14 +1692,14 @@ test_shrink_below_orig_data_len( fd_svm_mini_t * mini ) {
 }
 
 static void
-test_dm_shared_account_first_write( fd_svm_mini_t * mini ) {
-  /* Documents Firedancer has no CoW under direct mapping. */
+test_shared_account_first_write( fd_svm_mini_t * mini ) {
+  /* The first write to account data lands in place. */
   cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
   cfg->text_sz = build_write_data_text( cfg->text_buf, 0UL, 0xDD, 8UL );
   cfg->accts[0].dlen = 16UL;
 
   int e[2][2]; expect_all( e, FD_VM_SUCCESS );
-  run_matrix( mini, cfg, "test_dm_shared_account_first_write", e );
+  run_matrix( mini, cfg, "test_shared_account_first_write", e );
 
   cfg->is_deprecated=0;
   int err = run_one( mini, cfg, /*rust_abi=*/1 );
@@ -2327,7 +2327,7 @@ main( int argc, char ** argv ) {
   test_multi_account_realloc_within_budget( mini );
   test_shrink_to_zero                     ( mini );
   test_shrink_below_orig_data_len         ( mini );
-  test_dm_shared_account_first_write      ( mini );
+  test_shared_account_first_write         ( mini );
 
   /* ===== Readonly account mutations ===== */
   test_callee_readonly_with_caller_changed_dlen ( mini );
