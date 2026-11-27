@@ -265,6 +265,7 @@ backtest_topo( config_t * config ) {
       FOR(snapdc_tile_cnt) fd_topob_tile_in( topo, "snapin", t, "metric_in", "snapdc_in", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
       fd_topob_tile_out( topo, "snapin", t, "snapin_ct", t );
     }
+    fd_topob_tile_in ( topo, "snapin",  0UL, "metric_in", "genesi_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
 
     fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_manif", 0UL                                       );
     fd_topob_tile_in ( topo, "replay",  0UL, "metric_in", "snapin_manif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
