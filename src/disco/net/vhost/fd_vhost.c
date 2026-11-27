@@ -209,9 +209,14 @@ vhost_setup_vring( int                      sock_fd,
   fd_vhost_vring_state_t base = { .index = qidx, .num = 0U };
   if( FD_UNLIKELY( 0!=vhost_send_msg( sock_fd, FD_VHOST_USER_SET_VRING_BASE, &base, sizeof(base), NULL, 0UL ) ) ) return -1;
 
-  /* Pure userspace polling: disable backend->frontend call interrupts */
-  ulong call_u64 = (ulong)qidx | FD_VHOST_USER_VRING_NOFD_MASK;
-  if( FD_UNLIKELY( 0!=vhost_send_msg( sock_fd, FD_VHOST_USER_SET_VRING_CALL, &call_u64, sizeof(call_u64), NULL, 0UL ) ) ) return -1;
+  /* Configure backend->frontend call eventfd (or NOFD if unused) */
+  if( vr->call_fd>=0 ) {
+    ulong call_u64 = (ulong)qidx;
+    if( FD_UNLIKELY( 0!=vhost_send_msg( sock_fd, FD_VHOST_USER_SET_VRING_CALL, &call_u64, sizeof(call_u64), &vr->call_fd, 1UL ) ) ) return -1;
+  } else {
+    ulong call_u64 = (ulong)qidx | FD_VHOST_USER_VRING_NOFD_MASK;
+    if( FD_UNLIKELY( 0!=vhost_send_msg( sock_fd, FD_VHOST_USER_SET_VRING_CALL, &call_u64, sizeof(call_u64), NULL, 0UL ) ) ) return -1;
+  }
 
   /* Provide kick eventfd so backend knows the vring is active */
   ulong kick_u64 = (ulong)qidx;
@@ -228,7 +233,9 @@ fd_vhost_connect( fd_vhost_t * vhost,
   memset( vhost, 0, sizeof(*vhost) );
   vhost->sock_fd    = -1;
   vhost->rx.kick_fd = -1;
+  vhost->rx.call_fd = -1;
   vhost->tx.kick_fd = -1;
+  vhost->tx.call_fd = -1;
 
   if( FD_UNLIKELY( !socket_path || !socket_path[0] ||
                    !fd_uint_is_pow2( rx_depth ) || rx_depth<FD_VHOST_QUEUE_DEPTH_MIN || rx_depth>FD_VHOST_QUEUE_DEPTH_MAX ||
@@ -288,10 +295,11 @@ fd_vhost_connect( fd_vhost_t * vhost,
   vring_layout( &vhost->rx, base, rx_depth );
   vring_layout( &vhost->tx, base + vring_total_sz( rx_depth ), tx_depth );
 
-  /* Create non-blocking eventfds for kicking backend if needed */
+  /* Create non-blocking eventfds for kicking backend and RX wakeup (epoll park) */
   vhost->rx.kick_fd = eventfd( 0U, EFD_NONBLOCK|EFD_CLOEXEC );
+  vhost->rx.call_fd = eventfd( 0U, EFD_NONBLOCK|EFD_CLOEXEC );
   vhost->tx.kick_fd = eventfd( 0U, EFD_NONBLOCK|EFD_CLOEXEC );
-  if( FD_UNLIKELY( vhost->rx.kick_fd<0 || vhost->tx.kick_fd<0 ) ) {
+  if( FD_UNLIKELY( vhost->rx.kick_fd<0 || vhost->rx.call_fd<0 || vhost->tx.kick_fd<0 ) ) {
     int err = errno;
     close( mem_fd );
     errno = err;
@@ -402,7 +410,9 @@ void
 fd_vhost_close( fd_vhost_t * vhost ) {
   if( !vhost ) return;
   if( vhost->rx.kick_fd>=0 ) { close( vhost->rx.kick_fd ); vhost->rx.kick_fd = -1; }
+  if( vhost->rx.call_fd>=0 ) { close( vhost->rx.call_fd ); vhost->rx.call_fd = -1; }
   if( vhost->tx.kick_fd>=0 ) { close( vhost->tx.kick_fd ); vhost->tx.kick_fd = -1; }
+  if( vhost->tx.call_fd>=0 ) { close( vhost->tx.call_fd ); vhost->tx.call_fd = -1; }
   if( vhost->shm && vhost->shm!=MAP_FAILED ) {
     munmap( vhost->shm, vhost->shm_sz );
     vhost->shm    = NULL;

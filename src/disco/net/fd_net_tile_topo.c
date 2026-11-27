@@ -241,6 +241,7 @@ setup_vhost_tile( fd_topo_t *             topo,
                   ulong                   route_max,
                   ulong                   route_peer_max ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "vhost", "vhost", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  tile->sleep_eventfd = topo->sleep_obj_id!=ULONG_MAX;
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
   fd_topob_tile_in(  topo, "netlnk", 0UL,         "metric_in", "net_netlnk", tile_kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "vhost", tile_kind_id,              "net_netlnk", tile_kind_id );

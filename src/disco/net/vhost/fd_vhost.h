@@ -104,6 +104,7 @@ struct fd_vhost_vring {
   ushort             avail_idx;    /* local shadow of avail->idx */
   ushort             last_used_idx;/* next used ring entry to consume */
   int                kick_fd;      /* eventfd to notify backend */
+  int                call_fd;      /* eventfd for backend->frontend wakeup (-1 if unused) */
 };
 typedef struct fd_vhost_vring fd_vhost_vring_t;
 
@@ -152,11 +153,10 @@ fd_vhost_is_connected( fd_vhost_t const * vhost );
    not suppressed by the backend (VRING_USED_F_NO_NOTIF). */
 static inline void
 fd_vhost_kick( fd_vhost_vring_t const * vr ) {
+  if( FD_LIKELY( vr->kick_fd<0 ) ) return;
   ushort const used_flags = __atomic_load_n( &vr->used->flags, __ATOMIC_ACQUIRE );
   if( FD_UNLIKELY( !(used_flags & FD_VHOST_VRING_USED_F_NO_NOTIF) ) ) {
     ulong val = 1UL;
-    /* Best-effort non-blocking eventfd kick */
-    (void)!__builtin_expect( (long)sizeof(val), 8L );
     extern long write( int fd, void const * buf, unsigned long count );
     (void)write( vr->kick_fd, &val, sizeof(val) );
   }
