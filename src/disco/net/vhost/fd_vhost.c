@@ -382,9 +382,10 @@ fd_vhost_connect( fd_vhost_t * vhost,
     if( FD_UNLIKELY( 0!=vhost_send_msg( sock_fd, FD_VHOST_USER_SET_VRING_ENABLE, &en1, sizeof(en1), NULL, 0UL ) ) ) goto fail;
   }
 
-  /* Initial kick on RX so backend notices pre-filled RX buffers */
+  /* Initial kick on both RX and TX so backend marks both vrings started and link UP */
   ulong kick_val = 1UL;
   (void)write( vhost->rx.kick_fd, &kick_val, sizeof(kick_val) );
+  (void)write( vhost->tx.kick_fd, &kick_val, sizeof(kick_val) );
 
   return 0;
 
