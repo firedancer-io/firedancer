@@ -3575,8 +3575,9 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
            our vote rooted. */
         fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, txn_idx );
 
+        fd_signature_t sig = FD_LOAD( fd_signature_t, txn_p->payload+TXN( txn_p )->signature_off );
         fd_pubkey_t * identity_pubkey_out = NULL;
-        if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
+        if( fd_vote_tracker_query_sig( ctx->vote_tracker, &sig, &identity_pubkey_out ) && fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
           bank->f.identity_vote_idx = ctx->identity_idx;
         }
       }
