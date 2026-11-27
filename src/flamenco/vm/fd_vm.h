@@ -214,8 +214,8 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   /* Agave uses the segv vaddr in several different cases, including:
      - Determining whether or not to return a regular or stack access violation
-     - (If direct mapping is enabled) determining the instruction error
-       code to return on store operations. */
+     - Determining the instruction error code to return on account
+       data access violations. */
   ulong segv_vaddr;
   ulong segv_access_len;
   uchar segv_access_type;

@@ -504,7 +504,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
     effects->modified_accounts_count++;
   }
 
-  fd_solfuzz_direct_mapping_handle_cu_exhaustion(
+  fd_solfuzz_handle_cu_exhaustion(
       effects->cu_avail, effects->result,
       effects->modified_accounts, (uint)effects->modified_accounts_count );
 

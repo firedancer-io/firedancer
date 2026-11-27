@@ -144,7 +144,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   ulong                   input_sz                                 = 0UL;
   ulong                   pre_lens[256]                            = {0};
-  fd_vm_input_region_t    input_mem_regions[1000]                  = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_input_region_t    input_mem_regions[1000]                  = {0}; /* At most (2 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t acc_region_metas[256]                    = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                    = 0U;
   int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );

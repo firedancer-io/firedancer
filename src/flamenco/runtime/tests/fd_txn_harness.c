@@ -433,7 +433,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         exec_res
     );
 
-    fd_solfuzz_direct_mapping_handle_cu_exhaustion(
+    fd_solfuzz_handle_cu_exhaustion(
         txn_out->details.compute_budget.compute_meter, exec_res,
         txn_result->modified_accounts, txn_result->modified_accounts_count );
 
