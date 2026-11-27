@@ -15,14 +15,17 @@
 #include <net/if.h>
 #include <netinet/in.h>
 #include <stdlib.h>
+#include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <linux/rtnetlink.h>
 
+#include "../../sleep/fd_sleep.h"
 #include "../../../util/pod/fd_pod_format.h"
 #define FD_SOCKADDR_IN_SZ   sizeof(struct sockaddr_in)
 #define FD_VHOST_PEEK_FLAGS (MSG_PEEK|MSG_DONTWAIT)
+#define FD_VHOST_EPOLL_SOCK (ULONG_MAX-1UL)
 #include "generated/fd_vhost_tile_seccomp.h"
 
 #define FD_VHOST_TX_FLUSH_TIMEOUT_NS      (  20000L)
@@ -54,6 +57,9 @@ struct __attribute__((aligned(64UL))) fd_vhost_tile {
   long          lo_tx_deadline_ticks;
   int           lo_tx_sock;
   uint          lo_tx_cnt;
+
+  /* Stem parking epoll fd (efficient mode; -1 when parking is disabled) */
+  int           epoll_fd;
 
   fd_net_tile_t net;
   ulong         netdev_seq;
@@ -224,6 +230,48 @@ after_credit( fd_vhost_tile_t *   ctx,
               int *               charge_busy ) {
   (void)poll_in;
   *charge_busy |= fd_vhost_tile_poll_rx( ctx, stem );
+}
+
+static inline int
+prevent_park( fd_vhost_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->tx_avail_published!=ctx->vhost.tx.avail_idx ) ) fd_vhost_tile_tx_flush( ctx );
+  if( FD_UNLIKELY( ctx->lo_tx_cnt ) ) fd_vhost_tile_lo_tx_flush( ctx );
+
+  /* Unmask backend->frontend RX call interrupts with full ordering, then
+     re-check rx->used->idx to avoid a lost-wakeup race. */
+  fd_vhost_vring_t * rx = &ctx->vhost.rx;
+  __atomic_store_n( &rx->avail->flags, 0U, __ATOMIC_SEQ_CST );
+  ushort const used_idx = __atomic_load_n( &rx->used->idx, __ATOMIC_ACQUIRE );
+  if( FD_UNLIKELY( used_idx!=rx->last_used_idx ) ) {
+    __atomic_store_n( &rx->avail->flags, FD_VHOST_VRING_AVAIL_F_NO_INTR, __ATOMIC_RELEASE );
+    return 1;
+  }
+  return 0;
+}
+
+static inline int
+park_wait( fd_vhost_tile_t * ctx,
+           ulong *           word,
+           long              deadline,
+           double            tick_per_ns ) {
+  struct epoll_event evs[ 3 ];
+  int ev_cnt;
+  int cause = fd_sleep_park_wait_epoll( ctx->epoll_fd, word, evs, 3, &ev_cnt, deadline, tick_per_ns );
+
+  /* Re-mask RX interrupts immediately upon wakeup for zero-syscall polling */
+  __atomic_store_n( &ctx->vhost.rx.avail->flags, FD_VHOST_VRING_AVAIL_F_NO_INTR, __ATOMIC_RELEASE );
+
+  for( int i=0; i<ev_cnt; i++ ) {
+    if( evs[ i ].data.u64==(ulong)ctx->vhost.rx.call_fd ) {
+      ulong val;
+      (void)read( ctx->vhost.rx.call_fd, &val, sizeof(val) );
+    } else if( evs[ i ].data.u64==FD_VHOST_EPOLL_SOCK ) {
+      if( FD_UNLIKELY( !fd_vhost_is_connected( &ctx->vhost ) ) ) {
+        FD_LOG_ERR(( "vhost-user socket `%s` disconnected (VPP restarted?)", ctx->socket_path ));
+      }
+    }
+  }
+  return cause;
 }
 
 static inline int
@@ -527,6 +575,27 @@ privileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( !fd_net_sock_init( &ctx->net.sock ) ) ) {
     FD_LOG_ERR(( "fd_net_sock_init failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+
+  /* Set up epoll for stem parking in efficient mode */
+  ctx->epoll_fd = -1;
+  if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
+    ctx->epoll_fd = epoll_create1( EPOLL_CLOEXEC );
+    if( FD_UNLIKELY( ctx->epoll_fd<0 ) ) {
+      FD_LOG_ERR(( "epoll_create1() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    struct epoll_event doorbell_ev = { .events = EPOLLIN|EPOLLET, .data.u64 = FD_SLEEP_EPOLL_DOORBELL };
+    if( FD_UNLIKELY( -1==epoll_ctl( ctx->epoll_fd, EPOLL_CTL_ADD, FD_SLEEP_EVENTFD( tile->id ), &doorbell_ev ) ) ) {
+      FD_LOG_ERR(( "epoll_ctl(ADD,sleep_eventfd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    struct epoll_event call_ev = { .events = EPOLLIN, .data.u64 = (ulong)ctx->vhost.rx.call_fd };
+    if( FD_UNLIKELY( -1==epoll_ctl( ctx->epoll_fd, EPOLL_CTL_ADD, ctx->vhost.rx.call_fd, &call_ev ) ) ) {
+      FD_LOG_ERR(( "epoll_ctl(ADD,rx_call_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    struct epoll_event sock_ev = { .events = EPOLLRDHUP|EPOLLHUP|EPOLLERR, .data.u64 = FD_VHOST_EPOLL_SOCK };
+    if( FD_UNLIKELY( -1==epoll_ctl( ctx->epoll_fd, EPOLL_CTL_ADD, ctx->vhost.sock_fd, &sock_ev ) ) ) {
+      FD_LOG_ERR(( "epoll_ctl(ADD,vhost_sock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+  }
 }
 
 static void
@@ -652,7 +721,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                                              (uint)ctx->net.sock.sock,
                                              (uint)ctx->vhost.sock_fd,
                                              (uint)ctx->vhost.rx.kick_fd,
-                                             (uint)ctx->vhost.tx.kick_fd );
+                                             (uint)ctx->vhost.tx.kick_fd,
+                                             (uint)ctx->vhost.rx.call_fd,
+                                             (uint)ctx->epoll_fd );
   return sock_filter_policy_fd_vhost_tile_instr_cnt;
 }
 
@@ -662,15 +733,20 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   fd_vhost_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  if( FD_UNLIKELY( out_fds_cnt<8UL ) ) FD_LOG_ERR(( "allowed FD array capacity %lu too small", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<10UL ) ) FD_LOG_ERR(( "allowed FD array capacity %lu too small", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2;
   if( fd_log_private_logfile_fd()!=-1 ) out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
   out_fds[ out_cnt++ ] = ctx->net.sock.sock;
   out_fds[ out_cnt++ ] = ctx->vhost.sock_fd;
   out_fds[ out_cnt++ ] = ctx->vhost.rx.kick_fd;
+  out_fds[ out_cnt++ ] = ctx->vhost.rx.call_fd;
   out_fds[ out_cnt++ ] = ctx->vhost.tx.kick_fd;
   if( ctx->lo_tx_sock>=0 ) out_fds[ out_cnt++ ] = ctx->lo_tx_sock;
+  if( FD_UNLIKELY( tile->sleep_eventfd ) ) {
+    out_fds[ out_cnt++ ] = ctx->epoll_fd;
+    out_fds[ out_cnt++ ] = FD_SLEEP_EVENTFD( tile->id );
+  }
   return out_cnt;
 }
 
@@ -683,7 +759,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_NEVER_PARK                   1
+#define STEM_CALLBACK_PREVENT_PARK        prevent_park
+#define STEM_CALLBACK_PARK_WAIT           park_wait
 #define STEM_BURST                        (FD_VHOST_BATCH_SIZE+1UL)
 #define STEM_LAZY                         270000UL
 #include "../../stem/fd_stem.c"

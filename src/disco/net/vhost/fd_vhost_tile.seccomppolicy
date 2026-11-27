@@ -4,13 +4,19 @@
 # vhost_sock_fd: Unix domain socket connected to vhost-user backend (for disconnect detection).
 # rx_kick_fd: eventfd for kicking RX virtqueue.
 # tx_kick_fd: eventfd for kicking TX virtqueue.
-uint logfile_fd, uint lo_tx_fd, uint net_sock_fd, uint vhost_sock_fd, uint rx_kick_fd, uint tx_kick_fd
+# rx_call_fd: eventfd signaled by backend on RX packets when parked.
+# epoll_fd: tile epoll fd for stem parking in efficient mode.
+uint logfile_fd, uint lo_tx_fd, uint net_sock_fd, uint vhost_sock_fd, uint rx_kick_fd, uint tx_kick_fd, uint rx_call_fd, uint epoll_fd
 
 # logging + eventfd kicks
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd)
            (and (eq (arg 0) rx_kick_fd) (eq (arg 2) 8))
            (and (eq (arg 0) tx_kick_fd) (eq (arg 2) 8)))
+
+# drain RX call eventfd on epoll wakeup
+read: (and (eq (arg 0) rx_call_fd)
+           (eq (arg 2) 8))
 
 # logging fsync
 fsync: (eq (arg 0) logfile_fd)
@@ -29,3 +35,8 @@ sendmmsg: (and (eq (arg 0) lo_tx_fd)
 sendto: (and (eq (arg 0) net_sock_fd)
              (eq (arg 3) MSG_DONTWAIT)
              (eq (arg 5) FD_SOCKADDR_IN_SZ))
+
+# stem parking via epoll_pwait (efficient mode)
+epoll_pwait: (and (eq (arg 0) epoll_fd)
+                  (eq (arg 2) 3)
+                  (eq (arg 4) 0))

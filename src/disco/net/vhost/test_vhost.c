@@ -137,7 +137,6 @@ mock_server_thread( void * arg ) {
     case FD_VHOST_USER_SET_FEATURES:
     case FD_VHOST_USER_SET_PROTOCOL_FEATURES:
     case FD_VHOST_USER_SET_VRING_BASE:
-    case FD_VHOST_USER_SET_VRING_CALL:
       break;
     case FD_VHOST_USER_SET_MEM_TABLE: {
       struct mock_mem_table const * tbl = (struct mock_mem_table const *)payload;
@@ -175,6 +174,7 @@ mock_server_thread( void * arg ) {
       break;
     }
     case FD_VHOST_USER_SET_VRING_KICK:
+    case FD_VHOST_USER_SET_VRING_CALL:
       if( rfd>=0 ) close( rfd );
       break;
     case FD_VHOST_USER_SET_VRING_ENABLE:
