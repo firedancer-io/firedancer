@@ -307,9 +307,9 @@ fd_vhost_connect( fd_vhost_t * vhost,
     int err = errno; close( mem_fd ); errno = err; goto fail;
   }
 
-  ulong wanted = FD_VIRTIO_F_VERSION_1 | FD_VHOST_USER_F_PROTOCOL_FEAT;
+  ulong wanted = FD_VIRTIO_F_VERSION_1 | FD_VIRTIO_NET_F_MRG_RXBUF | FD_VHOST_USER_F_PROTOCOL_FEAT;
   vhost->features = backend_features & wanted;
-  vhost->virtio_hdr_sz = (vhost->features & FD_VIRTIO_F_VERSION_1) ? 12UL : 10UL;
+  vhost->virtio_hdr_sz = (vhost->features & (FD_VIRTIO_F_VERSION_1 | FD_VIRTIO_NET_F_MRG_RXBUF)) ? 12UL : 10UL;
 
   if( FD_UNLIKELY( 0!=vhost_send_msg( sock_fd, FD_VHOST_USER_SET_OWNER, NULL, 0U, NULL, 0UL ) ) ) {
     int err = errno; close( mem_fd ); errno = err; goto fail;
