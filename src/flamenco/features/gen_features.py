@@ -25,16 +25,17 @@ def calculate_feature_set_id(feature_map):
 
 def find_perfect_hash(prefixes):
     """Brute-force search for a (lg_tbl_sz, hash_c) pair that produces
-    a collision-free perfect hash over the lower 32 bits of each prefix.
+    a collision-free perfect hash over each prefix folded to 32 bits.
+    Vanity pubkeys share leading bytes, so the low 32 bits alone collide.
 
-    The hash function is: h(k) = (hash_c * (uint)k) >> (32 - lg_tbl_sz)
+    The hash function is: h(k) = (hash_c * (uint)(k ^ (k>>32))) >> (32 - lg_tbl_sz)
 
     Starts at lg_tbl_sz = ceil(log2(n)) and increments until a
     collision-free constant is found.
     """
     import math
     n = len(prefixes)
-    keys_32 = [p & 0xFFFFFFFF for p in prefixes]
+    keys_32 = [(p ^ (p >> 32)) & 0xFFFFFFFF for p in prefixes]
     mask = 0xFFFFFFFF
 
     min_lg = max(1, math.ceil(math.log2(n))) if n > 1 else 1
@@ -166,6 +167,8 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_HASH_C    {hash_c}U
 #define MAP_PERFECT_KEY_T     ulong
 #define MAP_PERFECT_ZERO_KEY  0UL
+#define MAP_PERFECT_HASH_PP( u ) (((MAP_PERFECT_HASH_C*(((u)^((u)>>32))&UINT_MAX))&UINT_MAX)>>(32-MAP_PERFECT_LG_TBL_SZ))
+#define MAP_PERFECT_HASH_R(  u ) ((MAP_PERFECT_HASH_C*(uint)((u)^((u)>>32)))>>(32-MAP_PERFECT_LG_TBL_SZ))
 """,
         file=body,
     )

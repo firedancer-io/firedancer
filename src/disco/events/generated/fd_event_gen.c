@@ -351,7 +351,7 @@ fd_event_block_completed_serialize( fd_circq_t *                       circq,
   ok &= !!fd_pb_push_uint64( encoder, 3U, link_seq );
   ok &= !!fd_pb_push_uint64( encoder, 4U, (ulong)timestamp_nanos );
 
-  FD_TEST( msg->txn_timing_cnt<=49019UL );
+  FD_TEST( msg->txn_timing_cnt<=98039UL );
 
   uchar const * _dyn = (uchar const *)msg + FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ;
   fd_event_block_completed_txn_timing_t const * txn_timing = (fd_event_block_completed_txn_timing_t const *)_dyn;
@@ -1226,7 +1226,7 @@ fd_event_serialize_by_type( ulong               type,
   case 9UL: {
     FD_TEST( ev_sz>=FD_EVENT_BLOCK_COMPLETED_PREFIX_SZ );
     fd_event_block_completed_t const * msg = (fd_event_block_completed_t const *)ev;
-    FD_TEST( msg->txn_timing_cnt<=49019UL );
+    FD_TEST( msg->txn_timing_cnt<=98039UL );
     FD_TEST( ev_sz==fd_event_block_completed_footprint( msg ) );
     fd_event_block_completed_serialize( circq, client, timestamp_nanos, link_seq, msg );
     break;

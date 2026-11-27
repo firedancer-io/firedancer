@@ -255,8 +255,8 @@ fd_event_block_completed_fill_max( fd_event_block_completed_t * msg ) {
   msg->pack_data_bytes = ULONG_MAX;
   msg->pack_end_reason = INT_MAX;
   msg->bundle_txn_count = ULONG_MAX;
-  msg->txn_timing_cnt = 49019UL;
-  for( ulong k=0UL; k<49019UL; k++ ) {
+  msg->txn_timing_cnt = 98039UL;
+  for( ulong k=0UL; k<98039UL; k++ ) {
     msg->txn_timing[ k ].received_time = ULONG_MAX;
     msg->txn_timing[ k ].parsed_time = ULONG_MAX;
     msg->txn_timing[ k ].dispatched_time = ULONG_MAX;

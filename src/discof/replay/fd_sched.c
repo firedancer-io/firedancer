@@ -11,6 +11,7 @@
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_ticks_to_nanoseconds and etc. */
 #include "../../disco/pack/fd_chkdup.h"
 #include "../../disco/shred/fd_shredder.h" /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ */
+#include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
@@ -122,6 +123,7 @@ FD_STATIC_ASSERT( FD_SCHED_LTHASH_BATCH_MAX>=1UL && FD_SCHED_LTHASH_BATCH_MAX<=F
 FD_STATIC_ASSERT( FD_SCHED_LTHASH_BATCH_BUSY_MAX>=1UL && FD_SCHED_LTHASH_BATCH_BUSY_MAX<=FD_SCHED_LTHASH_BATCH_MAX, lthash_batch_busy_max );
 
 FD_STATIC_ASSERT( FD_SCHED_LTHASH_TXN_WRITERS_MAX+FD_SCHED_LTHASH_START_WRITES_MAX==FD_RDISP_MAX_WRITERS_PER_BLOCK, lthash_writers );
+FD_STATIC_ASSERT( FD_SCHED_LTHASH_TXN_WRITERS_MAX==FD_RUNTIME_MAX_TXN_ACC_WRITES_PER_SLOT,                         lthash_txn_writers );
 
 
 #define FD_SCHED_MAGIC (0xace8a79c181f89b6UL) /* echo -n "fd_sched_v0" | sha512sum | head -c 16 */
