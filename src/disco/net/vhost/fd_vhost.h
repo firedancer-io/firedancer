@@ -19,6 +19,7 @@
 
 /* Virtio feature bits */
 #define FD_VIRTIO_NET_F_MAC            (1UL<<5)
+#define FD_VIRTIO_NET_F_MRG_RXBUF      (1UL<<15)
 #define FD_VIRTIO_NET_F_STATUS         (1UL<<16)
 #define FD_VIRTIO_F_VERSION_1          (1UL<<32)
 #define FD_VHOST_USER_F_PROTOCOL_FEAT  (1UL<<30)
