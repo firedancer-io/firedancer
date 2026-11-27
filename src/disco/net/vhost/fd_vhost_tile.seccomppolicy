@@ -1,0 +1,25 @@
+# logfile_fd: Log file descriptor.
+# lo_tx_fd: Send-only raw IPv4 socket bound to lo.
+# vhost_sock_fd: Unix domain socket connected to vhost-user backend (for disconnect detection).
+# rx_kick_fd: eventfd for kicking RX virtqueue.
+# tx_kick_fd: eventfd for kicking TX virtqueue.
+uint logfile_fd, uint lo_tx_fd, uint vhost_sock_fd, uint rx_kick_fd, uint tx_kick_fd
+
+# logging + eventfd kicks
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd)
+           (and (eq (arg 0) rx_kick_fd) (eq (arg 2) 8))
+           (and (eq (arg 0) tx_kick_fd) (eq (arg 2) 8)))
+
+# logging fsync
+fsync: (eq (arg 0) logfile_fd)
+
+# vhost-user disconnect check (non-blocking MSG_PEEK recvfrom)
+recvfrom: (and (eq (arg 0) vhost_sock_fd)
+               (eq (arg 2) 1)
+               (eq (arg 3) FD_VHOST_PEEK_FLAGS))
+
+# loopback raw IPv4 socket
+sendmmsg: (and (eq (arg 0) lo_tx_fd)
+               (<= (arg 2) 64)
+               (eq (arg 3) MSG_DONTWAIT))

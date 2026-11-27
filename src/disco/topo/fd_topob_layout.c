@@ -29,6 +29,7 @@ static struct { char const * name; uint flags; } const TILE_CLASS[] = {
   { "net",    ALWAYS                       },
   { "mlx5",   ALWAYS                       },
   { "iavf",   ALWAYS|PIN_EFF               },
+  { "vhost",  ALWAYS                       },
   { "sock",   ALWAYS|PIN_EFF               },
   { "quic",   ALWAYS                       },
   { "bundle", ALWAYS                       },
@@ -111,6 +112,7 @@ static char const * HOT_TILES[] = {
   "execrp",
   "mlx5",
   "iavf",
+  "vhost",
   NULL
 };
 

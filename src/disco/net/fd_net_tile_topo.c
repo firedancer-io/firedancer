@@ -88,6 +88,8 @@ fd_net_tile_name( char const * provider ) {
     return "mlx5";
   } else if( 0==strcmp( provider, "iavf" ) ) {
     return "iavf";
+  } else if( 0==strcmp( provider, "vhost" ) ) {
+    return "vhost";
   } else if( 0==strcmp( provider, "socket" ) ) {
     return "sock";
   }
@@ -228,6 +230,40 @@ setup_xdp_tile( fd_topo_t *             topo,
   /* Allocate free ring */
 
   tile->xdp.free_ring_depth = tile->xdp.xdp_tx_queue_size;
+}
+
+static void
+setup_vhost_tile( fd_topo_t *             topo,
+                  ulong                   tile_kind_id,
+                  fd_topo_tile_t *        netlink_tile,
+                  ulong const *           tile_to_cpu,
+                  fd_config_net_t const * net_cfg,
+                  ulong                   route_max,
+                  ulong                   route_peer_max ) {
+  fd_topo_tile_t * tile = fd_topob_tile( topo, "vhost", "vhost", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
+  fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
+  fd_topob_tile_in(  topo, "netlnk", 0UL,         "metric_in", "net_netlnk", tile_kind_id, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "vhost", tile_kind_id,              "net_netlnk", tile_kind_id );
+  fd_topob_tile_in(  topo, "vhost", tile_kind_id, "metric_in", "iproute_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_netlink_topo_join( topo, netlink_tile, tile );
+
+  fd_topo_obj_t * umem_obj = fd_topob_obj( topo, "dcache", "net_umem" );
+  fd_topob_tile_uses( topo, tile, umem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", tile_kind_id );
+
+  FD_STATIC_ASSERT( sizeof(tile->vhost.if_name)==IF_NAMESIZE, str_bounds );
+  fd_cstr_ncpy( tile->vhost.if_name, net_cfg->interface, IF_NAMESIZE );
+  fd_cstr_ncpy( tile->vhost.socket_path, net_cfg->vhost.socket_path, sizeof(tile->vhost.socket_path) );
+
+  tile->vhost.net.bind_address       = net_cfg->bind_address_parsed;
+  tile->vhost.net.umem_dcache_obj_id = umem_obj->id;
+  tile->vhost.rx_queue_size          = net_cfg->vhost.rx_queue_size;
+  tile->vhost.tx_queue_size          = net_cfg->vhost.tx_queue_size;
+  tile->vhost.netdev_tbl_obj_id      = netlink_tile->netlink.netdev_tbl_obj_id;
+  tile->vhost.route_max              = route_max;
+  tile->vhost.route_peer_max         = route_peer_max;
+  tile->vhost.route_peer_seed        = 1UL + tile_kind_id;
+  tile->vhost.neigh4_obj_id          = netlink_tile->netlink.neigh4_obj_id;
 }
 
 static void
@@ -380,6 +416,26 @@ fd_topos_net_tiles( fd_topo_t *             topo,
       setup_iavf_tile( topo, i, netlink_tile, tile_to_cpu, net_cfg, netlnk_max_routes, netlnk_max_peer_routes );
     }
 
+  } else if( 0==strcmp( net_cfg->provider, "vhost" ) ) {
+
+    /* vhost: private working memory of the vhost tile (firedancer-dev only) */
+    fd_topob_wksp( topo, "vhost" );
+    fd_topob_wksp( topo, "netlnk" );
+    fd_topob_wksp( topo, "netbase" );
+    fd_topob_wksp( topo, "net_netlnk" );
+    fd_topob_wksp( topo, "iproute" );
+
+    fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 1 );
+    ulong iproute_depth = fd_ulong_pow2_up( 4UL*(netlnk_max_routes+netlnk_max_peer_routes)+8UL );
+    fd_topob_link( topo, "iproute_out", "iproute", iproute_depth, sizeof(fd_iproute_msg_t), 1UL );
+    fd_topob_tile_out( topo, "netlnk", 0UL, "iproute_out", 0UL );
+    fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_peer_routes, netlnk_max_neighbors, net_cfg->interface );
+
+    if( FD_UNLIKELY( net_tile_cnt!=1UL ) ) {
+      FD_LOG_ERR(( "vhost net tile count %lu must be 1", net_tile_cnt ));
+    }
+    setup_vhost_tile( topo, 0UL, netlink_tile, tile_to_cpu, net_cfg, netlnk_max_routes, netlnk_max_peer_routes );
+
   } else {
     FD_LOG_ERR(( "invalid `net.provider`" ));
   }
@@ -437,6 +493,11 @@ fd_topos_net_rx_link( fd_topo_t *  topo,
     if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile iavf:%lu not found", net_kind_id ));
     add_umem_rx_link( topo, link_name, net_kind_id, depth, topo->tiles[ tile_id ].iavf.member_cnt*FD_IAVF_BATCH_SIZE );
     fd_topob_tile_out( topo, "iavf", net_kind_id, link_name, net_kind_id );
+  } else if( 0==strcmp( provider, "vhost" ) ) {
+    ulong tile_id = fd_topo_find_tile( topo, "vhost", net_kind_id );
+    if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile vhost:%lu not found", net_kind_id ));
+    add_umem_rx_link( topo, link_name, net_kind_id, depth, FD_VHOST_BATCH_SIZE );
+    fd_topob_tile_out( topo, "vhost", net_kind_id, link_name, net_kind_id );
   } else if( 0==strcmp( provider, "socket" ) ) {
     fd_topob_link( topo, link_name, "net_umem", depth, FD_NET_MTU, 64 );
     fd_topob_tile_out( topo, "sock", net_kind_id, link_name, net_kind_id );
@@ -453,8 +514,9 @@ fd_topos_tile_in_net( fd_topo_t *  topo,
   for( ulong j=0UL; j<(topo->tile_cnt); j++ ) {
     if( 0==strcmp( topo->tiles[ j ].name, "net"   ) ||
         0==strcmp( topo->tiles[ j ].name, "sock"  ) ||
-        0==strcmp( topo->tiles[ j ].name, "mlx5" ) ||
-        0==strcmp( topo->tiles[ j ].name, "iavf" ) ) {
+        0==strcmp( topo->tiles[ j ].name, "mlx5"  ) ||
+        0==strcmp( topo->tiles[ j ].name, "iavf"  ) ||
+        0==strcmp( topo->tiles[ j ].name, "vhost" ) ) {
       fd_topob_tile_in( topo, topo->tiles[ j ].name, topo->tiles[ j ].kind_id, fseq_wksp, link_name, link_kind_id, reliable, polled );
     }
   }
@@ -708,6 +770,28 @@ fd_topos_iavf_setup_mem( fd_topo_t *      topo,
   fd_pod_insertf_ulong( topo->props, FD_NET_MTU,    "obj.%lu.mtu",   umem_obj_id );
 }
 
+static void
+fd_topos_vhost_setup_mem( fd_topo_t *      topo,
+                          fd_topo_tile_t * vhost_tile ) {
+  /* 1 spare RX chunk + depth of all RX mcaches */
+  ulong cum_frame_cnt = 1UL;
+  for( ulong j=0UL; j<(vhost_tile->out_cnt); j++ ) {
+    ulong link_id = vhost_tile->out_link_id[ j ];
+    if( 0==strcmp( topo->links[ link_id ].name, "net_netlnk" ) ) continue;
+    ulong mcache_obj_id = topo->links[ link_id ].mcache_obj_id;
+    ulong depth = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.depth", mcache_obj_id );
+    if( FD_UNLIKELY( depth==ULONG_MAX ) ) FD_LOG_ERR(( "Didn't find depth for mcache %s", topo->links[ link_id ].name ));
+    cum_frame_cnt += depth + 1UL;
+  }
+
+  ulong umem_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "net.%lu.umem", vhost_tile->kind_id );
+  FD_TEST( umem_obj_id!=ULONG_MAX );
+  FD_TEST( vhost_tile->net.umem_dcache_obj_id > 0 );
+  fd_pod_insertf_ulong( topo->props, cum_frame_cnt, "obj.%lu.depth", umem_obj_id );
+  fd_pod_insertf_ulong( topo->props, 2UL,           "obj.%lu.burst", umem_obj_id );
+  fd_pod_insertf_ulong( topo->props, FD_NET_MTU,    "obj.%lu.mtu",   umem_obj_id );
+}
+
 void
 fd_topos_net_tile_finish( fd_topo_t * topo,
                           ulong       net_kind_id ) {
@@ -730,6 +814,12 @@ fd_topos_net_tile_finish( fd_topo_t * topo,
       FD_LOG_ERR(( "tile iavf:%lu not found", net_kind_id ));
     }
     fd_topos_iavf_setup_mem( topo, &topo->tiles[ tile_id ] );
+  } else if( 0==strcmp( provider, "vhost" ) ) {
+    ulong tile_id = fd_topo_find_tile( topo, "vhost", net_kind_id );
+    if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) {
+      FD_LOG_ERR(( "tile vhost:%lu not found", net_kind_id ));
+    }
+    fd_topos_vhost_setup_mem( topo, &topo->tiles[ tile_id ] );
   } else {
     return;
   }

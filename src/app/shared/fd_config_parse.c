@@ -170,6 +170,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   net.mlx5.tx_queue_size                           );
   CFG_POP      ( uint,   net.iavf.rx_queue_size                           );
   CFG_POP      ( uint,   net.iavf.tx_queue_size                           );
+  CFG_POP      ( cstr,   net.vhost.socket_path                            );
+  CFG_POP      ( uint,   net.vhost.rx_queue_size                          );
+  CFG_POP      ( uint,   net.vhost.tx_queue_size                          );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 

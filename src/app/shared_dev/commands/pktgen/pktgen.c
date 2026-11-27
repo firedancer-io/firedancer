@@ -209,6 +209,18 @@ get_net_stats( ulong volatile const * net_metrics[ FD_TOPO_MAX_TILES ],
       rx_drop_now  += metrics[ MIDX( COUNTER, IAVF, PKT_RX_NO_LINK_DROPPED ) ];
       tx_ok_now     = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED ) ];
       tx_byte_now   = metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED_BYTES     ) ];
+    } else if( 0==strcmp( provider, "vhost" ) ) {
+      stats->rx_bufs_idle = metrics[ MIDX( GAUGE, VHOST, RX_BUFFER_FREE ) ];
+      stats->rx_bufs_busy = metrics[ MIDX( GAUGE, VHOST, RX_BUFFER_USED ) ];
+      stats->tx_bufs_idle = metrics[ MIDX( GAUGE, VHOST, TX_BUFFER_FREE ) ];
+      stats->tx_bufs_busy = metrics[ MIDX( GAUGE, VHOST, TX_BUFFER_USED ) ];
+
+      rx_ok_now     = metrics[ MIDX( COUNTER, VHOST, PKT_RX       ) ];
+      rx_byte_now   = metrics[ MIDX( COUNTER, VHOST, PKT_RX_BYTES ) ];
+      rx_drop_now   = 0UL;
+      for( ulong r=0UL; r<FD_METRICS_ENUM_PKT_RX_DROP_REASON_CNT; r++ ) rx_drop_now += metrics[ MIDX( COUNTER, VHOST, PKT_RX_DROPPED )+r ];
+      tx_ok_now     = metrics[ MIDX( COUNTER, VHOST, PKT_TX_COMPLETED ) ];
+      tx_byte_now   = metrics[ MIDX( COUNTER, VHOST, PKT_TX_COMPLETED_BYTES ) ];
     }
 
 
