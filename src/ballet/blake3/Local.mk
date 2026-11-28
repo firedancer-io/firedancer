@@ -1,7 +1,10 @@
 $(call add-hdrs,fd_blake3.h)
+# FD_BLAKE3_CRC=1 (crc/Local.mk; the default) takes the fd_blake3.h API from the generated
+# crc/fd_blake3_crc.c; FD_BLAKE3_CRC=0 builds the objects below.
+FD_BLAKE3_CRC?=1
+ifeq ($(FD_BLAKE3_CRC),0)
 $(call add-objs,fd_blake3,fd_ballet)
 $(call add-objs,fd_blake3_ref,fd_ballet)
-TEST_BLAKE3_OBJS:=test_blake3
 ifdef FD_HAS_SSE
 $(call add-objs,fd_blake3_sse41,fd_ballet)
 endif
@@ -14,6 +17,8 @@ endif
 ifdef FD_HAS_SVE2
 $(call add-objs,fd_blake3_sve2,fd_ballet)
 endif
+endif
+TEST_BLAKE3_OBJS:=test_blake3
 
 $(call make-unit-test,test_blake3,$(TEST_BLAKE3_OBJS),fd_ballet fd_util)
 $(call run-unit-test,test_blake3)
