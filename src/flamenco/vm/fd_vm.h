@@ -79,6 +79,11 @@ typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 
 struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
+  /* Keep reg[] at offset 0 so vm->reg[i] encodes as (%vm,%idx,8) with
+     zero displacement (1 Zen Op-Cache slot instead of 2 for disp32, and
+     no separate &vm->reg[0] base pointer to spill). */
+  ulong reg[ FD_VM_REG_MAX ]; /* registers, indexed [0,FD_VM_REG_CNT); padded to FD_VM_REG_MAX (16) */
+
   /* VM configuration */
 
   /* FIXME: suspect these three should be replaced by some kind of VM
@@ -197,15 +202,11 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
                                                                 The virtual addresses of each region are contiguous and
                                                                 strictly increasing. */
   uint                      input_mem_regions_cnt;
+  uint                      region_voff[5];                  /* Start vaddr offset of active sub-region for regions 0..4 (0 for 0..3; MRU input vaddr_offset for 4) */
   fd_vm_acc_region_meta_t * acc_region_metas;                /* Represents a mapping from the instruction account indices
                                                                 from the instruction context to the input memory region index
                                                                 of the account's metadata region in the input space. */
-  uchar                     is_deprecated;                   /* The vm requires additional checks in certain CPIs if the
-                                                                vm's current instance was initialized by a deprecated program. */
 
-  ulong                     reg   [ FD_VM_REG_MAX         ]; /* registers, indexed [0,FD_VM_REG_CNT).  Note that FD_VM_REG_MAX>FD_VM_REG_CNT.
-                                                                As such, malformed instructions, which can have src/dst reg index in
-                                                                [0,FD_VM_REG_MAX), cannot access info outside reg.  Aligned 8. */
   fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
 
   ulong magic;    /* ==FD_VM_MAGIC */
@@ -218,11 +219,12 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
        data access violations. */
   ulong segv_vaddr;
   ulong segv_access_len;
-  uchar segv_access_type;
 
   ulong sbpf_version;     /* SBPF version, SIMD-0161 */
 
-  int dump_syscall_to_pb; /* If true, syscalls will be dumped to the specified output directory */
+  uchar is_deprecated;    /* Additional CPI checks if initialized by a deprecated loader */
+  uchar segv_access_type;
+  int   dump_syscall_to_pb; /* If true, syscalls will be dumped to the specified output directory */
 
   /* fd_vm_new zero-initializes up to this point only */
 
@@ -310,7 +312,7 @@ fd_vm_init(
    ulong                     entry_pc,
    ulong const *             calldests,
    ulong                     sbpf_version,
-   fd_sbpf_syscalls_t *      syscalls,
+   fd_sbpf_syscalls_t const * syscalls,
    fd_vm_trace_t *           trace,
    fd_sha256_t *             sha,
    fd_vm_input_region_t *    mem_regions,
@@ -340,6 +342,14 @@ fd_vm_delete( void * shmem );
 /* fd_vm_validate validates the sBPF program in the given vm.  Returns
    success or an error code.  Called before executing a sBPF program.
    FIXME: DOCUMENT BETTER */
+
+FD_FN_PURE int
+fd_vm_validate_prog( uchar const * rodata,
+                     ulong         rodata_sz,
+                     ulong const * text,
+                     ulong         text_cnt,
+                     ulong         text_sz,
+                     ulong         sbpf_version );
 
 FD_FN_PURE int
 fd_vm_validate( fd_vm_t const * vm );

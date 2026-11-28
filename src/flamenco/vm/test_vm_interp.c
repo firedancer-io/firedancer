@@ -312,6 +312,483 @@ test_lazy_stack_zeroing( fd_sbpf_syscalls_t *  syscalls,
 }
 
 static void
+test_geometric_region_growth( fd_sbpf_syscalls_t *  syscalls,
+                              fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha[1]; fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t     _vm [1]; fd_vm_t     * vm  = fd_vm_join   ( fd_vm_new   ( _vm  ) );
+  FD_TEST( vm );
+
+  ulong noop_text[] = { fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+
+  /* 1. Stack geometric doubling: 0 -> 4096 -> 8192 -> ... -> FD_VM_STACK_MAX (262144) */
+  fd_memset( vm->stack, 0xA5, FD_VM_STACK_MAX );
+  FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+                       (uchar *)noop_text, 8UL, noop_text, 1UL, 0UL, 8UL, 0UL, NULL,
+                       FD_SBPF_V3, syscalls, NULL, sha, NULL, 0U, NULL, 0, 0,
+                       (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
+  FD_TEST( vm->stack_clean == 0UL );
+  fd_vm_stack_grow( vm, 0UL );
+  FD_TEST( vm->stack_clean == 0UL );
+
+  static ulong const stack_reqs[] = {    1UL, 4096UL, 4097UL,  8193UL, 16385UL, 32769UL,  65537UL, 131073UL };
+  static ulong const stack_exps[] = { 4096UL, 4096UL, 8192UL, 16384UL, 32768UL, 65536UL, 131072UL, 262144UL };
+  for( ulong i=0UL; i<sizeof(stack_reqs)/sizeof(stack_reqs[0]); i++ ) {
+    fd_vm_stack_grow( vm, stack_reqs[i] );
+    ulong exp = stack_exps[i];
+    FD_TEST( vm->stack_clean == exp );
+    FD_TEST( vm->region_ld_sz[ FD_VM_STACK_REGION ] == (uint)exp );
+    FD_TEST( vm->region_st_sz[ FD_VM_STACK_REGION ] == (uint)exp );
+    FD_TEST( vm->stack[ exp - 1UL ] == 0U );
+    if( exp < FD_VM_STACK_MAX ) FD_TEST( vm->stack[ exp ] == 0xA5U );
+  }
+
+  /* 2. Large stride jump (> 2*clean) aligns up to quantum, then doubles and caps */
+  fd_memset( vm->stack, 0x5A, FD_VM_STACK_MAX );
+  FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+                       (uchar *)noop_text, 8UL, noop_text, 1UL, 0UL, 8UL, 0UL, NULL,
+                       FD_SBPF_V3, syscalls, NULL, sha, NULL, 0U, NULL, 0, 0,
+                       (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
+  fd_vm_stack_grow( vm, 8UL );
+  FD_TEST( vm->stack_clean == 4096UL );
+  fd_vm_stack_grow( vm, 20000UL ); /* align_up(20000, 4096) == 20480 > 8192 */
+  FD_TEST( vm->stack_clean == 20480UL );
+  FD_TEST( vm->stack[ 20479UL ] == 0U && vm->stack[ 20480UL ] == 0x5AU );
+  fd_vm_stack_grow( vm, 20481UL ); /* 2 * 20480 == 40960 */
+  FD_TEST( vm->stack_clean == 40960UL );
+  fd_vm_stack_grow( vm, 150000UL ); /* align_up(150000, 4096) == 151552 > 81920 */
+  FD_TEST( vm->stack_clean == 151552UL );
+  fd_vm_stack_grow( vm, 151553UL ); /* 2 * 151552 == 303104 -> clamped to FD_VM_STACK_MAX (262144) */
+  FD_TEST( vm->stack_clean == FD_VM_STACK_MAX );
+  FD_TEST( vm->stack[ FD_VM_STACK_MAX - 1UL ] == 0U );
+
+  /* 3. Heap geometric doubling with non-quantum-aligned heap_max (5000B) */
+  fd_memset( vm->heap, 0xCC, 8192UL );
+  FD_TEST( fd_vm_init( vm, instr_ctx, 5000UL, FD_VM_COMPUTE_UNIT_LIMIT,
+                       (uchar *)noop_text, 8UL, noop_text, 1UL, 0UL, 8UL, 0UL, NULL,
+                       FD_SBPF_V3, syscalls, NULL, sha, NULL, 0U, NULL, 0, 0,
+                       (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
+  static ulong const heap_reqs[] = {    8UL, 1024UL, 1025UL, 2049UL, 4097UL };
+  static ulong const heap_exps[] = { 1024UL, 1024UL, 2048UL, 4096UL, 5000UL };
+  for( ulong i=0UL; i<sizeof(heap_reqs)/sizeof(heap_reqs[0]); i++ ) {
+    fd_vm_heap_grow( vm, heap_reqs[i] );
+    ulong exp = heap_exps[i];
+    FD_TEST( vm->heap_clean == exp );
+    FD_TEST( vm->region_ld_sz[ FD_VM_HEAP_REGION ] == (uint)exp );
+    FD_TEST( vm->region_st_sz[ FD_VM_HEAP_REGION ] == (uint)exp );
+    FD_TEST( vm->heap[ exp - 1UL ] == 0U );
+    FD_TEST( vm->heap[ 5000UL ] == 0xCCU );
+  }
+
+  /* 4. Multi-step interpreter execution across geometric heap boundaries */
+  fd_memset( vm->heap, 0xFF, FD_VM_HEAP_DEFAULT );
+  ulong prog[] = {
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 1UL, 0UL,    0, 3U  ),
+    fd_vm_instr( FD_SBPF_OP_LSH64_IMM, 1UL, 0UL,    0, 32U ),
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     0UL, 1UL,  512, 0U  ), /* grows 0 -> 1024 */
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 1UL, 1504, 0U  ), /* grows 1024 -> 2048 */
+    fd_vm_instr( FD_SBPF_OP_OR64_REG,  0UL, 2UL,    0, 0U  ),
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 1UL, 3504, 0U  ), /* grows 2048 -> 4096 */
+    fd_vm_instr( FD_SBPF_OP_OR64_REG,  0UL, 2UL,    0, 0U  ),
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 1UL,12000, 0U  ), /* grows 4096 -> 12288 */
+    fd_vm_instr( FD_SBPF_OP_OR64_REG,  0UL, 2UL,    0, 0U  ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL,    0, 0U  ),
+  };
+  FD_TEST( lazy_exec( vm, sha, "geom-heap-steps", FD_SBPF_V3, prog,
+                      sizeof(prog)/sizeof(prog[0]), FD_VM_SUCCESS, syscalls, instr_ctx )==0UL );
+  FD_TEST( vm->heap_clean == 12288UL );
+
+  FD_LOG_NOTICE(( "%-20s PASS", "geom-region-grow" ));
+}
+
+static void
+test_validate_opcode_classes( fd_sbpf_syscalls_t *  syscalls,
+                              fd_exec_instr_ctx_t * instr_ctx ) {
+  /* Fast-path FD_VALID (0) and FD_CHECK_ST (1): verify r10 write permission
+     distinction and src/dst register bounds across V0 and V3. */
+  ulong valid_alu[] = {
+    fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 1UL,  0UL,  0, 42U ),
+    fd_vm_instr( FD_SBPF_OP_STXDW,    10UL,  1UL, -8,  0U ), /* V0 STXDW (0x7b): dst==r10 allowed */
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL,  0UL,  0,  0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, valid_alu, 3UL, syscalls, instr_ctx )==FD_VM_SUCCESS );
+
+  ulong valid_st_v2[] = {
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 1UL,  0UL,  0, 42U ),
+    fd_vm_instr( 0x9fUL,              10UL,  1UL, -8,  0U ), /* V2 STXDW (0x9f): FD_CHECK_ST allows dst==r10 */
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL,  0UL,  0,  0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V2, valid_st_v2, 3UL, syscalls, instr_ctx )==FD_VM_SUCCESS );
+  FD_TEST( test_vm_validate( FD_SBPF_V3, valid_st_v2, 3UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_DST_REG );
+
+  ulong bad_alu_r10[] = {
+    fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 10UL, 0UL, 0, 8U ), /* FD_VALID: dst==r10 rejected in V0/V3 */
+    fd_vm_instr( FD_SBPF_OP_EXIT,       0UL, 0UL, 0, 0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, bad_alu_r10, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_DST_REG );
+  FD_TEST( test_vm_validate( FD_SBPF_V3, bad_alu_r10, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_DST_REG );
+
+  ulong bad_st_dst11[] = {
+    fd_vm_instr( FD_SBPF_OP_STXDW, 11UL, 1UL, -8, 0U ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,   0UL, 0UL,  0, 0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, bad_st_dst11, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_DST_REG );
+
+  ulong bad_st_src11[] = {
+    fd_vm_instr( FD_SBPF_OP_STXDW, 10UL, 11UL, -8, 0U ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,   0UL,  0UL,  0, 0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, bad_st_src11, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_SRC_REG );
+
+  /* Slow-path validation codes (> FD_CHECK_ST): END, JMP, LDQ, DIV, SH32, SH64, INVALID */
+  ulong end_ok[]  = { fd_vm_instr( FD_SBPF_OP_END_BE, 1UL, 0UL, 0, 32U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong end_bad[] = { fd_vm_instr( FD_SBPF_OP_END_BE, 1UL, 0UL, 0, 24U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, end_ok,  2UL, syscalls, instr_ctx )==FD_VM_SUCCESS );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, end_bad, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_END_IMM );
+
+  ulong jmp_oob[] = { fd_vm_instr( FD_SBPF_OP_JA, 0UL, 0UL, 5, 0U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, jmp_oob, 2UL, syscalls, instr_ctx )==FD_VM_ERR_JMP_OUT_OF_BOUNDS );
+
+  ulong jmp_addl[] = {
+    fd_vm_instr( FD_SBPF_OP_JA,       0UL, 0UL, 1, 0U ), /* lands on ADDL_IMM at pc=2 */
+    fd_vm_instr( FD_SBPF_OP_LDDW,     1UL, 0UL, 0, 1U ),
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM, 0UL, 0UL, 0, 2U ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,     0UL, 0UL, 0, 0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, jmp_addl, 4UL, syscalls, instr_ctx )==FD_VM_ERR_JMP_TO_ADDL_IMM );
+
+  ulong ldq_inc[]  = { fd_vm_instr( FD_SBPF_OP_LDDW, 1UL, 0UL, 0, 1U ) };
+  ulong ldq_noad[] = { fd_vm_instr( FD_SBPF_OP_LDDW, 1UL, 0UL, 0, 1U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, ldq_inc,  1UL, syscalls, instr_ctx )==FD_VM_ERR_INCOMPLETE_LDQ );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, ldq_noad, 2UL, syscalls, instr_ctx )==FD_VM_ERR_LDQ_NO_ADDL_IMM );
+
+  ulong div0[]   = { fd_vm_instr( FD_SBPF_OP_DIV64_IMM, 1UL, 0UL, 0,  0U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong sh32[]   = { fd_vm_instr( FD_SBPF_OP_LSH_IMM,   1UL, 0UL, 0, 32U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong sh64[]   = { fd_vm_instr( FD_SBPF_OP_LSH64_IMM, 1UL, 0UL, 0, 64U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong inv_op[] = { fd_vm_instr( 0xffUL,               0UL, 0UL, 0,  0U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, div0,   2UL, syscalls, instr_ctx )==FD_VM_ERR_SIGFPE );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, sh32,   2UL, syscalls, instr_ctx )==FD_VM_SH_OVERFLOW );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, sh64,   2UL, syscalls, instr_ctx )==FD_VM_SH_OVERFLOW );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, inv_op, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_OPCODE );
+
+  /* Direct fd_vm_validate_prog checks (without an fd_vm_t frame) */
+  ulong ok_prog[]  = { fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0UL, 0UL, 0, 7U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong r10_bump[] = { fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 10UL, 0UL, 0, (uint)-64 ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( fd_vm_validate_prog( (uchar const *)ok_prog,  sizeof(ok_prog),  ok_prog,  2UL, sizeof(ok_prog),  FD_SBPF_V3 )==FD_VM_SUCCESS );
+  FD_TEST( fd_vm_validate_prog( (uchar const *)ok_prog,  sizeof(ok_prog),  ok_prog,  0UL, 0UL,              FD_SBPF_V3 )==FD_VM_ERR_EMPTY );
+  FD_TEST( fd_vm_validate_prog( (uchar const *)ok_prog,  sizeof(ok_prog),  ok_prog,  2UL, 15UL,             FD_SBPF_V0 )==FD_VM_ERR_BAD_TEXT );
+  FD_TEST( fd_vm_validate_prog( (uchar const *)r10_bump, sizeof(r10_bump), r10_bump, 2UL, sizeof(r10_bump), FD_SBPF_V1 )==FD_VM_SUCCESS );
+  FD_TEST( fd_vm_validate_prog( (uchar const *)r10_bump, sizeof(r10_bump), r10_bump, 2UL, sizeof(r10_bump), FD_SBPF_V0 )==FD_VM_ERR_INVALID_DST_REG );
+
+  /* fd_vm_instr_offset sign-extension across arbitrary surrounding fields */
+  short const offs[] = { SHRT_MIN, -12345, -1, 0, 1, 12345, SHRT_MAX };
+  for( ulong k=0UL; k<sizeof(offs)/sizeof(offs[0]); k++ ) {
+    FD_TEST( fd_vm_instr_offset( fd_vm_instr( 0xffUL, 15UL, 15UL, offs[k], 0xffffffffU ) ) == (ulong)(long)offs[k] );
+    FD_TEST( fd_vm_instr_offset( fd_vm_instr( 0x00UL,  0UL,  0UL, offs[k], 0x00000000U ) ) == (ulong)(long)offs[k] );
+  }
+
+  FD_LOG_NOTICE(( "%-20s PASS", "validate-opclasses" ));
+}
+
+static void
+assert_trace_notrace_eq( char const *          name,
+                         ulong                 sbpf_version,
+                         ulong                 cu_limit,
+                         ulong const *         text,
+                         ulong                 text_cnt,
+                         ulong const *         calldests,
+                         int                   expected_err,
+                         ulong                 expected_r0,
+                         fd_sbpf_syscalls_t *  syscalls,
+                         fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha1[1]; fd_sha256_t * sha1 = fd_sha256_join( fd_sha256_new( _sha1 ) );
+  fd_sha256_t _sha2[1]; fd_sha256_t * sha2 = fd_sha256_join( fd_sha256_new( _sha2 ) );
+  fd_vm_t     _vm1 [1]; fd_vm_t     * vm1  = fd_vm_join    ( fd_vm_new    ( _vm1  ) );
+  fd_vm_t     _vm2 [1]; fd_vm_t     * vm2  = fd_vm_join    ( fd_vm_new    ( _vm2  ) );
+
+  static uchar trace_mem[ 65536 ] __attribute__((aligned(8)));
+  fd_vm_trace_t * trace = fd_vm_trace_join( fd_vm_trace_new( trace_mem, 256UL ) );
+  FD_TEST( trace );
+
+  ulong init_reg[ FD_VM_REG_CNT ] = { 0, 0x11UL, 0x22UL, 0x33UL, 0x44UL, 0x55UL, 0, 0, 0, 0, 0 };
+
+  FD_TEST( fd_vm_init( vm1, instr_ctx, FD_VM_HEAP_DEFAULT, cu_limit,
+                       (uchar const *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+                       0UL, calldests, sbpf_version, syscalls, NULL, sha1,
+                       NULL, 0U, NULL, 0, 0, init_reg ) );
+  int err1 = fd_vm_exec( vm1 );
+  test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+
+  FD_TEST( fd_vm_init( vm2, instr_ctx, FD_VM_HEAP_DEFAULT, cu_limit,
+                       (uchar const *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+                       0UL, calldests, sbpf_version, syscalls, trace, sha2,
+                       NULL, 0U, NULL, 0, 0, init_reg ) );
+  int err2 = fd_vm_exec( vm2 );
+  test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+
+  if( FD_UNLIKELY( err1 != expected_err || err1 != err2 ) ) {
+    FD_LOG_ERR(( "%s: err1=%i err2=%i expected=%i", name, err1, err2, expected_err ));
+  }
+  FD_TEST( vm1->pc == vm2->pc );
+  FD_TEST( vm1->ic == vm2->ic );
+  FD_TEST( vm1->cu == vm2->cu );
+  for( ulong r=0UL; r<FD_VM_REG_CNT; r++ ) {
+    FD_TEST( vm1->reg[r] == vm2->reg[r] );
+  }
+  if( expected_err == FD_VM_SUCCESS ) {
+    FD_TEST( vm1->reg[0] == expected_r0 );
+  }
+  FD_TEST( fd_vm_trace_event_sz( trace ) > 0UL );
+  fd_vm_trace_delete( fd_vm_trace_leave( trace ) );
+}
+
+static void
+test_trace_notrace_parity( fd_sbpf_syscalls_t *  syscalls,
+                           fd_exec_instr_ctx_t * instr_ctx ) {
+  /* 1. Multi-LDDW basic block + untaken/taken branches + negative SIMM/OFFSET + high src_reg (r8..r10) */
+  ulong prog_lddw_branch[] = {
+    fd_vm_instr( FD_SBPF_OP_LDDW,      8UL,  0UL,   0, 0x9abcdef0U ), /* ic=1, pc=0..1 */
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM,  0UL,  0UL,   0, 0x12345678U ),
+    fd_vm_instr( FD_SBPF_OP_LDDW,      9UL,  0UL,   0, 0x00000010U ), /* ic=2, pc=2..3 */
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM,  0UL,  0UL,   0, 0x00000000U ),
+    fd_vm_instr( FD_SBPF_OP_STXDW,    10UL,  8UL, -16, 0U          ), /* src=r8 (high nibble) */
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 10UL, -16, 0U          ), /* src=r10, neg offset */
+    fd_vm_instr( FD_SBPF_OP_JEQ_IMM,   9UL,  0UL,   2, 0x99U       ), /* untaken branch */
+    fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 2UL,  0UL,   0, (uint)-10   ), /* negative SIMM */
+    fd_vm_instr( FD_SBPF_OP_JEQ_IMM,   9UL,  0UL,   1, 0x10U       ), /* taken branch -> skips next */
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 2UL,  0UL,   0, 0U          ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_REG, 0UL,  2UL,   0, 0U          ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL,  0UL,   0, 0U          ),
+  };
+  ulong exp_val = 0x123456789abcdef0UL - 10UL;
+  assert_trace_notrace_eq( "parity-lddw-branch-v0", FD_SBPF_V0, 100UL, prog_lddw_branch,
+                           sizeof(prog_lddw_branch)/sizeof(ulong), NULL, FD_VM_SUCCESS, exp_val, syscalls, instr_ctx );
+  assert_trace_notrace_eq( "parity-lddw-branch-v3", FD_SBPF_V3, 100UL, prog_lddw_branch,
+                           sizeof(prog_lddw_branch)/sizeof(ulong), NULL, FD_VM_SUCCESS, exp_val, syscalls, instr_ctx );
+
+  /* 2. Local CALL_IMM (fd_pchash_inverse) + shadow stack r6..r10 save/restore + syscall */
+  uint acc_hash = fd_murmur3_32( "accumulator", 11UL, 0U );
+  (void)fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall );
+  ulong prog_call[] = {
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 6UL, 0UL, 0, 777U            ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 1UL, 0UL, 0, 10U             ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 2UL, 0UL, 0, 20U             ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 3UL, 0UL, 0, 30U             ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 4UL, 0UL, 0, 40U             ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 5UL, 0UL, 0, 50U             ),
+    fd_vm_instr( FD_SBPF_OP_CALL_IMM,  0UL, 0UL, 0, fd_pchash( 9U ) ), /* local call -> pc=9 */
+    fd_vm_instr( FD_SBPF_OP_ADD64_REG, 0UL, 6UL, 0, 0U              ), /* r6 must be restored to 777 */
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL, 0, 0U              ),
+    /* pc=9: helper clobbers r6, calls accumulator_syscall, returns */
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 6UL, 0UL, 0, 999U            ),
+    fd_vm_instr( FD_SBPF_OP_CALL_IMM,  0UL, 0UL, 0, acc_hash        ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL, 0, 0U              ),
+  };
+  uchar calldests_mem[ 128 ] __attribute__((aligned(16)));
+  FD_TEST( fd_sbpf_calldests_footprint( sizeof(prog_call)/sizeof(ulong) ) <= sizeof(calldests_mem) );
+  ulong * calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( calldests_mem, sizeof(prog_call)/sizeof(ulong) ) );
+  FD_TEST( calldests );
+  fd_sbpf_calldests_insert( calldests, 9UL );
+  assert_trace_notrace_eq( "parity-call-pchash", FD_SBPF_V0, 100UL, prog_call,
+                           sizeof(prog_call)/sizeof(ulong), calldests,
+                           FD_VM_SUCCESS, 150UL + 777UL, syscalls, instr_ctx );
+  fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) );
+
+  /* 3. Exact CU exhaustion and fault IC/CU accounting after multi-word LDDWs */
+  assert_trace_notrace_eq( "parity-lddw-sigcost", FD_SBPF_V0, 5UL, prog_lddw_branch,
+                           sizeof(prog_lddw_branch)/sizeof(ulong), NULL,
+                           FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, 0UL, syscalls, instr_ctx );
+
+  ulong prog_lddw_div0[] = {
+    fd_vm_instr( FD_SBPF_OP_LDDW,      1UL, 0UL, 0, 100U ),
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM,  0UL, 0UL, 0,   0U ),
+    fd_vm_instr( FD_SBPF_OP_LDDW,      2UL, 0UL, 0,   0U ),
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM,  0UL, 0UL, 0,   0U ),
+    fd_vm_instr( FD_SBPF_OP_DIV64_REG, 1UL, 2UL, 0,   0U ), /* sigfpe at pc=4, ic=3 */
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL, 0,   0U ),
+  };
+  assert_trace_notrace_eq( "parity-lddw-sigfpe", FD_SBPF_V0, 20UL, prog_lddw_div0,
+                           sizeof(prog_lddw_div0)/sizeof(ulong), NULL,
+                           FD_VM_ERR_EBPF_DIVIDE_BY_ZERO, 0UL, syscalls, instr_ctx );
+
+  FD_LOG_NOTICE(( "%-20s PASS", "trace-notrace-eq" ));
+}
+
+static void
+test_input_tlb_and_region_lookup( fd_sbpf_syscalls_t *  syscalls,
+                                  fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha[1]; fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t     _vm [1]; fd_vm_t     * vm  = fd_vm_join    ( fd_vm_new    ( _vm  ) );
+  FD_TEST( vm );
+
+  uchar buf0[ 32 ]   __attribute__((aligned(8)));
+  uchar buf1[ 32 ]   __attribute__((aligned(8)));
+  uchar buf2[ 32 ]   __attribute__((aligned(8)));
+  uchar buf3[ 1024 ] __attribute__((aligned(8)));
+  uchar buf4[ 24 ]   __attribute__((aligned(8)));
+  fd_memset( buf0, 0x11, sizeof(buf0) );
+  fd_memset( buf1, 0x22, sizeof(buf1) );
+  fd_memset( buf2, 0x33, sizeof(buf2) );
+  fd_memset( buf3, 0x44, 16UL );
+  fd_memset( buf3 + 16UL, 0xEE, sizeof(buf3) - 16UL ); /* dirty bytes beyond initial region_sz */
+  fd_memset( buf4, 0x55, sizeof(buf4) );
+
+  uchar touched0 = 0U, touched1 = 0U, touched2 = 0U;
+  fd_acc_t resizable_acc[1];
+  fd_memset( resizable_acc, 0, sizeof(resizable_acc) );
+  resizable_acc->data     = buf3;
+  resizable_acc->data_len = 16UL;
+
+  fd_vm_acc_region_meta_t arm[3];
+  fd_memset( arm, 0, sizeof(arm) );
+  arm[0].touched = &touched0;
+  arm[1].touched = &touched1;
+  arm[2].acc     = resizable_acc;
+  arm[2].touched = &touched2;
+
+  fd_vm_input_region_t regs[5] = {
+    /* 0: writable untouched account -> pre-warmed for LD, gated (st_sz=0) for first ST */
+    { .vaddr_offset =    0UL, .haddr = (ulong)buf0, .region_sz = 32U, .address_space_reserved =   32UL, .is_writable = 1U, .acc_region_meta_idx = 0UL       },
+    /* 1: read-only account contiguous with region 0 */
+    { .vaddr_offset =   32UL, .haddr = (ulong)buf1, .region_sz = 32U, .address_space_reserved =   32UL, .is_writable = 0U, .acc_region_meta_idx = 1UL       },
+    /* 2: zero-length region */
+    { .vaddr_offset =   64UL, .haddr = (ulong)buf2, .region_sz =  0U, .address_space_reserved =   32UL, .is_writable = 1U, .acc_region_meta_idx = ULONG_MAX },
+    /* 3: resizable writable account */
+    { .vaddr_offset =   96UL, .haddr = (ulong)buf3, .region_sz = 16U, .address_space_reserved = 1024UL, .is_writable = 1U, .acc_region_meta_idx = 2UL       },
+    /* 4: trailing instruction-data region (exercises O(1) tail fast-path) */
+    { .vaddr_offset = 1120UL, .haddr = (ulong)buf4, .region_sz = 24U, .address_space_reserved =   24UL, .is_writable = 0U, .acc_region_meta_idx = ULONG_MAX },
+  };
+
+  ulong init_reg[ FD_VM_REG_CNT ] = { 0UL, FD_VM_MEM_MAP_INPUT_REGION_START, 0 };
+
+  /* 1. Pre-warmed r0 hit, O(1) tail lookup (r4), backward 32-bit wraparound (r4->r0),
+        and touched-flag transition on first store vs inline TLB hit on second store. */
+  {
+    ulong prog[] = {
+      fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 1UL,    0, 0U          ), /* r0 pre-warmed hit */
+      fd_vm_instr( FD_SBPF_OP_LDXDW,     3UL, 1UL, 1120, 0U          ), /* r4 tail fast-path -> voff[4]=1120 */
+      fd_vm_instr( FD_SBPF_OP_LDXDW,     4UL, 1UL,    8, 0U          ), /* r0 < 1120 wraparound miss -> bsearch r0 */
+      fd_vm_instr( FD_SBPF_OP_LDXDW,     5UL, 1UL,   40, 0U          ), /* r1 miss -> voff[4]=32 */
+      fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 6UL, 0UL,    0, 0x12345678U ),
+      fd_vm_instr( FD_SBPF_OP_STXDW,     1UL, 6UL,   16, 0U          ), /* r0 first ST: slow path sets touched0=1, st_sz[4]=32 */
+      fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 6UL, 0UL,    0, 0x76543210U ),
+      fd_vm_instr( FD_SBPF_OP_STXDW,     1UL, 6UL,   24, 0U          ), /* r0 second ST: inline TLB hit */
+      fd_vm_instr( FD_SBPF_OP_MOV64_REG, 0UL, 2UL,    0, 0U          ),
+      fd_vm_instr( FD_SBPF_OP_XOR64_REG, 0UL, 3UL,    0, 0U          ),
+      fd_vm_instr( FD_SBPF_OP_XOR64_REG, 0UL, 4UL,    0, 0U          ),
+      fd_vm_instr( FD_SBPF_OP_XOR64_REG, 0UL, 5UL,    0, 0U          ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL,    0, 0U          ),
+    };
+    FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+                         (uchar const *)prog, sizeof(prog), prog, sizeof(prog)/8UL, 0UL, sizeof(prog),
+                         0UL, NULL, FD_SBPF_V3, syscalls, NULL, sha,
+                         regs, 5U, arm, 0, 0, init_reg ) );
+    FD_TEST( vm->region_voff [ FD_VM_INPUT_REGION ] == 0U  );
+    FD_TEST( vm->region_ld_sz[ FD_VM_INPUT_REGION ] == 32U );
+    FD_TEST( vm->region_st_sz[ FD_VM_INPUT_REGION ] == 0U  ); /* gated on touched0==0 */
+    FD_TEST( fd_vm_exec( vm ) == FD_VM_SUCCESS );
+    ulong exp_xor = 0x1111111111111111UL ^ 0x5555555555555555UL ^ 0x1111111111111111UL ^ 0x2222222222222222UL;
+    FD_TEST( vm->reg[0] == exp_xor );
+    FD_TEST( touched0 == 1U && touched1 == 0U );
+    FD_TEST( vm->region_voff [ FD_VM_INPUT_REGION ] == 0U  );
+    FD_TEST( vm->region_st_sz[ FD_VM_INPUT_REGION ] == 32U );
+    FD_TEST( FD_LOAD( ulong, buf0 + 16UL ) == 0x12345678UL );
+    FD_TEST( FD_LOAD( ulong, buf0 + 24UL ) == 0x76543210UL );
+  }
+
+  /* 2. Read-only region: LD warms region_ld_sz[4], subsequent ST still faults */
+  {
+    ulong prog_ro_st[] = {
+      fd_vm_instr( FD_SBPF_OP_LDXDW, 2UL, 1UL, 32, 0U ), /* warms r1 in slot 4 */
+      fd_vm_instr( FD_SBPF_OP_STXDW, 1UL, 2UL, 32, 0U ), /* must fault */
+      fd_vm_instr( FD_SBPF_OP_EXIT,  0UL, 0UL,  0, 0U ),
+    };
+    FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+                         (uchar const *)prog_ro_st, sizeof(prog_ro_st), prog_ro_st, 3UL, 0UL, sizeof(prog_ro_st),
+                         0UL, NULL, FD_SBPF_V3, syscalls, NULL, sha,
+                         regs, 5U, arm, 0, 0, init_reg ) );
+    FD_TEST( fd_vm_exec( vm ) == FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+    FD_TEST( touched1 == 0U );
+    test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+  }
+
+  /* 3. Cross-region straddle (r0 [28..32) into contiguous r1 [32..36)) and zero-len r2 must fault */
+  {
+    ulong prog_straddle[] = {
+      fd_vm_instr( FD_SBPF_OP_LDXDW, 0UL, 1UL, 28, 0U ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,  0UL, 0UL,  0, 0U ),
+    };
+    FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+                         (uchar const *)prog_straddle, sizeof(prog_straddle), prog_straddle, 2UL, 0UL, sizeof(prog_straddle),
+                         0UL, NULL, FD_SBPF_V3, syscalls, NULL, sha,
+                         regs, 5U, arm, 0, 0, init_reg ) );
+    FD_TEST( fd_vm_exec( vm ) == FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+    test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+
+    ulong prog_zerolen[] = {
+      fd_vm_instr( FD_SBPF_OP_LDXB, 0UL, 1UL, 64, 0U ),
+      fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL,  0, 0U ),
+    };
+    FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+                         (uchar const *)prog_zerolen, sizeof(prog_zerolen), prog_zerolen, 2UL, 0UL, sizeof(prog_zerolen),
+                         0UL, NULL, FD_SBPF_V3, syscalls, NULL, sha,
+                         regs, 5U, arm, 0, 0, init_reg ) );
+    FD_TEST( fd_vm_exec( vm ) == FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+    test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+  }
+
+  /* 4. OOB write auto-resize on r3 updates region_sz, zeroes gap, sets touched2=1, and refreshes TLB */
+  {
+    instr_ctx->txn_out->details.accounts_resize_delta = 0L;
+    ulong prog_resize[] = {
+      fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 1UL,  96,     0U          ), /* warms r3 with old sz=16 */
+      fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 3UL, 0UL,   0,     0x42424242U ),
+      fd_vm_instr( FD_SBPF_OP_STXDW,     1UL, 3UL,  96 + 24, 0U         ), /* OOB write -> auto-resizes r3 to 1024 */
+      fd_vm_instr( FD_SBPF_OP_LDXDW,     0UL, 1UL,  96 + 16, 0U         ), /* zeroed gap [16..24) must read 0 */
+      fd_vm_instr( FD_SBPF_OP_LDXDW,     4UL, 1UL,  96 + 24, 0U         ), /* written word hits refreshed TLB */
+      fd_vm_instr( FD_SBPF_OP_ADD64_REG, 0UL, 4UL,   0,      0U         ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL,   0,      0U         ),
+    };
+    FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+                         (uchar const *)prog_resize, sizeof(prog_resize), prog_resize, 7UL, 0UL, sizeof(prog_resize),
+                         0UL, NULL, FD_SBPF_V3, syscalls, NULL, sha,
+                         regs, 5U, arm, 0, 0, init_reg ) );
+    FD_TEST( fd_vm_exec( vm ) == FD_VM_SUCCESS );
+    FD_TEST( vm->reg[0] == 0x42424242UL );
+    FD_TEST( touched2 == 1U );
+    FD_TEST( resizable_acc->data_len == 1024UL );
+    FD_TEST( regs[3].region_sz == 1024U );
+    FD_TEST( vm->region_ld_sz[ FD_VM_INPUT_REGION ] == 1024U );
+    FD_TEST( vm->region_st_sz[ FD_VM_INPUT_REGION ] == 1024U );
+    instr_ctx->txn_out->details.accounts_resize_delta = 0L;
+  }
+
+  /* 5. Unmapped high regions (_region >= 5) fault cleanly without OOB reading region_voff[5] */
+  {
+    ulong hi_addrs[] = { 0x500000000UL, 0xfffffffffffffff8UL };
+    for( ulong i=0UL; i<2UL; i++ ) {
+      ulong hi_reg[ FD_VM_REG_CNT ] = { 0UL, hi_addrs[i], 0 };
+      ulong prog_hi_ld[] = { fd_vm_instr( FD_SBPF_OP_LDXDW, 0UL, 1UL, 0, 0U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+      ulong prog_hi_st[] = { fd_vm_instr( FD_SBPF_OP_STXDW, 1UL, 0UL, 0, 0U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+      FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+                           (uchar const *)prog_hi_ld, 16UL, prog_hi_ld, 2UL, 0UL, 16UL,
+                           0UL, NULL, FD_SBPF_V3, syscalls, NULL, sha,
+                           regs, 5U, arm, 0, 0, hi_reg ) );
+      FD_TEST( fd_vm_exec( vm ) == FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+      test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+
+      FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+                           (uchar const *)prog_hi_st, 16UL, prog_hi_st, 2UL, 0UL, 16UL,
+                           0UL, NULL, FD_SBPF_V3, syscalls, NULL, sha,
+                           regs, 5U, arm, 0, 0, hi_reg ) );
+      FD_TEST( fd_vm_exec( vm ) == FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+      test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+    }
+  }
+
+  FD_LOG_NOTICE(( "%-20s PASS", "input-tlb-lookup" ));
+}
+
+static void
 generate_random_alu_instrs( fd_rng_t * rng,
                             ulong *    text,
                             ulong      text_cnt ) {
@@ -2045,6 +2522,10 @@ main( int     argc,
   test_stack_configuration( syscalls, instr_ctx );
   test_lazy_stack_zeroing( syscalls, instr_ctx );
   test_lazy_heap_zeroing( syscalls, instr_ctx );
+  test_geometric_region_growth( syscalls, instr_ctx );
+  test_validate_opcode_classes( syscalls, instr_ctx );
+  test_trace_notrace_parity( syscalls, instr_ctx );
+  test_input_tlb_and_region_lookup( syscalls, instr_ctx );
 
   ulong   text_cnt = 1024UL*1024UL;
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */

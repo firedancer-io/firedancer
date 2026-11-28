@@ -296,6 +296,8 @@ fd_vm_cpi_update_caller_account_region( fd_vm_t *                              v
     int is_writable = fd_borrowed_account_can_data_be_changed( borrowed_account, &err );
 
     region->is_writable = (uchar)is_writable && ( err == FD_EXECUTOR_INSTR_SUCCESS );
+    vm->region_ld_sz[ FD_VM_INPUT_REGION ] = 0U;
+    vm->region_st_sz[ FD_VM_INPUT_REGION ] = 0U;
   }
 
   return FD_VM_SUCCESS;
