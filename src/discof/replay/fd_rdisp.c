@@ -267,8 +267,8 @@ typedef struct fd_rdisp_ptxn fd_rdisp_ptxn_t;
 #define FOLLOW_EDGE(disp, x, w) (__extension__({                                                                            \
         fd_rdisp_t const * __disp = (disp);                                                                                 \
         uint __e = (x);                                                                                                     \
-        edge_t * __edges = EDGE_IS_PTXN(__e) ? __disp->ptxn_pool[EDGE_SPECIAL_IDX(__e)].edges : __disp->pool[__e>>8].edges; \
-        uint __w_cnt_1   = EDGE_IS_PTXN(__e) ? 0 : __disp->pool[__e>>8].edge_cnt_etc & 0x7FU;                               \
+        edge_t * __edges = EDGE_IS_PTXN(__e) ? RDISP_PTXN_POOL(__disp)[EDGE_SPECIAL_IDX(__e)].edges : RDISP_POOL(__disp)[__e>>8].edges; \
+        uint __w_cnt_1   = EDGE_IS_PTXN(__e) ? 0 : RDISP_POOL(__disp)[__e>>8].edge_cnt_etc & 0x7FU;                               \
         uint __idx  = fd_uint_if( EDGE_IS_PTXN(__e), 0U, (__e & 0xFFU) );                                                   \
         (w) = (!EDGE_IS_PTXN(__e)) & (__idx<=__w_cnt_1);                                                                    \
         (void)(w);  /* not robust... */                                                                                     \
@@ -277,8 +277,8 @@ typedef struct fd_rdisp_ptxn fd_rdisp_ptxn_t;
 #define FOLLOW_EDGE_TXN(disp, x) (__extension__({                                                                    \
         fd_rdisp_t const * __disp = (disp);                                                                          \
         uint __e = (x);                                                                                              \
-        EDGE_IS_PTXN(__e) ? (fd_rdisp_txn_t *)((__disp)->ptxn_pool+EDGE_SPECIAL_IDX(__e)) :                          \
-                            ((__disp)->pool+(__e>>8)); }))
+        EDGE_IS_PTXN(__e) ? (fd_rdisp_txn_t *)(RDISP_PTXN_POOL(__disp)+EDGE_SPECIAL_IDX(__e)) :                          \
+                            (RDISP_POOL(__disp)+(__e>>8)); }))
 
 
 
@@ -624,12 +624,12 @@ typedef struct fd_rdisp_unstaged fd_rdisp_unstaged_t;
 
 
 typedef struct {
-  pending_prq_ele_t * pending;
-  ulong               linear_block_number;
-  block_slist_t       block_ll[1];
-  ulong               inserted_cnt;
-  ulong               dispatched_cnt;
-  ulong               completed_cnt;
+  ulong         pending_off; /* byte offset from &lanes[i] to pending_prq */
+  ulong         linear_block_number;
+  block_slist_t block_ll[1];
+  ulong         inserted_cnt;
+  ulong         dispatched_cnt;
+  ulong         completed_cnt;
 } per_lane_info_t;
 
 /* We maintain one map from pubkeys to acct_info_t, acct_map.  The
@@ -657,36 +657,43 @@ struct fd_rdisp {
   ulong global_insert_cnt;
   ulong unstaged_lblk_num;
 
-  /* pool: an fd_pool, indexed [0, depth+1), with 0 being a sentinel */
-  fd_rdisp_txn_t       * pool;
-  fd_rdisp_unstaged_t  * unstaged; /* parallel to pool with additional info */
-  /* ptxn_pool: an fd_pool, also indexed [0, depth*128+1), with 0 as a
-     sentinel. */
-  fd_rdisp_ptxn_t      * ptxn_pool;
-  fd_rdisp_mq_t        * mq;
+  /* Byte offsets from disp so shared-memory joins are position-independent
+     across processes mapped at distinct virtual addresses. */
+  ulong pool_off;
+  ulong unstaged_off;
+  ulong ptxn_pool_off;
+  ulong mq_off;
 
-  block_map_t          * blockmap; /* map chain */
-  fd_rdisp_blockinfo_t * block_pool;
+  ulong blockmap_off;
+  ulong block_pool_off;
 
   float ready_acct_ema_max;
 
   int free_lanes; /* a bitmask */
   per_lane_info_t lanes[4];
 
-  acct_map_t   * acct_map;
-  /* acct_pool is not an fd_pool, but is just a flat array, since we
-     don't need to acquire and release from it because of the dlist. */
-  acct_info_t  * acct_pool;
-  free_dlist_t   free_acct_dlist[1];
+  ulong        acct_map_off;
+  ulong        acct_pool_off;
+  free_dlist_t free_acct_dlist[1];
 
-  /* Unfortunately, the LtHash info for unstaged transactions needs to
-     be stored completely separately. */
-  ustlt_t          * ustlt_pool; /* a flat array, not an fd_pool */
-  ustlt_map_t      * ustlt_map;
-  ustlt_dlist_t      ustlt_free[ 1 ];
+  ulong         ustlt_pool_off;
+  ulong         ustlt_map_off;
+  ustlt_dlist_t ustlt_free[ 1 ];
 };
 
 typedef struct fd_rdisp fd_rdisp_t;
+
+#define RDISP_POOL(d)          ((fd_rdisp_txn_t *      )((ulong)(d) + (d)->pool_off      ))
+#define RDISP_UNSTAGED(d)      ((fd_rdisp_unstaged_t * )((ulong)(d) + (d)->unstaged_off  ))
+#define RDISP_PTXN_POOL(d)     ((fd_rdisp_ptxn_t *     )((ulong)(d) + (d)->ptxn_pool_off ))
+#define RDISP_MQ(d)            ((fd_rdisp_mq_t *       )((ulong)(d) + (d)->mq_off        ))
+#define RDISP_BLOCKMAP(d)      ((block_map_t *         )((ulong)(d) + (d)->blockmap_off  ))
+#define RDISP_BLOCK_POOL(d)    ((fd_rdisp_blockinfo_t *)((ulong)(d) + (d)->block_pool_off))
+#define RDISP_ACCT_MAP(d)      ((acct_map_t *          )((ulong)(d) + (d)->acct_map_off  ))
+#define RDISP_ACCT_POOL(d)     ((acct_info_t *         )((ulong)(d) + (d)->acct_pool_off ))
+#define RDISP_USTLT_POOL(d)    ((ustlt_t *             )((ulong)(d) + (d)->ustlt_pool_off))
+#define RDISP_USTLT_MAP(d)     ((ustlt_map_t *         )((ulong)(d) + (d)->ustlt_map_off ))
+#define RDISP_LANE_PENDING(ln) ((pending_prq_ele_t *   )((ulong)(ln) + (ln)->pending_off ))
 
 
  #define ACCT_ITER_TO_PTR( iter ) (__extension__( {                                             \
@@ -769,28 +776,30 @@ fd_rdisp_new( void * mem,
 
   fd_rdisp_txn_t * temp_pool_join = pool_join( pool_new( _pool, depth+1UL ) );
   for( ulong i=0UL; i<depth+1UL; i++ ) temp_pool_join[ i ].in_degree = IN_DEGREE_FREE;
-  pool_leave( temp_pool_join );
+  disp->pool_off = (ulong)temp_pool_join - (ulong)disp;
 
   memset( _unstaged, '\0', sizeof(fd_rdisp_unstaged_t)*(depth+1UL) );
+  disp->unstaged_off = (ulong)_unstaged - (ulong)disp;
 
   fd_rdisp_ptxn_t * temp_ppool_join = ptxn_pool_join( ptxn_pool_new( _ptxn_pool, acct_depth+1UL ) );
   for( ulong i=0UL; i<acct_depth+1UL; i++ ) temp_ppool_join[ i ].in_degree = IN_DEGREE_FREE;
-  ptxn_pool_leave( temp_ppool_join );
+  disp->ptxn_pool_off = (ulong)temp_ppool_join - (ulong)disp;
 
-  fd_rdisp_mq_new( _mq, acct_depth, MAX_WRITERS_PER_BLOCK );
+  disp->mq_off = (ulong)fd_rdisp_mq_join( fd_rdisp_mq_new( _mq, acct_depth, MAX_WRITERS_PER_BLOCK ) ) - (ulong)disp;
 
-  block_map_new ( _bmap,  chain_cnt, seed );
+  disp->blockmap_off = (ulong)block_map_join( block_map_new( _bmap, chain_cnt, seed ) ) - (ulong)disp;
   block_pool_new( _bpool, block_depth+1UL );
 
   fd_rdisp_blockinfo_t * bpool_temp_join = block_pool_join( _bpool );
-  for( ulong i=0UL; i<block_depth+1UL; i++ ) zombie_dlist_new( bpool_temp_join[ i ].zombie_list );
-  block_pool_leave( bpool_temp_join );
+  for( ulong i=0UL; i<block_depth+1UL; i++ ) zombie_dlist_join( zombie_dlist_new( bpool_temp_join[ i ].zombie_list ) );
+  disp->block_pool_off = (ulong)bpool_temp_join - (ulong)disp;
 
   disp->ready_acct_ema_max = FD_RDISP_READY_ACCT_EMA_MAX;
 
   disp->free_lanes = 0xF;
   for( ulong i=0UL; i<4UL; i++ ) {
-    pending_prq_new( _pending, full_depth );
+    pending_prq_ele_t * pprq = pending_prq_join( pending_prq_new( _pending, full_depth ) );
+    disp->lanes[i].pending_off = (ulong)pprq - (ulong)&disp->lanes[i];
     _pending += pending_prq_footprint( full_depth );
 
     disp->lanes[i].linear_block_number = 0UL;
@@ -799,78 +808,30 @@ fd_rdisp_new( void * mem,
     disp->lanes[i].completed_cnt       = 0U;
   }
 
-  acct_map_new( _acct_map,  acct_chain_cnt, fd_ulong_hash( seed+1UL ) );
+  disp->acct_map_off  = (ulong)acct_map_join( acct_map_new( _acct_map, acct_chain_cnt, fd_ulong_hash( seed+1UL ) ) ) - (ulong)disp;
+  disp->acct_pool_off = (ulong)apool - (ulong)disp;
 
-  free_dlist_t * temp_join = free_dlist_join( free_dlist_new( disp->free_acct_dlist ) );
+  free_dlist_join( free_dlist_new( disp->free_acct_dlist ) );
   for( ulong i=1UL; i<acct_depth+1UL; i++ ) {
     apool[ i ].next = apool[ i ].prev = 0U;
     free_dlist_idx_push_tail( disp->free_acct_dlist, i, apool );
   }
-  free_dlist_leave( temp_join );
 
-  ustlt_map_new( _ustlt_map, acct_chain_cnt, fd_ulong_hash( seed+3UL ) );
+  disp->ustlt_map_off  = (ulong)ustlt_map_join( ustlt_map_new( _ustlt_map, acct_chain_cnt, fd_ulong_hash( seed+3UL ) ) ) - (ulong)disp;
+  disp->ustlt_pool_off = (ulong)upool - (ulong)disp;
 
-  ustlt_dlist_t * temp_join_ustlt = ustlt_dlist_join( ustlt_dlist_new( disp->ustlt_free ) );
+  ustlt_dlist_join( ustlt_dlist_new( disp->ustlt_free ) );
   for( ulong i=1UL; i<acct_depth+1UL; i++ ) {
     upool[ i ].ll_next = upool[ i ].ll_prev = 0U;
     ustlt_dlist_idx_push_tail( disp->ustlt_free, i, upool );
   }
-  ustlt_dlist_leave( temp_join_ustlt );
-
 
   return disp;
 }
 
 fd_rdisp_t *
 fd_rdisp_join( void * mem ) {
-  fd_rdisp_t * disp = (fd_rdisp_t *)mem;
-
-  ulong depth          = disp->depth;
-  ulong block_depth    = disp->block_depth;
-  ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
-  ulong acct_depth     = depth*FD_RDISP_MAX_ACCT_PER_TXN+disp->acct_extra;
-  ulong acct_chain_cnt = acct_map_chain_cnt_est( 2UL*acct_depth ); /* see fd_rdisp_footprint */
-  ulong mq_footprint   = fd_rdisp_mq_footprint( acct_depth, MAX_WRITERS_PER_BLOCK );
-  ulong full_depth     = depth+acct_depth;
-
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  /*                 */ FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),             sizeof(fd_rdisp_t)                              );
-  void  * _pool       = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),                 pool_footprint              ( depth+1UL       ) );
-  void  * _unstaged   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rdisp_unstaged_t), sizeof(fd_rdisp_unstaged_t)*( depth+1UL       ) );
-  void  * _ptxn_pool  = FD_SCRATCH_ALLOC_APPEND( l, ptxn_pool_align(),            ptxn_pool_footprint         ( acct_depth+1UL  ) );
-  void  * _mq         = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_mq_align(),          mq_footprint                                    );
-  void  * _bmap       = FD_SCRATCH_ALLOC_APPEND( l, block_map_align(),            block_map_footprint         ( chain_cnt       ) );
-  void  * _bpool      = FD_SCRATCH_ALLOC_APPEND( l, block_pool_align(),           block_pool_footprint        ( block_depth+1UL ) );
-  uchar * _pending    = FD_SCRATCH_ALLOC_APPEND( l, pending_prq_align(),          4UL*pending_prq_footprint   ( full_depth      ) );
-  void  * _acct_map   = FD_SCRATCH_ALLOC_APPEND( l, acct_map_align(),             acct_map_footprint          ( acct_chain_cnt  ) );
-  acct_info_t * apool = FD_SCRATCH_ALLOC_APPEND( l, alignof(acct_info_t),         (acct_depth+1UL)*sizeof(acct_info_t)            );
-  ustlt_t     * upool = FD_SCRATCH_ALLOC_APPEND( l, alignof(ustlt_t),             (acct_depth+1UL)*sizeof(ustlt_t)                );
-  void  * _ustlt_map  = FD_SCRATCH_ALLOC_APPEND( l, ustlt_map_align(),            ustlt_map_footprint         ( acct_chain_cnt  ) );
-  FD_SCRATCH_ALLOC_FINI( l, fd_rdisp_align() );
-
-  disp->pool       = pool_join( _pool );
-  disp->unstaged   = (fd_rdisp_unstaged_t *)_unstaged;
-  disp->ptxn_pool  = ptxn_pool_join( _ptxn_pool );
-  disp->mq         = fd_rdisp_mq_join( _mq );
-  disp->blockmap   = block_map_join( _bmap );
-  disp->block_pool = block_pool_join( _bpool );
-
-  for( ulong i=0UL; i<block_depth+1UL; i++ ) zombie_dlist_join( disp->block_pool[ i ].zombie_list );
-
-  for( ulong i=0UL; i<4UL; i++ ) {
-    disp->lanes[i].pending = pending_prq_join( _pending );
-    _pending += pending_prq_footprint( full_depth );
-  }
-
-  disp->acct_map      = acct_map_join( _acct_map );
-  disp->acct_pool     = apool;
-  free_dlist_join( disp->free_acct_dlist );
-
-  disp->ustlt_pool    = upool;
-  disp->ustlt_map     = ustlt_map_join( _ustlt_map );
-  ustlt_dlist_join( disp->ustlt_free );
-
-  return disp;
+  return (fd_rdisp_t *)mem;
 }
 
 static inline void
@@ -878,7 +839,7 @@ free_lane( fd_rdisp_t * disp,
            ulong        staging_lane ) {
   disp->free_lanes |= 1<<staging_lane;
   per_lane_info_t * l = disp->lanes+staging_lane;
-  FD_TEST( pending_prq_cnt( l->pending )==0UL );
+  FD_TEST( pending_prq_cnt( RDISP_LANE_PENDING( l ) )==0UL );
   l->linear_block_number = 0UL;
   l->inserted_cnt   = 0UL;
   l->dispatched_cnt = 0UL;
@@ -903,8 +864,8 @@ fd_rdisp_suggest_staging_lane( fd_rdisp_t const *   disp,
 
   /* 2. If parent is the last block in any existing staging lane, suggest
         that lane */
-  fd_rdisp_blockinfo_t const * block_pool = disp->block_pool;
-  fd_rdisp_blockinfo_t const * block = block_map_ele_query_const( disp->blockmap, &parent_block, NULL, block_pool );
+  fd_rdisp_blockinfo_t const * block_pool = RDISP_BLOCK_POOL(disp);
+  fd_rdisp_blockinfo_t const * block = block_map_ele_query_const( RDISP_BLOCKMAP(disp), &parent_block, NULL, block_pool );
   if( FD_LIKELY( block && block->insert_ready && block->staged ) ) return block->staging_lane;
 
   /* 3. If there is at least one free lane, suggest a free lane */
@@ -918,13 +879,13 @@ int
 fd_rdisp_add_block( fd_rdisp_t          * disp,
                    FD_RDISP_BLOCK_TAG_T   new_block,
                    ulong                  staging_lane ) {
-  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+  fd_rdisp_blockinfo_t * block_pool = RDISP_BLOCK_POOL(disp);
 
   if( FD_UNLIKELY( !block_pool_free( block_pool )                                                             ) ) return -1;
-  if( FD_UNLIKELY(  ULONG_MAX!=block_map_idx_query_const( disp->blockmap, &new_block, ULONG_MAX, block_pool ) ) ) return -1;
+  if( FD_UNLIKELY(  ULONG_MAX!=block_map_idx_query_const( RDISP_BLOCKMAP(disp), &new_block, ULONG_MAX, block_pool ) ) ) return -1;
   fd_rdisp_blockinfo_t * block = block_pool_ele_acquire( block_pool );
   block->block = new_block;
-  block_map_ele_insert( disp->blockmap, block, block_pool );
+  block_map_ele_insert( RDISP_BLOCKMAP(disp), block, block_pool );
 
   block->insert_ready = 1;
   block->staged       = staging_lane!=FD_RDISP_UNSTAGED;
@@ -961,14 +922,14 @@ fd_rdisp_add_block( fd_rdisp_t          * disp,
 int
 fd_rdisp_remove_block( fd_rdisp_t          * disp,
                        FD_RDISP_BLOCK_TAG_T  block_tag ) {
-  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+  fd_rdisp_blockinfo_t * block_pool = RDISP_BLOCK_POOL(disp);
 
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, block_pool );
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( RDISP_BLOCKMAP(disp), &block_tag, NULL, block_pool );
   if( FD_UNLIKELY( block==NULL ) ) return -1;
 
   FD_TEST( block->schedule_ready );
   FD_TEST( block->completed_cnt==block->inserted_cnt );
-  FD_TEST( zombie_dlist_is_empty( block->zombie_list, disp->pool ) );
+  FD_TEST( zombie_dlist_is_empty( block->zombie_list, RDISP_POOL(disp) ) );
 
   if( FD_LIKELY( block->staged ) ) {
     ulong staging_lane = (ulong)block->staging_lane;
@@ -979,12 +940,12 @@ fd_rdisp_remove_block( fd_rdisp_t          * disp,
     if( FD_LIKELY( !block_slist_is_empty( sl, block_pool ) ) ) block_slist_ele_peek_head( sl, block_pool )->schedule_ready = 1;
     else                                                       free_lane( disp, staging_lane );
   } else {
-    FD_TEST( ustlt_dlist_is_empty( block->ustlt_needed, disp->ustlt_pool ) && ustlt_dlist_is_empty( block->ustlt_created, disp->ustlt_pool ) );
+    FD_TEST( ustlt_dlist_is_empty( block->ustlt_needed, RDISP_USTLT_POOL(disp) ) && ustlt_dlist_is_empty( block->ustlt_created, RDISP_USTLT_POOL(disp) ) );
     unstaged_txn_ll_delete( unstaged_txn_ll_leave( block->ll            ) );
     ustlt_dlist_delete    ( ustlt_dlist_leave    ( block->ustlt_needed  ) );
     ustlt_dlist_delete    ( ustlt_dlist_leave    ( block->ustlt_created ) );
   }
-  block_pool_idx_release( block_pool, block_map_idx_remove( disp->blockmap, &block_tag, ULONG_MAX, block_pool ) );
+  block_pool_idx_release( block_pool, block_map_idx_remove( RDISP_BLOCKMAP(disp), &block_tag, ULONG_MAX, block_pool ) );
 
   return 0;
 }
@@ -993,9 +954,9 @@ fd_rdisp_remove_block( fd_rdisp_t          * disp,
 int
 fd_rdisp_abandon_block( fd_rdisp_t          * disp,
                         FD_RDISP_BLOCK_TAG_T  block_tag ) {
-  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+  fd_rdisp_blockinfo_t * block_pool = RDISP_BLOCK_POOL(disp);
 
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( RDISP_BLOCKMAP(disp), &block_tag, NULL, RDISP_BLOCK_POOL(disp) );
   if( FD_UNLIKELY( block==NULL ) ) return -1;
 
   FD_TEST( block->schedule_ready );
@@ -1007,9 +968,9 @@ fd_rdisp_abandon_block( fd_rdisp_t          * disp,
     FD_TEST( txn );
     fd_rdisp_complete_txn( disp, txn, 1 );
   }
-  while( !zombie_dlist_is_empty( block->zombie_list, disp->pool ) ) {
+  while( !zombie_dlist_is_empty( block->zombie_list, RDISP_POOL(disp) ) ) {
     /* rdisp_complete_txn removes the peeked head */
-    fd_rdisp_complete_txn( disp, zombie_dlist_idx_peek_head( block->zombie_list, disp->pool ), 1 );
+    fd_rdisp_complete_txn( disp, zombie_dlist_idx_peek_head( block->zombie_list, RDISP_POOL(disp) ), 1 );
   }
 
   if( FD_LIKELY( block->staged ) ) {
@@ -1026,9 +987,9 @@ fd_rdisp_abandon_block( fd_rdisp_t          * disp,
          However, if it's not insert-ready, then we know the caller
          would already have created the pseudo-transactions if they were
          needed, so we don't need to do anything in that case. */
-      while( fd_rdisp_mq_cnt( disp->mq, staging_lane ) ) {
-        ulong acct_idx = fd_rdisp_mq_pop( disp->mq, staging_lane );
-        acct_info_t * ai = disp->acct_pool + acct_idx;
+      while( fd_rdisp_mq_cnt( RDISP_MQ(disp), staging_lane ) ) {
+        ulong acct_idx = fd_rdisp_mq_pop( RDISP_MQ(disp), staging_lane );
+        acct_info_t * ai = RDISP_ACCT_POOL(disp) + acct_idx;
         uint s = ai->states;
         if( FD_UNLIKELY( ACCT_INFO_STATE_IS(s, staging_lane, NEEDS_PTXN) ) ) {
           ai->states = (uchar)ACCT_INFO_STATE_SET(s, staging_lane, NO_WRITERS);
@@ -1038,7 +999,7 @@ fd_rdisp_abandon_block( fd_rdisp_t          * disp,
                 (ai->last_reference[ 0 ]==0U)&(ai->last_reference[ 1 ]==0U)&
                 (ai->last_reference[ 2 ]==0U)&(ai->last_reference[ 3 ]==0U) ) ) {
             ai->cached = ACCT_INFO_CACHED;
-            free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, disp->acct_pool );
+            free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, RDISP_ACCT_POOL(disp) );
           }
         }
       }
@@ -1046,29 +1007,29 @@ fd_rdisp_abandon_block( fd_rdisp_t          * disp,
       free_lane( disp, staging_lane );
     }
   } else {
-    while( !ustlt_dlist_is_empty( block->ustlt_created, disp->ustlt_pool ) ) {
-      ustlt_t * ele = ustlt_dlist_ele_peek_head( block->ustlt_created, disp->ustlt_pool );
+    while( !ustlt_dlist_is_empty( block->ustlt_created, RDISP_USTLT_POOL(disp) ) ) {
+      ustlt_t * ele = ustlt_dlist_ele_peek_head( block->ustlt_created, RDISP_USTLT_POOL(disp) );
       /* Free the created ones */
-      fd_rdisp_ptxn_t * ptxn = disp->ptxn_pool + EDGE_SPECIAL_IDX( ele->ptxn_idx );
+      fd_rdisp_ptxn_t * ptxn = RDISP_PTXN_POOL(disp) + EDGE_SPECIAL_IDX( ele->ptxn_idx );
       ptxn->in_degree        = IN_DEGREE_FREE;
-      ptxn_pool_ele_release( disp->ptxn_pool, ptxn );
+      ptxn_pool_ele_release( RDISP_PTXN_POOL(disp), ptxn );
 
-      ustlt_dlist_ele_remove   ( block->ustlt_created, ele, disp->ustlt_pool );
-      ustlt_dlist_ele_push_tail( disp->ustlt_free,     ele, disp->ustlt_pool );
+      ustlt_dlist_ele_remove   ( block->ustlt_created, ele, RDISP_USTLT_POOL(disp) );
+      ustlt_dlist_ele_push_tail( disp->ustlt_free,     ele, RDISP_USTLT_POOL(disp) );
     }
 
-    while( !ustlt_dlist_is_empty( block->ustlt_needed, disp->ustlt_pool ) ) {
-      ustlt_t * ele = ustlt_dlist_ele_peek_head( block->ustlt_needed, disp->ustlt_pool );
-      ustlt_dlist_ele_remove   ( block->ustlt_needed, ele, disp->ustlt_pool );
-      ustlt_map_ele_remove_fast( disp->ustlt_map,     ele, disp->ustlt_pool );
-      ustlt_dlist_ele_push_tail( disp->ustlt_free,    ele, disp->ustlt_pool );
+    while( !ustlt_dlist_is_empty( block->ustlt_needed, RDISP_USTLT_POOL(disp) ) ) {
+      ustlt_t * ele = ustlt_dlist_ele_peek_head( block->ustlt_needed, RDISP_USTLT_POOL(disp) );
+      ustlt_dlist_ele_remove   ( block->ustlt_needed, ele, RDISP_USTLT_POOL(disp) );
+      ustlt_map_ele_remove_fast( RDISP_USTLT_MAP(disp),     ele, RDISP_USTLT_POOL(disp) );
+      ustlt_dlist_ele_push_tail( disp->ustlt_free,    ele, RDISP_USTLT_POOL(disp) );
     }
 
     unstaged_txn_ll_delete( unstaged_txn_ll_leave( block->ll ) );
     ustlt_dlist_delete    ( ustlt_dlist_leave    ( block->ustlt_needed  ) );
     ustlt_dlist_delete    ( ustlt_dlist_leave    ( block->ustlt_created ) );
   }
-  block_pool_idx_release( disp->block_pool, block_map_idx_remove( disp->blockmap, &block_tag, ULONG_MAX, disp->block_pool ) );
+  block_pool_idx_release( RDISP_BLOCK_POOL(disp), block_map_idx_remove( RDISP_BLOCKMAP(disp), &block_tag, ULONG_MAX, RDISP_BLOCK_POOL(disp) ) );
 
   return 0;
 }
@@ -1094,7 +1055,7 @@ static void
 untrack_writer( fd_rdisp_t * disp,
                 ulong        staging_lane,
                 ulong        acct_idx ) {
-  acct_info_t * ai = disp->acct_pool + acct_idx;
+  acct_info_t * ai = RDISP_ACCT_POOL(disp) + acct_idx;
   uint s = ai->states;
   if( FD_UNLIKELY( ACCT_INFO_STATE_IS(s, staging_lane, NEEDS_PTXN) ) ) {
     ai->states = (uchar)ACCT_INFO_STATE_SET(s, staging_lane, NO_WRITERS);
@@ -1104,7 +1065,7 @@ untrack_writer( fd_rdisp_t * disp,
           (ai->last_reference[ 0 ]==0U)&(ai->last_reference[ 1 ]==0U)&
           (ai->last_reference[ 2 ]==0U)&(ai->last_reference[ 3 ]==0U) ) ) {
       ai->cached = ACCT_INFO_CACHED;
-      free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, disp->acct_pool );
+      free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, RDISP_ACCT_POOL(disp) );
     }
   }
 }
@@ -1128,11 +1089,11 @@ int
 fd_rdisp_promote_block( fd_rdisp_t *          disp,
                         FD_RDISP_BLOCK_TAG_T  block_tag,
                         ulong                 staging_lane ) {
-  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+  fd_rdisp_blockinfo_t * block_pool = RDISP_BLOCK_POOL(disp);
   per_lane_info_t * lane = disp->lanes + staging_lane;
   block_slist_t * sl = lane->block_ll;
 
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, block_pool );
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( RDISP_BLOCKMAP(disp), &block_tag, NULL, block_pool );
   if( FD_UNLIKELY( block==NULL   ) ) return -1;
   if( FD_UNLIKELY( block->staged ) ) return -1;
 
@@ -1149,13 +1110,13 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
   block->linear_block_number = linear_block_number;
 
   unstaged_txn_ll_iter_t next;
-  for( unstaged_txn_ll_iter_t iter = unstaged_txn_ll_iter_init( block->ll, disp->pool );
-      !unstaged_txn_ll_iter_done( iter, block->ll, disp->pool );
+  for( unstaged_txn_ll_iter_t iter = unstaged_txn_ll_iter_init( block->ll, RDISP_POOL(disp) );
+      !unstaged_txn_ll_iter_done( iter, block->ll, RDISP_POOL(disp) );
       iter = next ) {
-      next = unstaged_txn_ll_iter_next( iter, block->ll, disp->pool );
+      next = unstaged_txn_ll_iter_next( iter, block->ll, RDISP_POOL(disp) );
 
-    fd_rdisp_txn_t      * ele = unstaged_txn_ll_iter_ele( iter, block->ll, disp->pool );
-    fd_rdisp_unstaged_t * uns = disp->unstaged + unstaged_txn_ll_iter_idx( iter, block->ll, disp->pool );
+    fd_rdisp_txn_t      * ele = unstaged_txn_ll_iter_ele( iter, block->ll, RDISP_POOL(disp) );
+    fd_rdisp_unstaged_t * uns = RDISP_UNSTAGED(disp) + unstaged_txn_ll_iter_idx( iter, block->ll, RDISP_POOL(disp) );
     FD_TEST( ele->in_degree==IN_DEGREE_UNSTAGED );
 
     ele->in_degree    = 0U;
@@ -1171,8 +1132,8 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
     ele->edge_cnt_etc |= linear_block_number<<16;
 
     if( FD_UNLIKELY( ele->in_degree==0U ) ) {
-      pending_prq_ele_t temp[1] = {{ .score = ele->score, .linear_block_number = linear_block_number, .txn_idx = (uint)(ele-disp->pool)}};
-      pending_prq_insert( lane->pending, temp );
+      pending_prq_ele_t temp[1] = {{ .score = ele->score, .linear_block_number = linear_block_number, .txn_idx = (uint)(ele-RDISP_POOL(disp))}};
+      pending_prq_insert( RDISP_LANE_PENDING( lane ), temp );
     }
   }
   unstaged_txn_ll_delete( unstaged_txn_ll_leave( block->ll ) );
@@ -1180,25 +1141,25 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
   /* Any pseudo-transactions created while the block was unstaged must
      have completed by now.  Freeing them here would invalidate indices
      the caller still holds. */
-  FD_TEST( ustlt_dlist_is_empty( block->ustlt_created, disp->ustlt_pool ) );
+  FD_TEST( ustlt_dlist_is_empty( block->ustlt_created, RDISP_USTLT_POOL(disp) ) );
 
-  while( !ustlt_dlist_is_empty( block->ustlt_needed, disp->ustlt_pool ) ) {
-    ustlt_t * ele = ustlt_dlist_ele_peek_head( block->ustlt_needed, disp->ustlt_pool );
+  while( !ustlt_dlist_is_empty( block->ustlt_needed, RDISP_USTLT_POOL(disp) ) ) {
+    ustlt_t * ele = ustlt_dlist_ele_peek_head( block->ustlt_needed, RDISP_USTLT_POOL(disp) );
 
     ulong acct_idx = lookup_pubkey( disp, &(ele->key.acct) );
-    acct_info_t * ai = disp->acct_pool + acct_idx;
+    acct_info_t * ai = RDISP_ACCT_POOL(disp) + acct_idx;
     /* If it's NO_WRITERS, we need to transition to NEEDS_PTXN, but
        otherwise it's fine. */
     uint s = ai->states;
     s = fd_uint_if( ACCT_INFO_STATE_IS(s, staging_lane, NO_WRITERS), ACCT_INFO_STATE_SET(s, staging_lane, NEEDS_PTXN), s );
     ai->states = (uchar)s;
 
-    if( FD_UNLIKELY( fd_rdisp_mq_cnt( disp->mq, staging_lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %lu writable account set full", staging_lane ));
-    fd_rdisp_mq_insert( disp->mq, acct_idx, staging_lane, mq_prio( disp, ai, ACCT_INFO_STATE_IS( s, staging_lane, NEEDS_PTXN ) ) );
+    if( FD_UNLIKELY( fd_rdisp_mq_cnt( RDISP_MQ(disp), staging_lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %lu writable account set full", staging_lane ));
+    fd_rdisp_mq_insert( RDISP_MQ(disp), acct_idx, staging_lane, mq_prio( disp, ai, ACCT_INFO_STATE_IS( s, staging_lane, NEEDS_PTXN ) ) );
 
-    ustlt_dlist_ele_remove   ( block->ustlt_needed, ele, disp->ustlt_pool );
-    ustlt_map_ele_remove_fast( disp->ustlt_map,     ele, disp->ustlt_pool );
-    ustlt_dlist_ele_push_tail( disp->ustlt_free,    ele, disp->ustlt_pool );
+    ustlt_dlist_ele_remove   ( block->ustlt_needed, ele, RDISP_USTLT_POOL(disp) );
+    ustlt_map_ele_remove_fast( RDISP_USTLT_MAP(disp),     ele, RDISP_USTLT_POOL(disp) );
+    ustlt_dlist_ele_push_tail( disp->ustlt_free,    ele, RDISP_USTLT_POOL(disp) );
   }
 
   lane->inserted_cnt   += block->inserted_cnt;
@@ -1211,9 +1172,9 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
 int
 fd_rdisp_demote_block( fd_rdisp_t *          disp,
                        FD_RDISP_BLOCK_TAG_T  block_tag ) {
-  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+  fd_rdisp_blockinfo_t * block_pool = RDISP_BLOCK_POOL(disp);
 
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &block_tag, NULL, block_pool );
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( RDISP_BLOCKMAP(disp), &block_tag, NULL, block_pool );
   if( FD_UNLIKELY(  block==NULL           ) ) return -1;
   if( FD_UNLIKELY( !block->staged         ) ) return -1;
   if( FD_UNLIKELY( !block->schedule_ready ) ) return -1;
@@ -1245,16 +1206,16 @@ fd_rdisp_demote_block( fd_rdisp_t *          disp,
        information.  If it wasn't, then that information should have
        been encoded in the created LtHash addition tasks, but the block
        can't contain any PENDING transactions by contract... */
-    while( fd_rdisp_mq_cnt( disp->mq, staging_lane ) ) {
-      ulong acct_idx = fd_rdisp_mq_pop( disp->mq, staging_lane );
-      acct_info_t * ai = disp->acct_pool + acct_idx;
+    while( fd_rdisp_mq_cnt( RDISP_MQ(disp), staging_lane ) ) {
+      ulong acct_idx = fd_rdisp_mq_pop( RDISP_MQ(disp), staging_lane );
+      acct_info_t * ai = RDISP_ACCT_POOL(disp) + acct_idx;
 
-      if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, disp->ustlt_pool ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
-      ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
-      disp->ustlt_pool[ ustlt_idx ].key.acct      = ai->key;
-      disp->ustlt_pool[ ustlt_idx ].key.block_idx = (uint)(block-block_pool);
-      ustlt_map_idx_insert( disp->ustlt_map, ustlt_idx, disp->ustlt_pool );
-      ustlt_dlist_idx_push_tail( block->ustlt_needed, ustlt_idx, disp->ustlt_pool );
+      if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, RDISP_USTLT_POOL(disp) ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
+      ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, RDISP_USTLT_POOL(disp) );
+      RDISP_USTLT_POOL(disp)[ ustlt_idx ].key.acct      = ai->key;
+      RDISP_USTLT_POOL(disp)[ ustlt_idx ].key.block_idx = (uint)(block-block_pool);
+      ustlt_map_idx_insert( RDISP_USTLT_MAP(disp), ustlt_idx, RDISP_USTLT_POOL(disp) );
+      ustlt_dlist_idx_push_tail( block->ustlt_needed, ustlt_idx, RDISP_USTLT_POOL(disp) );
 
       untrack_writer( disp, staging_lane, acct_idx );
     }
@@ -1266,12 +1227,12 @@ fd_rdisp_demote_block( fd_rdisp_t *          disp,
 int
 fd_rdisp_clear_writable_set( fd_rdisp_t *          disp,
                              FD_RDISP_BLOCK_TAG_T  block_tag ) {
-  fd_rdisp_blockinfo_t * block = block_map_ele_query( disp->blockmap, &block_tag, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block = block_map_ele_query( RDISP_BLOCKMAP(disp), &block_tag, NULL, RDISP_BLOCK_POOL(disp) );
   if( FD_UNLIKELY(  block==NULL           ) ) return -1;
   if( FD_UNLIKELY( !block->staged         ) ) return -1;
   if( FD_UNLIKELY( !block->schedule_ready ) ) return -1;
   ulong staging_lane = block->staging_lane;
-  while( fd_rdisp_mq_cnt( disp->mq, staging_lane ) ) untrack_writer( disp, staging_lane, fd_rdisp_mq_pop( disp->mq, staging_lane ) );
+  while( fd_rdisp_mq_cnt( RDISP_MQ(disp), staging_lane ) ) untrack_writer( disp, staging_lane, fd_rdisp_mq_pop( RDISP_MQ(disp), staging_lane ) );
   return 0;
 }
 
@@ -1279,15 +1240,15 @@ int
 fd_rdisp_rekey_block( fd_rdisp_t *           disp,
                       FD_RDISP_BLOCK_TAG_T   new_tag,
                       FD_RDISP_BLOCK_TAG_T   old_tag ) {
-  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+  fd_rdisp_blockinfo_t * block_pool = RDISP_BLOCK_POOL(disp);
 
-  if( FD_UNLIKELY(        NULL!= block_map_ele_query_const( disp->blockmap, &new_tag, NULL, block_pool ) ) ) return -1;
-  fd_rdisp_blockinfo_t * block = block_map_ele_query      ( disp->blockmap, &old_tag, NULL, block_pool );
+  if( FD_UNLIKELY(        NULL!= block_map_ele_query_const( RDISP_BLOCKMAP(disp), &new_tag, NULL, block_pool ) ) ) return -1;
+  fd_rdisp_blockinfo_t * block = block_map_ele_query      ( RDISP_BLOCKMAP(disp), &old_tag, NULL, block_pool );
   if( FD_UNLIKELY(        NULL== block ) )                                                                   return -1;
 
-  block_map_idx_remove( disp->blockmap, &old_tag, ULONG_MAX, block_pool );
+  block_map_idx_remove( RDISP_BLOCKMAP(disp), &old_tag, ULONG_MAX, block_pool );
   block->block = new_tag;
-  block_map_ele_insert( disp->blockmap, block, block_pool );
+  block_map_ele_insert( RDISP_BLOCKMAP(disp), block, block_pool );
   return 0;
 }
 
@@ -1340,15 +1301,15 @@ static inline ulong
 lookup_pubkey( fd_rdisp_t * disp,
                fd_acct_addr_t const * addr ) {
 
-    ulong idx = acct_map_idx_query( disp->acct_map, addr, ULONG_MAX, disp->acct_pool );
+    ulong idx = acct_map_idx_query( RDISP_ACCT_MAP(disp), addr, ULONG_MAX, RDISP_ACCT_POOL(disp) );
     acct_info_t * ai = NULL;
     if( FD_LIKELY( idx!=ULONG_MAX ) ) {
-      ai = disp->acct_pool+idx;
+      ai = RDISP_ACCT_POOL(disp)+idx;
       if( FD_LIKELY( ai->cached!=ACCT_INFO_CACHED ) ) return idx;
 
       /* CACHED -> ACTIVE transition.  It has the right key. last_ref,
          and ema_refs are valid. states was zeroed when it was cached. */
-      free_dlist_idx_remove( disp->free_acct_dlist, idx, disp->acct_pool );
+      free_dlist_idx_remove( disp->free_acct_dlist, idx, RDISP_ACCT_POOL(disp) );
       memset( ai->last_reference, '\0', sizeof(ai->last_reference) );
       return idx;
     }
@@ -1356,13 +1317,13 @@ lookup_pubkey( fd_rdisp_t * disp,
     /* The acct pool is sized so that the list cannot be empty at this
        point.  However, the element at the head might be CACHED with
        a different pubkey. */
-    if( FD_UNLIKELY( free_dlist_is_empty( disp->free_acct_dlist, disp->acct_pool ) ) ) FD_LOG_CRIT(( "rdisp account pool exhausted" ));
-    idx = free_dlist_idx_peek_head( disp->free_acct_dlist, disp->acct_pool );
-    ai = disp->acct_pool+idx;
+    if( FD_UNLIKELY( free_dlist_is_empty( disp->free_acct_dlist, RDISP_ACCT_POOL(disp) ) ) ) FD_LOG_CRIT(( "rdisp account pool exhausted" ));
+    idx = free_dlist_idx_peek_head( disp->free_acct_dlist, RDISP_ACCT_POOL(disp) );
+    ai = RDISP_ACCT_POOL(disp)+idx;
 
     /* CACHED -> FREE transition */
     if( FD_LIKELY( ai->next!=0U ) ) {
-      acct_map_idx_remove_fast( disp->acct_map, idx, disp->acct_pool );
+      acct_map_idx_remove_fast( RDISP_ACCT_MAP(disp), idx, RDISP_ACCT_POOL(disp) );
     }
 
     /* FREE -> ACTIVE transition */
@@ -1370,9 +1331,9 @@ lookup_pubkey( fd_rdisp_t * disp,
     ai->states   = 0U;
     ai->last_ref = 0U;
     ai->ema_refs = 0.0f;
-    free_dlist_idx_remove( disp->free_acct_dlist, idx, disp->acct_pool );
+    free_dlist_idx_remove( disp->free_acct_dlist, idx, RDISP_ACCT_POOL(disp) );
     memset( ai->last_reference, '\0', sizeof(ai->last_reference) );
-    acct_map_idx_insert( disp->acct_map, idx, disp->acct_pool );
+    acct_map_idx_insert( RDISP_ACCT_MAP(disp), idx, RDISP_ACCT_POOL(disp) );
 
     return idx;
 }
@@ -1405,7 +1366,7 @@ add_edges( fd_rdisp_t           * disp,
 
     /* Step 1: lookup the pubkey */
     ulong idx = lookup_pubkey( disp, addr );
-    ai = disp->acct_pool+idx;
+    ai = RDISP_ACCT_POOL(disp)+idx;
     /* At this point, in all cases, the acct_info is now in the ACTIVE
        state.  It's in acct_map and not in free_acct_dlist. */
 
@@ -1441,8 +1402,8 @@ add_edges( fd_rdisp_t           * disp,
     int      _ignore;
 
     edge_t   ref_to_pa = ai->last_reference[ lane ];
-    ulong    displ0    = ((ulong)ele - (ulong)disp->pool     )/sizeof(fd_rdisp_txn_t);
-    ulong    displ1    = ((ulong)ele - (ulong)disp->ptxn_pool)/sizeof(fd_rdisp_ptxn_t);
+    ulong    displ0    = ((ulong)ele - (ulong)RDISP_POOL(disp)     )/sizeof(fd_rdisp_txn_t);
+    ulong    displ1    = ((ulong)ele - (ulong)RDISP_PTXN_POOL(disp))/sizeof(fd_rdisp_ptxn_t);
     edge_t   ref_to_me = (uint)fd_ulong_if( displ0>disp->depth, EDGE_MAKE_SPECIAL(PTXN, displ1), (displ0<<8)|acct_idx );
     edge_t * pa        = FOLLOW_EDGE( disp, ai->last_reference[ lane ], _ignore );
     edge_t * me        = ele->edges + edge_idx;
@@ -1454,9 +1415,9 @@ add_edges( fd_rdisp_t           * disp,
        this is a read, we want me->sibli to ref_to_me in case 4; if this
        is a write, we want to set me->sibli to 0 in case 2, but we need
        to make sure pb==pa. */
-    disp->pool->edges[0] = EDGE_MAKE_SPECIAL(LAST, (uint)idx);
-    disp->pool->edges[1] = fd_uint_if( writable, 0U, ref_to_me );
-    disp->pool->edges[2] = fd_uint_if( writable, 0U, ref_to_me );
+    RDISP_POOL(disp)->edges[0] = EDGE_MAKE_SPECIAL(LAST, (uint)idx);
+    RDISP_POOL(disp)->edges[1] = fd_uint_if( writable, 0U, ref_to_me );
+    RDISP_POOL(disp)->edges[2] = fd_uint_if( writable, 0U, ref_to_me );
 
     int states = ai->states;
 
@@ -1484,7 +1445,7 @@ add_edges( fd_rdisp_t           * disp,
       }
       /* An account in the ready class is getting rewritten.  So we bump
          it out of the ready class. */
-      if( fd_rdisp_mq_test( disp->mq, idx, lane ) && fd_rdisp_mq_test_prio0( disp->mq, idx, lane ) ) fd_rdisp_mq_adjust( disp->mq, idx, lane, mq_prio( disp, ai, 0 ) );
+      if( fd_rdisp_mq_test( RDISP_MQ(disp), idx, lane ) && fd_rdisp_mq_test_prio0( RDISP_MQ(disp), idx, lane ) ) fd_rdisp_mq_adjust( RDISP_MQ(disp), idx, lane, mq_prio( disp, ai, 0 ) );
     } else {
       if( ACCT_INFO_STATE_IS( states, lane, LAST_REF_WAS_WRITE ) ) { /* unclear prob */
         /* Case 3: w-r. Similar to case 1, but need to initialize my
@@ -1505,9 +1466,9 @@ add_edges( fd_rdisp_t           * disp,
     }
 
     /* Step 3: Update new_wr */
-    if( ((!!writable) & FD_LIKELY( !!new_wr )) && !fd_rdisp_mq_test( disp->mq, idx, lane ) ) {
-      if( FD_UNLIKELY( fd_rdisp_mq_cnt( disp->mq, lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %u writable account set full", lane ));
-      fd_rdisp_mq_insert( disp->mq, idx, lane, mq_prio( disp, ai, 0 ) );
+    if( ((!!writable) & FD_LIKELY( !!new_wr )) && !fd_rdisp_mq_test( RDISP_MQ(disp), idx, lane ) ) {
+      if( FD_UNLIKELY( fd_rdisp_mq_cnt( RDISP_MQ(disp), lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %u writable account set full", lane ));
+      fd_rdisp_mq_insert( RDISP_MQ(disp), idx, lane, mq_prio( disp, ai, 0 ) );
       fd_rdisp_neww_insert( new_wr, new_wr_offset+i );
     }
 
@@ -1546,11 +1507,11 @@ add_unstaged_edges( fd_rdisp_t * disp,
   for( ulong i=0UL; i<addr_cnt; i++ ) {
     unstaged->keys[ base_idx+i ] = addr[i];
     if( FD_LIKELY( update_score ) ) {
-      ulong idx = acct_map_idx_query( disp->acct_map, addr+i, ULONG_MAX, disp->acct_pool );
+      ulong idx = acct_map_idx_query( RDISP_ACCT_MAP(disp), addr+i, ULONG_MAX, RDISP_ACCT_POOL(disp) );
       /* since these are unstaged, we don't bother moving accounts
          around */
       float score_change = 1.0f;
-      if( FD_LIKELY( idx!=ULONG_MAX ) ) score_change = 1.0f - update_ema( disp->acct_pool+idx, disp->global_insert_cnt );
+      if( FD_LIKELY( idx!=ULONG_MAX ) ) score_change = 1.0f - update_ema( RDISP_ACCT_POOL(disp)+idx, disp->global_insert_cnt );
       ele->score *= fd_float_if( writable & update_score, score_change, 1.0f );
     }
     if( ((!!writable) & FD_LIKELY( !!new_wr )) ) {
@@ -1558,14 +1519,14 @@ add_unstaged_edges( fd_rdisp_t * disp,
         .block_idx = unstaged->block_idx,
         .acct      = addr[i]
       }};
-      int new = (ustlt_map_idx_query( disp->ustlt_map, query, ULONG_MAX, disp->ustlt_pool )==ULONG_MAX);
+      int new = (ustlt_map_idx_query( RDISP_USTLT_MAP(disp), query, ULONG_MAX, RDISP_USTLT_POOL(disp) )==ULONG_MAX);
       fd_rdisp_neww_insert_if( new_wr, new, new_wr_offset+i );
       if( FD_UNLIKELY( new ) ) {
-        if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, disp->ustlt_pool ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
-        ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
-        disp->ustlt_pool[ ustlt_idx ].key = *query;
-        ustlt_map_idx_insert( disp->ustlt_map, ustlt_idx, disp->ustlt_pool );
-        ustlt_dlist_idx_push_tail( disp->block_pool[ unstaged->block_idx ].ustlt_needed, ustlt_idx, disp->ustlt_pool );
+        if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, RDISP_USTLT_POOL(disp) ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
+        ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, RDISP_USTLT_POOL(disp) );
+        RDISP_USTLT_POOL(disp)[ ustlt_idx ].key = *query;
+        ustlt_map_idx_insert( RDISP_USTLT_MAP(disp), ustlt_idx, RDISP_USTLT_POOL(disp) );
+        ustlt_dlist_idx_push_tail( RDISP_BLOCK_POOL(disp)[ unstaged->block_idx ].ustlt_needed, ustlt_idx, RDISP_USTLT_POOL(disp) );
       }
     }
   }
@@ -1591,23 +1552,23 @@ prefetch_accts( fd_rdisp_t const *     disp,
                 fd_acct_addr_t const * addrs,
                 ulong                  cnt ) {
   uint const * heads[ MAX_ACCT_PER_TXN ];
-  uint const * chain = acct_map_private_chain_const( disp->acct_map );
-  ulong seed         = acct_map_seed     ( disp->acct_map );
-  ulong chain_cnt    = acct_map_chain_cnt( disp->acct_map );
+  uint const * chain = acct_map_private_chain_const( RDISP_ACCT_MAP(disp) );
+  ulong seed         = acct_map_seed     ( RDISP_ACCT_MAP(disp) );
+  ulong chain_cnt    = acct_map_chain_cnt( RDISP_ACCT_MAP(disp) );
   for( ulong i=0UL; i<cnt; i++ ) {
     heads[ i ] = chain + acct_map_private_chain_idx( addrs+i, seed, chain_cnt );
     __builtin_prefetch( heads[ i ], 0, 3 );
   }
   for( ulong i=0UL; i<cnt; i++ ) {
     ulong head = (ulong)*heads[ i ];
-    __builtin_prefetch( disp->acct_pool + fd_ulong_if( head==UINT_MAX, 0UL, head ), 0, 3 );
+    __builtin_prefetch( RDISP_ACCT_POOL(disp) + fd_ulong_if( head==UINT_MAX, 0UL, head ), 0, 3 );
   }
 }
 
 ulong
 fd_rdisp_peek_free_txn( fd_rdisp_t const * disp ) {
-  ulong idx = pool_private_meta_const( disp->pool )->free_top;
-  return fd_ulong_if( idx==pool_idx_null( disp->pool ), 0UL, idx );
+  ulong idx = pool_private_meta_const( RDISP_POOL(disp) )->free_top;
+  return fd_ulong_if( idx==pool_idx_null( RDISP_POOL(disp) ), 0UL, idx );
 }
 
 ulong
@@ -1620,23 +1581,23 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
                   fd_rdisp_neww_t      * new_writable ) {
   if( FD_LIKELY( new_writable ) ) fd_rdisp_neww_new( new_writable ); /* clear it */
 
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &insert_block, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( RDISP_BLOCKMAP(disp), &insert_block, NULL, RDISP_BLOCK_POOL(disp) );
   if( FD_UNLIKELY( !block || !block->insert_ready ) ) return 0UL;
-  if( FD_UNLIKELY( !pool_free( disp->pool       ) ) ) return 0UL;
+  if( FD_UNLIKELY( !pool_free( RDISP_POOL(disp)       ) ) ) return 0UL;
 
   fd_acct_addr_t const * imm_addrs = fd_txn_get_acct_addrs( txn, payload );
 
   /*                   */ prefetch_accts( disp, imm_addrs, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ) );
   if( FD_LIKELY( alts ) ) prefetch_accts( disp, alts, fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT ) );
-  __builtin_prefetch( disp->acct_pool + free_dlist_idx_peek_head( disp->free_acct_dlist, disp->acct_pool ), 1, 3 );
+  __builtin_prefetch( RDISP_ACCT_POOL(disp) + free_dlist_idx_peek_head( disp->free_acct_dlist, RDISP_ACCT_POOL(disp) ), 1, 3 );
 
-  ulong idx = pool_idx_acquire( disp->pool );
-  fd_rdisp_txn_t * rtxn = disp->pool + idx;
+  ulong idx = pool_idx_acquire( RDISP_POOL(disp) );
+  fd_rdisp_txn_t * rtxn = RDISP_POOL(disp) + idx;
   if( FD_UNLIKELY( rtxn->in_degree!=IN_DEGREE_FREE ) ) FD_LOG_CRIT(( "pool[%lu].in_degree==%u but free", idx, rtxn->in_degree ));
 
   /* The element the next add_txn takes (unless a completion pushes a
      recently touched one first) is the next cold line in this path. */
-  __builtin_prefetch( disp->pool + fd_rdisp_peek_free_txn( disp ), 1, 3 );
+  __builtin_prefetch( RDISP_POOL(disp) + fd_rdisp_peek_free_txn( disp ), 1, 3 );
 
   ulong ws = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_SIGNER );
   ulong rs = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_READONLY_SIGNER );
@@ -1649,8 +1610,8 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
     rtxn->in_degree = IN_DEGREE_UNSTAGED;
     rtxn->score     = 1.0f;
 
-    fd_rdisp_unstaged_t * unstaged = disp->unstaged + idx;
-    unstaged->block_idx    = (uint)(block-disp->block_pool);
+    fd_rdisp_unstaged_t * unstaged = RDISP_UNSTAGED(disp) + idx;
+    unstaged->block_idx    = (uint)(block-RDISP_BLOCK_POOL(disp));
     unstaged->writable_cnt = 0U;
     unstaged->readonly_cnt = 0U;
 
@@ -1663,7 +1624,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
     if( FD_LIKELY( alts ) )
       add_unstaged_edges( disp, rtxn, unstaged, alts+wa,            ra, 0, 1, new_writable, ws+rs+wn+rn+wa );
 
-    unstaged_txn_ll_ele_push_tail( block->ll, rtxn, disp->pool );
+    unstaged_txn_ll_ele_push_tail( block->ll, rtxn, RDISP_POOL(disp) );
   } else {
     uint lane = block->staging_lane;
 
@@ -1697,7 +1658,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
 
   if( FD_LIKELY( (block->staged) & (rtxn->in_degree==0U) ) ) {
     pending_prq_ele_t temp[1] = {{ .score = rtxn->score, .linear_block_number = block->linear_block_number, .txn_idx = (uint)idx }};
-    pending_prq_insert( disp->lanes[ block->staging_lane ].pending, temp );
+    pending_prq_insert( RDISP_LANE_PENDING( &disp->lanes[ block->staging_lane ] ), temp );
   }
 
   return idx;
@@ -1706,7 +1667,7 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
 ulong
 fd_rdisp_get_next_ready( fd_rdisp_t           * disp,
                          FD_RDISP_BLOCK_TAG_T   schedule_block ) {
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &schedule_block, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( RDISP_BLOCKMAP(disp), &schedule_block, NULL, RDISP_BLOCK_POOL(disp) );
   if( FD_UNLIKELY( !block || !block->schedule_ready ) ) return 0UL;
 
   ulong idx;
@@ -1714,22 +1675,22 @@ fd_rdisp_get_next_ready( fd_rdisp_t           * disp,
     ulong staging_lane = block->staging_lane;
     per_lane_info_t * l = disp->lanes + staging_lane;
 
-    if( FD_UNLIKELY( !pending_prq_cnt( l->pending )                                ) ) return 0UL;
-    if( FD_UNLIKELY( l->pending->linear_block_number != block->linear_block_number ) ) return 0UL;
+    if( FD_UNLIKELY( !pending_prq_cnt( RDISP_LANE_PENDING( l ) )                                ) ) return 0UL;
+    if( FD_UNLIKELY( RDISP_LANE_PENDING( l )->linear_block_number != block->linear_block_number ) ) return 0UL;
     /* e.g. when completed_cnt==0, we can accept any score below 1.0 */
-    if( FD_UNLIKELY( l->pending->score>=(float)(block->completed_cnt+1U)           ) ) return 0UL;
-    idx = l->pending->txn_idx;
-    pending_prq_remove_min( l->pending );
-    if( FD_UNLIKELY( EDGE_IS_PTXN(idx) ) ) disp->ptxn_pool[ EDGE_SPECIAL_IDX( idx ) ].in_degree = IN_DEGREE_DISPATCHED;
-    else                                   disp->pool     [                   idx   ].in_degree = IN_DEGREE_DISPATCHED;
+    if( FD_UNLIKELY( RDISP_LANE_PENDING( l )->score>=(float)(block->completed_cnt+1U)           ) ) return 0UL;
+    idx = RDISP_LANE_PENDING( l )->txn_idx;
+    pending_prq_remove_min( RDISP_LANE_PENDING( l ) );
+    if( FD_UNLIKELY( EDGE_IS_PTXN(idx) ) ) RDISP_PTXN_POOL(disp)[ EDGE_SPECIAL_IDX( idx ) ].in_degree = IN_DEGREE_DISPATCHED;
+    else                                   RDISP_POOL(disp)     [                   idx   ].in_degree = IN_DEGREE_DISPATCHED;
   } else {
     if( FD_UNLIKELY( block->dispatched_cnt!=block->completed_cnt       ) ) return 0UL;
-    if( FD_UNLIKELY( !unstaged_txn_ll_is_empty( block->ll, disp->pool ) ) ) {
-      idx = unstaged_txn_ll_idx_peek_head( block->ll, disp->pool );
-      disp->pool[ idx ].in_degree = IN_DEGREE_UNSTAGED_DISPATCHED;
-    } else if( FD_UNLIKELY( !ustlt_dlist_is_empty( block->ustlt_created, disp->ustlt_pool ) ) ) {
-      idx = ustlt_dlist_ele_peek_head( block->ustlt_created, disp->ustlt_pool )->ptxn_idx;
-      disp->ptxn_pool[ idx ].in_degree = IN_DEGREE_UNSTAGED_DISPATCHED;
+    if( FD_UNLIKELY( !unstaged_txn_ll_is_empty( block->ll, RDISP_POOL(disp) ) ) ) {
+      idx = unstaged_txn_ll_idx_peek_head( block->ll, RDISP_POOL(disp) );
+      RDISP_POOL(disp)[ idx ].in_degree = IN_DEGREE_UNSTAGED_DISPATCHED;
+    } else if( FD_UNLIKELY( !ustlt_dlist_is_empty( block->ustlt_created, RDISP_USTLT_POOL(disp) ) ) ) {
+      idx = ustlt_dlist_ele_peek_head( block->ustlt_created, RDISP_USTLT_POOL(disp) )->ptxn_idx;
+      RDISP_PTXN_POOL(disp)[ idx ].in_degree = IN_DEGREE_UNSTAGED_DISPATCHED;
       idx = EDGE_MAKE_SPECIAL(PTXN, idx);
     } else {
       return 0UL;
@@ -1740,30 +1701,113 @@ fd_rdisp_get_next_ready( fd_rdisp_t           * disp,
   return idx;
 }
 
+int
+fd_rdisp_has_ready_real( fd_rdisp_t const *   disp,
+                         FD_RDISP_BLOCK_TAG_T schedule_block ) {
+  fd_rdisp_blockinfo_t const * block = block_map_ele_query_const( RDISP_BLOCKMAP(disp), &schedule_block, NULL, RDISP_BLOCK_POOL(disp) );
+  if( FD_UNLIKELY( !block || !block->schedule_ready ) ) return 0;
+
+  if( FD_LIKELY( block->staged ) ) {
+    per_lane_info_t const *   l       = disp->lanes + block->staging_lane;
+    pending_prq_ele_t const * pending = RDISP_LANE_PENDING( l );
+    if( FD_UNLIKELY( !pending_prq_cnt( pending )                             ) ) return 0;
+    if( FD_UNLIKELY( pending->linear_block_number!=block->linear_block_number ) ) return 0;
+    if( FD_UNLIKELY( pending->score>=(float)(block->completed_cnt+1U)        ) ) return 0;
+    return !EDGE_IS_PTXN( pending->txn_idx );
+  } else {
+    if( FD_UNLIKELY( block->dispatched_cnt!=block->completed_cnt             ) ) return 0;
+    return !unstaged_txn_ll_is_empty( block->ll, RDISP_POOL(disp) );
+  }
+}
+
+ulong
+fd_rdisp_get_next_ready_real( fd_rdisp_t           * disp,
+                              FD_RDISP_BLOCK_TAG_T   schedule_block ) {
+  fd_rdisp_blockinfo_t * block = block_map_ele_query( RDISP_BLOCKMAP(disp), &schedule_block, NULL, RDISP_BLOCK_POOL(disp) );
+  if( FD_UNLIKELY( !block || !block->schedule_ready ) ) return 0UL;
+
+  ulong idx;
+  if( FD_LIKELY( block->staged ) ) {
+    ulong staging_lane = block->staging_lane;
+    per_lane_info_t * l = disp->lanes + staging_lane;
+
+    if( FD_UNLIKELY( !pending_prq_cnt( RDISP_LANE_PENDING( l ) )                                ) ) return 0UL;
+    if( FD_UNLIKELY( RDISP_LANE_PENDING( l )->linear_block_number != block->linear_block_number ) ) return 0UL;
+    if( FD_UNLIKELY( RDISP_LANE_PENDING( l )->score>=(float)(block->completed_cnt+1U)           ) ) return 0UL;
+    if( FD_UNLIKELY( EDGE_IS_PTXN( RDISP_LANE_PENDING( l )->txn_idx )                           ) ) return 0UL;
+    idx = RDISP_LANE_PENDING( l )->txn_idx;
+    pending_prq_remove_min( RDISP_LANE_PENDING( l ) );
+    RDISP_POOL(disp)[ idx ].in_degree = IN_DEGREE_DISPATCHED;
+  } else {
+    if( FD_UNLIKELY( block->dispatched_cnt!=block->completed_cnt       ) ) return 0UL;
+    if( FD_UNLIKELY( !unstaged_txn_ll_is_empty( block->ll, RDISP_POOL(disp) ) ) ) {
+      idx = unstaged_txn_ll_idx_peek_head( block->ll, RDISP_POOL(disp) );
+      RDISP_POOL(disp)[ idx ].in_degree = IN_DEGREE_UNSTAGED_DISPATCHED;
+    } else {
+      return 0UL;
+    }
+  }
+  block->dispatched_cnt++;
+  return idx;
+}
+
+ulong
+fd_rdisp_get_next_ready_ptxn( fd_rdisp_t           * disp,
+                              FD_RDISP_BLOCK_TAG_T   schedule_block ) {
+  fd_rdisp_blockinfo_t * block = block_map_ele_query( RDISP_BLOCKMAP(disp), &schedule_block, NULL, RDISP_BLOCK_POOL(disp) );
+  if( FD_UNLIKELY( !block || !block->schedule_ready ) ) return 0UL;
+
+  ulong idx;
+  if( FD_LIKELY( block->staged ) ) {
+    ulong staging_lane = block->staging_lane;
+    per_lane_info_t * l = disp->lanes + staging_lane;
+
+    if( FD_UNLIKELY( !pending_prq_cnt( RDISP_LANE_PENDING( l ) )                                ) ) return 0UL;
+    if( FD_UNLIKELY( RDISP_LANE_PENDING( l )->linear_block_number != block->linear_block_number ) ) return 0UL;
+    if( FD_UNLIKELY( RDISP_LANE_PENDING( l )->score>=(float)(block->completed_cnt+1U)           ) ) return 0UL;
+    if( FD_LIKELY  ( !EDGE_IS_PTXN( RDISP_LANE_PENDING( l )->txn_idx )                          ) ) return 0UL;
+    idx = RDISP_LANE_PENDING( l )->txn_idx;
+    pending_prq_remove_min( RDISP_LANE_PENDING( l ) );
+    RDISP_PTXN_POOL(disp)[ EDGE_SPECIAL_IDX( idx ) ].in_degree = IN_DEGREE_DISPATCHED;
+  } else {
+    if( FD_UNLIKELY( block->dispatched_cnt!=block->completed_cnt                   ) ) return 0UL;
+    if( FD_UNLIKELY( !unstaged_txn_ll_is_empty( block->ll, RDISP_POOL(disp) )            ) ) return 0UL;
+    if( FD_UNLIKELY( !ustlt_dlist_is_empty( block->ustlt_created, RDISP_USTLT_POOL(disp) ) ) ) {
+      idx = ustlt_dlist_ele_peek_head( block->ustlt_created, RDISP_USTLT_POOL(disp) )->ptxn_idx;
+      RDISP_PTXN_POOL(disp)[ idx ].in_degree = IN_DEGREE_UNSTAGED_DISPATCHED;
+      idx = EDGE_MAKE_SPECIAL(PTXN, idx);
+    } else {
+      return 0UL;
+    }
+  }
+  block->dispatched_cnt++;
+  return idx;
+}
+
 void
 fd_rdisp_complete_txn( fd_rdisp_t * disp,
                        ulong        txn_idx,
                        int          reclaim ) {
 
   int ptxn = EDGE_IS_PTXN( txn_idx );
-  fd_rdisp_txn_t * rtxn = (!ptxn) ? disp->pool + txn_idx :
-                                    (fd_rdisp_txn_t *)fd_type_pun( (disp->ptxn_pool + EDGE_SPECIAL_IDX(txn_idx)) );
+  fd_rdisp_txn_t * rtxn = (!ptxn) ? RDISP_POOL(disp) + txn_idx :
+                                    (fd_rdisp_txn_t *)fd_type_pun( (RDISP_PTXN_POOL(disp) + EDGE_SPECIAL_IDX(txn_idx)) );
   fd_rdisp_blockinfo_t * block = NULL;
 
   if( FD_UNLIKELY( rtxn->in_degree==IN_DEGREE_UNSTAGED_DISPATCHED ) ) {
     /* Unstaged */
     if( FD_UNLIKELY( ptxn ) ) {
-      fd_rdisp_ptxn_t  * ptxn_e    = disp->ptxn_pool + EDGE_SPECIAL_IDX(txn_idx); /* == rtxn */
-      ustlt_t          * ustlt_ele = disp->ustlt_pool + ptxn_e->last;
-      block = disp->block_pool + ustlt_ele->key.block_idx;
-      FD_TEST( ustlt_ele==ustlt_dlist_ele_pop_head( block->ustlt_created, disp->ustlt_pool ) );
+      fd_rdisp_ptxn_t  * ptxn_e    = RDISP_PTXN_POOL(disp) + EDGE_SPECIAL_IDX(txn_idx); /* == rtxn */
+      ustlt_t          * ustlt_ele = RDISP_USTLT_POOL(disp) + ptxn_e->last;
+      block = RDISP_BLOCK_POOL(disp) + ustlt_ele->key.block_idx;
+      FD_TEST( ustlt_ele==ustlt_dlist_ele_pop_head( block->ustlt_created, RDISP_USTLT_POOL(disp) ) );
       /* ptxn_e gets freed below */
-      ustlt_dlist_ele_push_tail( disp->ustlt_free, ustlt_ele, disp->ustlt_pool );
+      ustlt_dlist_ele_push_tail( disp->ustlt_free, ustlt_ele, RDISP_USTLT_POOL(disp) );
 
     } else {
-      block = disp->block_pool + disp->unstaged[ txn_idx ].block_idx;
-      FD_TEST( rtxn==unstaged_txn_ll_ele_peek_head( block->ll, disp->pool ) );
-      unstaged_txn_ll_ele_pop_head( block->ll, disp->pool );
+      block = RDISP_BLOCK_POOL(disp) + RDISP_UNSTAGED(disp)[ txn_idx ].block_idx;
+      FD_TEST( rtxn==unstaged_txn_ll_ele_peek_head( block->ll, RDISP_POOL(disp) ) );
+      unstaged_txn_ll_ele_pop_head( block->ll, RDISP_POOL(disp) );
     }
     block->completed_cnt++;
   } else if( FD_LIKELY( rtxn->in_degree==IN_DEGREE_DISPATCHED ) ) {
@@ -1788,7 +1832,7 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
 
       if( FD_UNLIKELY( EDGE_IS_LAST( e0 ) ) ) {
         ulong acct_idx = EDGE_SPECIAL_IDX( e0 );
-        acct_info_t * ai = disp->acct_pool + acct_idx;
+        acct_info_t * ai = RDISP_ACCT_POOL(disp) + acct_idx;
         /* If this is a writer, e.g. node G above, we know it's the last
            one, so we can clear last_reference.  We know it has to go to
            the NEEDS_PTXN state unless LtHash tracking was disabled for it.
@@ -1801,11 +1845,11 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
            that state. */
         if( edge_idx<w_cnt ) {
           ai->last_reference[ lane ] = 0U;
-          int needs_ptxn = fd_rdisp_mq_test( disp->mq, acct_idx, lane );
+          int needs_ptxn = fd_rdisp_mq_test( RDISP_MQ(disp), acct_idx, lane );
           ai->states = fd_uchar_if( needs_ptxn, ACCT_INFO_STATE_SET(ai->states, lane, NEEDS_PTXN), ACCT_INFO_STATE_SET(ai->states, lane, NO_WRITERS) );
           /* The account's last writer is done, so we bump it into the
              ready class, hotness threshold permitting. */
-          if( needs_ptxn && ai->ema_refs<disp->ready_acct_ema_max ) fd_rdisp_mq_adjust( disp->mq, acct_idx, lane, 0.0f );
+          if( needs_ptxn && ai->ema_refs<disp->ready_acct_ema_max ) fd_rdisp_mq_adjust( RDISP_MQ(disp), acct_idx, lane, 0.0f );
         } else if( e[1]==ref_to_me ) {
           ai->last_reference[ lane ] = 0U;
         } else {
@@ -1820,7 +1864,7 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
                          (ai->last_reference[ 0 ]==0U)&(ai->last_reference[ 1 ]==0U)&
                          (ai->last_reference[ 2 ]==0U)&(ai->last_reference[ 3 ]==0U) ) ) {
           ai->cached = ACCT_INFO_CACHED;
-          free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, disp->acct_pool );
+          free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, RDISP_ACCT_POOL(disp) );
         }
       } else {
         int child_is_writer;
@@ -1855,7 +1899,7 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
             pending_prq_ele_t temp[1] = {{ .score               = child_txn->score,
                                            .linear_block_number = linear_block_num,
                                            .txn_idx             = fd_uint_if( EDGE_IS_PTXN(next_e), next_e, next_e>>8 ) }};
-            pending_prq_insert( disp->lanes[ lane ].pending, temp );
+            pending_prq_insert( RDISP_LANE_PENDING( &disp->lanes[ lane ] ), temp );
           }
           if( child_is_writer || child_edge[1]==e0 ) break;
           next_e = child_edge[1];
@@ -1914,27 +1958,27 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
              and we stay there. */
 
           ulong acct_idx = EDGE_SPECIAL_IDX( *child_edge );
-          acct_info_t * ai = disp->acct_pool + acct_idx;
+          acct_info_t * ai = RDISP_ACCT_POOL(disp) + acct_idx;
           uint s = ai->states;
           if( !ACCT_INFO_STATE_IS( s, lane, LAST_REF_WAS_WRITE ) ) {
-            int needs_ptxn = fd_rdisp_mq_test( disp->mq, acct_idx, lane );
+            int needs_ptxn = fd_rdisp_mq_test( RDISP_MQ(disp), acct_idx, lane );
             s = fd_uint_if( needs_ptxn, ACCT_INFO_STATE_SET(s, lane, NEEDS_PTXN), ACCT_INFO_STATE_SET(s, lane, NO_WRITERS) );
             ai->states = (uchar)s;
             /* The account's last writer is done, so we bump it into the
                ready class, hotness threshold permitting. */
-            if( needs_ptxn && ai->ema_refs<disp->ready_acct_ema_max ) fd_rdisp_mq_adjust( disp->mq, acct_idx, lane, 0.0f );
+            if( needs_ptxn && ai->ema_refs<disp->ready_acct_ema_max ) fd_rdisp_mq_adjust( RDISP_MQ(disp), acct_idx, lane, 0.0f );
           }
         }
       }
       edge_idx += fd_ulong_if( i<w_cnt, 1UL, 3UL );
     }
-    block = block_slist_ele_peek_head( disp->lanes[ lane ].block_ll, disp->block_pool );
+    block = block_slist_ele_peek_head( disp->lanes[ lane ].block_ll, RDISP_BLOCK_POOL(disp) );
     block->completed_cnt++;
   } else if( FD_LIKELY( rtxn->in_degree==IN_DEGREE_ZOMBIE ) ) {
     FD_TEST( reclaim );
     FD_TEST( !ptxn   );
-    block = block_pool_ele( disp->block_pool, rtxn->block_idx );
-    zombie_dlist_ele_remove( block->zombie_list, rtxn, disp->pool );
+    block = block_pool_ele( RDISP_BLOCK_POOL(disp), rtxn->block_idx );
+    zombie_dlist_ele_remove( block->zombie_list, rtxn, RDISP_POOL(disp) );
     /* Fall through to the pool release branch below. */
   } else {
     FD_LOG_CRIT(( "completed un-dispatched transaction %lu", txn_idx ));
@@ -1942,14 +1986,14 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
   if( reclaim|ptxn ) {
     /* For testing purposes, to make sure we don't read a completed
        transaction, we can clobber the memory. */
-    /* memset( disp->pool+txn_idx, '\xCC', sizeof(fd_rdisp_txn_t) ); */
+    /* memset( RDISP_POOL(disp)+txn_idx, '\xCC', sizeof(fd_rdisp_txn_t) ); */
     rtxn->in_degree = IN_DEGREE_FREE;
-    if( FD_LIKELY( !ptxn ) ) pool_idx_release     ( disp->pool,                        txn_idx   );
-    else                     ptxn_pool_idx_release( disp->ptxn_pool, EDGE_SPECIAL_IDX( txn_idx ) );
+    if( FD_LIKELY( !ptxn ) ) pool_idx_release     ( RDISP_POOL(disp),                        txn_idx   );
+    else                     ptxn_pool_idx_release( RDISP_PTXN_POOL(disp), EDGE_SPECIAL_IDX( txn_idx ) );
   } else {
     rtxn->in_degree = IN_DEGREE_ZOMBIE;
-    zombie_dlist_ele_push_tail( block->zombie_list, rtxn, disp->pool );
-    rtxn->block_idx = (uint)block_pool_idx( disp->block_pool, block );
+    zombie_dlist_ele_push_tail( block->zombie_list, rtxn, RDISP_POOL(disp) );
+    rtxn->block_idx = (uint)block_pool_idx( RDISP_BLOCK_POOL(disp), block );
   }
 }
 
@@ -1959,8 +2003,8 @@ fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
   for( ulong i=0UL; i<4UL; i++ ) {
     if( !(disp->free_lanes & (1<<i) ) ) {
       block_slist_t const * sl = disp->lanes[ i ].block_ll;
-      out_sched[ i ].insert_ready_block   = block_slist_ele_peek_tail( sl, disp->block_pool )->block;
-      out_sched[ i ].schedule_ready_block = block_slist_ele_peek_head( sl, disp->block_pool )->block;
+      out_sched[ i ].insert_ready_block   = block_slist_ele_peek_tail( sl, RDISP_BLOCK_POOL(disp) )->block;
+      out_sched[ i ].schedule_ready_block = block_slist_ele_peek_head( sl, RDISP_BLOCK_POOL(disp) )->block;
     }
   }
   return 0xFUL & ~(ulong)disp->free_lanes;
@@ -1972,12 +2016,12 @@ fd_rdisp_pseudo_txn_to_addr( fd_rdisp_t const * disp,
                              fd_acct_addr_t   * out ) {
   FD_TEST( txn_idx & FD_RDISP_LTHASH_PSEUDO_TXN );
   txn_idx ^= FD_RDISP_LTHASH_PSEUDO_TXN;
-  fd_rdisp_ptxn_t const * ptxn = disp->ptxn_pool + txn_idx;
+  fd_rdisp_ptxn_t const * ptxn = RDISP_PTXN_POOL(disp) + txn_idx;
 
   if( FD_LIKELY( (ptxn->in_degree!=IN_DEGREE_UNSTAGED) & (ptxn->in_degree!=IN_DEGREE_UNSTAGED_DISPATCHED) ) ) {
-    *out = disp->acct_pool[ EDGE_SPECIAL_IDX(ptxn->last) ].key;
+    *out = RDISP_ACCT_POOL(disp)[ EDGE_SPECIAL_IDX(ptxn->last) ].key;
   } else {
-    *out = disp->ustlt_pool[ EDGE_SPECIAL_IDX(ptxn->last) ].key.acct;
+    *out = RDISP_USTLT_POOL(disp)[ EDGE_SPECIAL_IDX(ptxn->last) ].key.acct;
   }
 }
 
@@ -1998,12 +2042,12 @@ static ulong
 add_staged_pseudo_txn( fd_rdisp_t *           disp,
                        fd_rdisp_blockinfo_t * block ) {
   uint lane = block->staging_lane;
-  if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
-  fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
-  uint ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
+  if( FD_UNLIKELY( !ptxn_pool_free( RDISP_PTXN_POOL(disp) ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
+  fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( RDISP_PTXN_POOL(disp) );
+  uint ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - RDISP_PTXN_POOL(disp)));
 
-  ulong acct_idx = fd_rdisp_mq_pop( disp->mq, lane );
-  acct_info_t * ai = disp->acct_pool + acct_idx;
+  ulong acct_idx = fd_rdisp_mq_pop( RDISP_MQ(disp), lane );
+  acct_info_t * ai = RDISP_ACCT_POOL(disp) + acct_idx;
 
   ptxn->in_degree = 0U;
   if( FD_UNLIKELY( block->last_insert_was_serializing ) ) {
@@ -2035,7 +2079,7 @@ add_staged_pseudo_txn( fd_rdisp_t *           disp,
 
   if( FD_LIKELY( ptxn->in_degree==0U ) ) {
     pending_prq_ele_t temp[1] = {{ .score = ptxn->score, .linear_block_number = block->linear_block_number, .txn_idx = ptxn_idx }};
-    pending_prq_insert( disp->lanes[ lane ].pending, temp );
+    pending_prq_insert( RDISP_LANE_PENDING( &disp->lanes[ lane ] ), temp );
   }
   block->inserted_cnt++;
   return ptxn_idx;
@@ -2044,42 +2088,42 @@ add_staged_pseudo_txn( fd_rdisp_t *           disp,
 ulong
 fd_rdisp_add_ready_pseudo_txn( fd_rdisp_t          *  disp,
                                FD_RDISP_BLOCK_TAG_T   insert_block ) {
-  fd_rdisp_blockinfo_t * block = block_map_ele_query( disp->blockmap, &insert_block, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block = block_map_ele_query( RDISP_BLOCKMAP(disp), &insert_block, NULL, RDISP_BLOCK_POOL(disp) );
   if( FD_UNLIKELY( !block || !block->insert_ready || !block->staged ) ) return 0UL;
-  if( FD_UNLIKELY( !fd_rdisp_mq_prio0_cnt( disp->mq, block->staging_lane ) ) ) return 0UL;
+  if( FD_UNLIKELY( !fd_rdisp_mq_prio0_cnt( RDISP_MQ(disp), block->staging_lane ) ) ) return 0UL;
   return add_staged_pseudo_txn( disp, block );
 }
 
 ulong
 fd_rdisp_add_pseudo_txn( fd_rdisp_t          *  disp,
                          FD_RDISP_BLOCK_TAG_T   insert_block ) {
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &insert_block, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( RDISP_BLOCKMAP(disp), &insert_block, NULL, RDISP_BLOCK_POOL(disp) );
   if( FD_UNLIKELY( !block || !block->insert_ready ) ) return 0UL;
 
   fd_rdisp_ptxn_t * ptxn;
   uint ptxn_idx;
 
   if( FD_LIKELY( block->staged ) ) {
-    if( FD_UNLIKELY( !fd_rdisp_mq_cnt( disp->mq, block->staging_lane ) ) ) return 0UL;
+    if( FD_UNLIKELY( !fd_rdisp_mq_cnt( RDISP_MQ(disp), block->staging_lane ) ) ) return 0UL;
     return add_staged_pseudo_txn( disp, block );
   } else {
-    if( FD_UNLIKELY( ustlt_dlist_is_empty( block->ustlt_needed, disp->ustlt_pool ) ) ) return 0UL;
+    if( FD_UNLIKELY( ustlt_dlist_is_empty( block->ustlt_needed, RDISP_USTLT_POOL(disp) ) ) ) return 0UL;
 
-    if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
-    ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
-    ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
+    if( FD_UNLIKELY( !ptxn_pool_free( RDISP_PTXN_POOL(disp) ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
+    ptxn = ptxn_pool_ele_acquire( RDISP_PTXN_POOL(disp) );
+    ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - RDISP_PTXN_POOL(disp)));
 
-    ustlt_t * ustlt_ele = ustlt_dlist_ele_pop_head( block->ustlt_needed, disp->ustlt_pool );
-    ustlt_map_ele_remove_fast( disp->ustlt_map, ustlt_ele, disp->ustlt_pool );
+    ustlt_t * ustlt_ele = ustlt_dlist_ele_pop_head( block->ustlt_needed, RDISP_USTLT_POOL(disp) );
+    ustlt_map_ele_remove_fast( RDISP_USTLT_MAP(disp), ustlt_ele, RDISP_USTLT_POOL(disp) );
     ptxn->in_degree = IN_DEGREE_UNSTAGED;
     ptxn->score = 0.0f;
 
     ptxn->edge_cnt_etc = 0U;
 
-    ptxn->last          = (uint)(ustlt_ele - disp->ustlt_pool);
-    ustlt_ele->ptxn_idx = (uint)(ptxn      - disp->ptxn_pool );
+    ptxn->last          = (uint)(ustlt_ele - RDISP_USTLT_POOL(disp));
+    ustlt_ele->ptxn_idx = (uint)(ptxn      - RDISP_PTXN_POOL(disp) );
 
-    ustlt_dlist_ele_push_tail( block->ustlt_created, ustlt_ele, disp->ustlt_pool );
+    ustlt_dlist_ele_push_tail( block->ustlt_created, ustlt_ele, RDISP_USTLT_POOL(disp) );
   }
   block->inserted_cnt++;
   return ptxn_idx;
@@ -2089,34 +2133,34 @@ int
 fd_rdisp_add_writable( fd_rdisp_t           * disp,
                        FD_RDISP_BLOCK_TAG_T   insert_block,
                        fd_acct_addr_t const * addr ) {
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &insert_block, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( RDISP_BLOCKMAP(disp), &insert_block, NULL, RDISP_BLOCK_POOL(disp) );
   if( FD_UNLIKELY( !block || !block->insert_ready ) ) return -1;
 
   if( FD_LIKELY( block->staged ) ) {
     ulong idx  = lookup_pubkey( disp, addr );
     ulong lane = block->staging_lane;
-    if( FD_LIKELY( fd_rdisp_mq_test( disp->mq, idx, block->staging_lane ) ) ) return 0;
+    if( FD_LIKELY( fd_rdisp_mq_test( RDISP_MQ(disp), idx, block->staging_lane ) ) ) return 0;
 
-    acct_info_t * ai = disp->acct_pool+idx;
+    acct_info_t * ai = RDISP_ACCT_POOL(disp)+idx;
     uint states = ai->states;
     states = fd_uint_if( ACCT_INFO_STATE_IS( states, lane, NO_WRITERS ), ACCT_INFO_STATE_SET( states, lane, NEEDS_PTXN ), states );
     ai->states = (uchar)states;
-    if( FD_UNLIKELY( fd_rdisp_mq_cnt( disp->mq, lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %lu writable account set full", lane ));
-    fd_rdisp_mq_insert( disp->mq, idx, lane, mq_prio( disp, ai, ACCT_INFO_STATE_IS( states, lane, NEEDS_PTXN ) ) );
+    if( FD_UNLIKELY( fd_rdisp_mq_cnt( RDISP_MQ(disp), lane )>=MAX_WRITERS_PER_BLOCK ) ) FD_LOG_CRIT(( "rdisp lane %lu writable account set full", lane ));
+    fd_rdisp_mq_insert( RDISP_MQ(disp), idx, lane, mq_prio( disp, ai, ACCT_INFO_STATE_IS( states, lane, NEEDS_PTXN ) ) );
     return 1;
   } else {
     ustlt_key_t query[1] = {{
-      .block_idx = (uint)(block-disp->block_pool),
+      .block_idx = (uint)(block-RDISP_BLOCK_POOL(disp)),
       .acct      = *addr
     }};
-    int new = (ustlt_map_idx_query( disp->ustlt_map, query, ULONG_MAX, disp->ustlt_pool )==ULONG_MAX);
+    int new = (ustlt_map_idx_query( RDISP_USTLT_MAP(disp), query, ULONG_MAX, RDISP_USTLT_POOL(disp) )==ULONG_MAX);
     if( FD_LIKELY( !new ) ) return 0;
 
-    if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, disp->ustlt_pool ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
-    ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
-    disp->ustlt_pool[ ustlt_idx ].key = *query;
-    ustlt_map_idx_insert( disp->ustlt_map, ustlt_idx, disp->ustlt_pool );
-    ustlt_dlist_idx_push_tail( block->ustlt_needed, ustlt_idx, disp->ustlt_pool );
+    if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, RDISP_USTLT_POOL(disp) ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
+    ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, RDISP_USTLT_POOL(disp) );
+    RDISP_USTLT_POOL(disp)[ ustlt_idx ].key = *query;
+    ustlt_map_idx_insert( RDISP_USTLT_MAP(disp), ustlt_idx, RDISP_USTLT_POOL(disp) );
+    ustlt_dlist_idx_push_tail( block->ustlt_needed, ustlt_idx, RDISP_USTLT_POOL(disp) );
     return 1;
   }
 }
@@ -2125,7 +2169,7 @@ ulong
 fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
                                FD_RDISP_BLOCK_TAG_T   schedule_block,
                                fd_acct_addr_t const * addr ) {
-  fd_rdisp_blockinfo_t * block   = block_map_ele_query( disp->blockmap, &schedule_block, NULL, disp->block_pool );
+  fd_rdisp_blockinfo_t * block   = block_map_ele_query( RDISP_BLOCKMAP(disp), &schedule_block, NULL, RDISP_BLOCK_POOL(disp) );
   if( FD_UNLIKELY( !block || !block->schedule_ready ) ) return 0UL;
 
   uint ptxn_idx;
@@ -2134,14 +2178,14 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
     ulong idx  = lookup_pubkey( disp, addr );
     uint  lane = block->staging_lane;
 
-    acct_info_t * ai = disp->acct_pool+idx;
+    acct_info_t * ai = RDISP_ACCT_POOL(disp)+idx;
     edge_t last = ai->last_reference[lane];
     int insert_inline = 0;
     if( FD_UNLIKELY( block->insert_ready ) ) {
       insert_inline = 1;
     } else if( FD_UNLIKELY( EDGE_IS_PTXN(last) ) ) {
       /* If this is for the right block, we got lucky */
-      fd_rdisp_ptxn_t const * ptxn = disp->ptxn_pool + EDGE_SPECIAL_IDX(last);
+      fd_rdisp_ptxn_t const * ptxn = RDISP_PTXN_POOL(disp) + EDGE_SPECIAL_IDX(last);
       if( FD_UNLIKELY( (ptxn->edge_cnt_etc>>16)==(0xFFFF&block->linear_block_number) ) ) return last;
     } else if( FD_UNLIKELY( last==0U ) ) {
       insert_inline=1;
@@ -2165,9 +2209,9 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
       block->inserted_extra_ptxn = 1;
     }
 
-    if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
-    fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
-    ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
+    if( FD_UNLIKELY( !ptxn_pool_free( RDISP_PTXN_POOL(disp) ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
+    fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( RDISP_PTXN_POOL(disp) );
+    ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - RDISP_PTXN_POOL(disp)));
     if( FD_LIKELY( insert_inline ) ) {
       /* What follows below is essentially the same as the normal
          add_pseudo_txn case */
@@ -2185,7 +2229,7 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
 
       if( FD_LIKELY( ptxn->in_degree==0U ) ) {
         pending_prq_ele_t temp[1] = {{ .score = ptxn->score, .linear_block_number = block->linear_block_number, .txn_idx = ptxn_idx }};
-        pending_prq_insert( disp->lanes[ block->staging_lane ].pending, temp );
+        pending_prq_insert( RDISP_LANE_PENDING( &disp->lanes[ block->staging_lane ] ), temp );
       }
     } else {
       /* Otherwise there's already a transaction for a later block in
@@ -2204,25 +2248,25 @@ fd_rdisp_add_extra_pseudo_txn( fd_rdisp_t           * disp,
          this transaction has completed.  That means we don't need to
          touch ai->states. */
       pending_prq_ele_t temp[1] = {{ .score = ptxn->score, .linear_block_number = block->linear_block_number, .txn_idx = ptxn_idx }};
-      pending_prq_insert( disp->lanes[ block->staging_lane ].pending, temp );
+      pending_prq_insert( RDISP_LANE_PENDING( &disp->lanes[ block->staging_lane ] ), temp );
     }
   } else {
-    if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, disp->ustlt_pool ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
-    ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, disp->ustlt_pool );
-    disp->ustlt_pool[ ustlt_idx ].key.block_idx = (uint)(block-disp->block_pool);
-    disp->ustlt_pool[ ustlt_idx ].key.acct      = *addr;
+    if( FD_UNLIKELY( ustlt_dlist_is_empty( disp->ustlt_free, RDISP_USTLT_POOL(disp) ) ) ) FD_LOG_CRIT(( "rdisp unstaged LtHash entry pool exhausted" ));
+    ulong ustlt_idx = ustlt_dlist_idx_pop_head( disp->ustlt_free, RDISP_USTLT_POOL(disp) );
+    RDISP_USTLT_POOL(disp)[ ustlt_idx ].key.block_idx = (uint)(block-RDISP_BLOCK_POOL(disp));
+    RDISP_USTLT_POOL(disp)[ ustlt_idx ].key.acct      = *addr;
 
-    if( FD_UNLIKELY( !ptxn_pool_free( disp->ptxn_pool ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
-    fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( disp->ptxn_pool );
-    ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - disp->ptxn_pool));
+    if( FD_UNLIKELY( !ptxn_pool_free( RDISP_PTXN_POOL(disp) ) ) ) FD_LOG_CRIT(( "rdisp pseudo-transaction pool exhausted" ));
+    fd_rdisp_ptxn_t * ptxn = ptxn_pool_ele_acquire( RDISP_PTXN_POOL(disp) );
+    ptxn_idx = EDGE_MAKE_SPECIAL(PTXN, (uint)(ptxn - RDISP_PTXN_POOL(disp)));
 
     ptxn->in_degree = IN_DEGREE_UNSTAGED;
     ptxn->score = 0.0f;
     ptxn->edge_cnt_etc = 0U;
     ptxn->last = (uint)ustlt_idx;
 
-    disp->ustlt_pool[ ustlt_idx ].ptxn_idx = (uint)(ptxn - disp->ptxn_pool);
-    ustlt_dlist_idx_push_tail( block->ustlt_created, ustlt_idx, disp->ustlt_pool );
+    RDISP_USTLT_POOL(disp)[ ustlt_idx ].ptxn_idx = (uint)(ptxn - RDISP_PTXN_POOL(disp));
+    ustlt_dlist_idx_push_tail( block->ustlt_created, ustlt_idx, RDISP_USTLT_POOL(disp) );
   }
   block->inserted_cnt++;
   return ptxn_idx;
@@ -2232,13 +2276,13 @@ ulong
 fd_rdisp_lane_writable_cnt( fd_rdisp_t * disp,
                             ulong        staging_lane ) {
   FD_TEST( staging_lane<4UL );
-  return fd_rdisp_mq_cnt( disp->mq, staging_lane );
+  return fd_rdisp_mq_cnt( RDISP_MQ(disp), staging_lane );
 }
 
 ulong
 fd_rdisp_lane_ready_acct_cnt( fd_rdisp_t * disp,
                               ulong        staging_lane ) {
-  return fd_rdisp_mq_prio0_cnt( disp->mq, staging_lane );
+  return fd_rdisp_mq_prio0_cnt( RDISP_MQ(disp), staging_lane );
 }
 
 void
@@ -2252,29 +2296,29 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
                  uint             * scratch ) {
   ulong acct_depth  = disp->depth*FD_RDISP_MAX_ACCT_PER_TXN+disp->acct_extra;
   ulong block_depth = disp->block_depth;
-  FD_TEST( 0==acct_map_verify ( disp->acct_map,  acct_depth +1UL, disp->acct_pool  ) );
-  FD_TEST( 0==block_map_verify( disp->blockmap,  block_depth+1UL, disp->block_pool ) );
-  FD_TEST( 0==ustlt_map_verify( disp->ustlt_map, acct_depth +1UL, disp->ustlt_pool ) );
+  FD_TEST( 0==acct_map_verify ( RDISP_ACCT_MAP(disp),  acct_depth +1UL, RDISP_ACCT_POOL(disp)  ) );
+  FD_TEST( 0==block_map_verify( RDISP_BLOCKMAP(disp),  block_depth+1UL, RDISP_BLOCK_POOL(disp) ) );
+  FD_TEST( 0==ustlt_map_verify( RDISP_USTLT_MAP(disp), acct_depth +1UL, RDISP_USTLT_POOL(disp) ) );
 
   /* Every element of the free list that is in the map is CACHED under
      its own key, every element in the map is either ACTIVE with a
      reference in some lane or CACHED, and the CACHED ones are exactly
      the mapped elements of the free list. */
   ulong cached_cnt = 0UL;
-  for( free_dlist_iter_t it=free_dlist_iter_fwd_init( disp->free_acct_dlist, disp->acct_pool );
-       !free_dlist_iter_done( it, disp->free_acct_dlist, disp->acct_pool );
-       it=free_dlist_iter_fwd_next( it, disp->free_acct_dlist, disp->acct_pool ) ) {
-    ulong idx = free_dlist_iter_idx( it, disp->free_acct_dlist, disp->acct_pool );
-    acct_info_t const * ai = disp->acct_pool+idx;
+  for( free_dlist_iter_t it=free_dlist_iter_fwd_init( disp->free_acct_dlist, RDISP_ACCT_POOL(disp) );
+       !free_dlist_iter_done( it, disp->free_acct_dlist, RDISP_ACCT_POOL(disp) );
+       it=free_dlist_iter_fwd_next( it, disp->free_acct_dlist, RDISP_ACCT_POOL(disp) ) ) {
+    ulong idx = free_dlist_iter_idx( it, disp->free_acct_dlist, RDISP_ACCT_POOL(disp) );
+    acct_info_t const * ai = RDISP_ACCT_POOL(disp)+idx;
     if( !ai->next ) continue; /* FREE */
     FD_TEST( ai->cached==ACCT_INFO_CACHED && !ai->states );
-    FD_TEST( acct_map_idx_query_const( disp->acct_map, &ai->key, ULONG_MAX, disp->acct_pool )==idx );
+    FD_TEST( acct_map_idx_query_const( RDISP_ACCT_MAP(disp), &ai->key, ULONG_MAX, RDISP_ACCT_POOL(disp) )==idx );
     cached_cnt++;
   }
-  for( acct_map_iter_t it=acct_map_iter_init( disp->acct_map, disp->acct_pool );
-       !acct_map_iter_done( it, disp->acct_map, disp->acct_pool );
-       it=acct_map_iter_next( it, disp->acct_map, disp->acct_pool ) ) {
-    acct_info_t const * ai = acct_map_iter_ele_const( it, disp->acct_map, disp->acct_pool );
+  for( acct_map_iter_t it=acct_map_iter_init( RDISP_ACCT_MAP(disp), RDISP_ACCT_POOL(disp) );
+       !acct_map_iter_done( it, RDISP_ACCT_MAP(disp), RDISP_ACCT_POOL(disp) );
+       it=acct_map_iter_next( it, RDISP_ACCT_MAP(disp), RDISP_ACCT_POOL(disp) ) ) {
+    acct_info_t const * ai = acct_map_iter_ele_const( it, RDISP_ACCT_MAP(disp), RDISP_ACCT_POOL(disp) );
     if( ai->cached==ACCT_INFO_CACHED ) cached_cnt--;
     else FD_TEST( ai->states | ai->last_reference[ 0 ] | ai->last_reference[ 1 ] | ai->last_reference[ 2 ] | ai->last_reference[ 3 ] );
   }
@@ -2283,20 +2327,20 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
   /* Every unstaged LtHash entry is in the free list or in one list of
      one unstaged block. */
   ulong ustlt_cnt = 0UL;
-  for( ustlt_dlist_iter_t it=ustlt_dlist_iter_fwd_init( disp->ustlt_free, disp->ustlt_pool );
-       !ustlt_dlist_iter_done( it, disp->ustlt_free, disp->ustlt_pool );
-       it=ustlt_dlist_iter_fwd_next( it, disp->ustlt_free, disp->ustlt_pool ) ) ustlt_cnt++;
-  for( block_map_iter_t it=block_map_iter_init( disp->blockmap, disp->block_pool );
-       !block_map_iter_done( it, disp->blockmap, disp->block_pool );
-       it=block_map_iter_next( it, disp->blockmap, disp->block_pool ) ) {
-    fd_rdisp_blockinfo_t const * block = block_map_iter_ele_const( it, disp->blockmap, disp->block_pool );
+  for( ustlt_dlist_iter_t it=ustlt_dlist_iter_fwd_init( disp->ustlt_free, RDISP_USTLT_POOL(disp) );
+       !ustlt_dlist_iter_done( it, disp->ustlt_free, RDISP_USTLT_POOL(disp) );
+       it=ustlt_dlist_iter_fwd_next( it, disp->ustlt_free, RDISP_USTLT_POOL(disp) ) ) ustlt_cnt++;
+  for( block_map_iter_t it=block_map_iter_init( RDISP_BLOCKMAP(disp), RDISP_BLOCK_POOL(disp) );
+       !block_map_iter_done( it, RDISP_BLOCKMAP(disp), RDISP_BLOCK_POOL(disp) );
+       it=block_map_iter_next( it, RDISP_BLOCKMAP(disp), RDISP_BLOCK_POOL(disp) ) ) {
+    fd_rdisp_blockinfo_t const * block = block_map_iter_ele_const( it, RDISP_BLOCKMAP(disp), RDISP_BLOCK_POOL(disp) );
     if( block->staged ) continue;
     ustlt_dlist_t const * lists[ 2 ] = { block->ustlt_needed, block->ustlt_created };
     for( ulong l=0UL; l<2UL; l++ ) {
-      for( ustlt_dlist_iter_t jt=ustlt_dlist_iter_fwd_init( lists[ l ], disp->ustlt_pool );
-           !ustlt_dlist_iter_done( jt, lists[ l ], disp->ustlt_pool );
-           jt=ustlt_dlist_iter_fwd_next( jt, lists[ l ], disp->ustlt_pool ) ) {
-        FD_TEST( ustlt_dlist_iter_ele_const( jt, lists[ l ], disp->ustlt_pool )->key.block_idx==(uint)(block-disp->block_pool) );
+      for( ustlt_dlist_iter_t jt=ustlt_dlist_iter_fwd_init( lists[ l ], RDISP_USTLT_POOL(disp) );
+           !ustlt_dlist_iter_done( jt, lists[ l ], RDISP_USTLT_POOL(disp) );
+           jt=ustlt_dlist_iter_fwd_next( jt, lists[ l ], RDISP_USTLT_POOL(disp) ) ) {
+        FD_TEST( ustlt_dlist_iter_ele_const( jt, lists[ l ], RDISP_USTLT_POOL(disp) )->key.block_idx==(uint)(block-RDISP_BLOCK_POOL(disp)) );
         ustlt_cnt++;
       }
     }
@@ -2309,7 +2353,7 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
 
   for( ulong j=0UL; j<(disp->depth+acct_depth+2UL); j++ ) {
     int ptxn = j>disp->depth;
-    fd_rdisp_txn_t const * rtxn = !ptxn ? disp->pool+j : (fd_rdisp_txn_t const *)(disp->ptxn_pool+(j-disp->depth-1UL));
+    fd_rdisp_txn_t const * rtxn = !ptxn ? RDISP_POOL(disp)+j : (fd_rdisp_txn_t const *)(RDISP_PTXN_POOL(disp)+(j-disp->depth-1UL));
     if( rtxn->in_degree==IN_DEGREE_FREE ) { scratch[ j ]=UINT_MAX; continue; }
 
     if( (rtxn->in_degree==IN_DEGREE_UNSTAGED_DISPATCHED) |
@@ -2328,11 +2372,11 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
 
       if( FD_UNLIKELY( EDGE_IS_LAST( e0 ) ) ) {
         /* Make sure acct is ACTIVE */
-        acct_info_t * ai = disp->acct_pool + EDGE_SPECIAL_IDX(e0);
+        acct_info_t * ai = RDISP_ACCT_POOL(disp) + EDGE_SPECIAL_IDX(e0);
         FD_TEST( !( (ai->states==0)&
                     (ai->last_reference[ 0 ]==0U)&(ai->last_reference[ 1 ]==0U)&
                     (ai->last_reference[ 2 ]==0U)&(ai->last_reference[ 3 ]==0U) ) );
-        FD_TEST( EDGE_SPECIAL_IDX(e0)==acct_map_idx_query_const( disp->acct_map, &(ai->key), ULONG_MAX, disp->acct_pool ) );
+        FD_TEST( EDGE_SPECIAL_IDX(e0)==acct_map_idx_query_const( RDISP_ACCT_MAP(disp), &(ai->key), ULONG_MAX, RDISP_ACCT_POOL(disp) ) );
         continue;
       }
 
@@ -2358,7 +2402,7 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
     }
   }
   for( ulong i=0UL; i<(disp->depth+acct_depth+2UL); i++ ) {
-    fd_rdisp_txn_t const * rtxn = i<=disp->depth ? disp->pool+i : (fd_rdisp_txn_t const *)(disp->ptxn_pool+(i-disp->depth-1UL));
+    fd_rdisp_txn_t const * rtxn = i<=disp->depth ? RDISP_POOL(disp)+i : (fd_rdisp_txn_t const *)(RDISP_PTXN_POOL(disp)+(i-disp->depth-1UL));
     FD_TEST( scratch[ i ]==UINT_MAX ||
              rtxn->in_degree==IN_DEGREE_DISPATCHED ||
              rtxn->in_degree==IN_DEGREE_UNSTAGED ||

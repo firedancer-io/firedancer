@@ -5327,6 +5327,260 @@ run_lthash_writer_bound_full_case( void ) {
   delete_sched( sched );
 }
 
+/* Direct shared-memory worker execution mode:
+   1. Worker join (fd_sched_join_worker) + conflict-chain local continuation
+      via fd_sched_direct_complete_and_next without replay intervention,
+      fan-out to lowest-indexed idle tiles, tile-0 reservation against
+      sigverify when other tiles are idle, lock-free SPMC sigverify, inline
+      Alpenglow PoH retirement, and mid-flight speculative LtHash rewrite
+      invalidation.
+   2. Block abandonment reclaiming both pre-assigned tile_slot entries and
+      unpopped sv_ring sigverify items cleanly. */
+static void
+run_direct_mode_cases( void ) {
+  /* Case 1: End-to-end conflict chain, SPMC sigverify, inline PoH, and
+     speculative LtHash rewrite invalidation. */
+  {
+    fd_sched_t * sched = new_sched( 4UL );
+    fd_sched_set_bypass_poh_verify( sched, 1 );
+    fd_sched_direct_enable( sched );
+    FD_TEST( fd_sched_direct_is_enabled( sched ) );
+
+    fd_sched_t * worker = fd_sched_join_worker( sched );
+    FD_TEST( worker==sched );
+
+    /* Build 4 transactions in FEC 1:
+       T0 writes A (head of 3-txn conflict chain T0 -> T1 -> T3)
+       T1 writes A, B (conflicts with T0)
+       T2 writes C (independent, ready in parallel)
+       T3 writes A (conflicts with T1) */
+    fd_pubkey_t acct[ 4 ];
+    for( ulong i=0UL; i<4UL; i++ ) fd_memset( acct[ i ].uc, (int)(0x71UL+i), sizeof(fd_pubkey_t) );
+
+    uchar t0[ FD_TXN_MTU ]; ulong t0_sz = build_legacy_test_txn( t0, acct+0, NULL,   0UL, 0x10 );
+    uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct+0, acct+1, 1UL, 0x11 );
+    uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+2, NULL,   0UL, 0x12 );
+    uchar t3[ FD_TXN_MTU ]; ulong t3_sz = build_legacy_test_txn( t3, acct+0, NULL,   0UL, 0x13 );
+    uchar const * txns1[ 4 ]   = { t0, t1, t2, t3 };
+    ulong         txn_sz1[ 4 ] = { t0_sz, t1_sz, t2_sz, t3_sz };
+    uchar         encoded1[ 8192 ];
+    ulong         sz1 = encode_lthash_batch( encoded1, txns1, txn_sz1, 4UL );
+
+    /* FEC 2 rewrites A to exercise mid-flight speculative LtHash invalidation
+       and ends the block. */
+    uchar t4[ FD_TXN_MTU ]; ulong t4_sz = build_legacy_test_txn( t4, acct+0, NULL, 0UL, 0x14 );
+    uchar const * txns2[ 1 ] = { t4 };
+    uchar         encoded2[ 8192 ];
+    ulong         sz2 = encode_lthash_batch( encoded2, txns2, &t4_sz, 1UL );
+
+    fd_hash_t start_poh[ 1 ];
+    hash_from_seed( start_poh, 0x415263748596a7b8UL );
+    ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded1, sz1, 1, 0 );
+    fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+    FD_TEST( fd_sched_block_has_parsed_txns( sched, 2UL ) );
+
+    static test_lthash_ctx_t ctx[ 1 ];
+    fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
+    fd_sched_task_t task[ 1 ];
+    FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) && task->task_type==FD_SCHED_TT_BLOCK_START );
+    lthash_drive_task( sched, task, ctx );
+    FD_TEST( fd_sched_direct_set_active_bank( sched, 2UL, 48000000UL ) );
+    FD_TEST( fd_sched_direct_active_bank_idx( sched )==2UL );
+
+    /* Exactly 2 transactions (T0 and T2) are conflict-free initially and must
+       be assigned to the lowest-indexed idle tiles (0 and 1); tiles 2 and 3
+       have no ready work. */
+    fd_sched_direct_txn_t d0[ 1 ], d1[ 1 ], d2[ 1 ];
+    FD_TEST(  fd_sched_direct_try_pop( worker, 0UL, d0 ) );
+    FD_TEST(  fd_sched_direct_try_pop( worker, 1UL, d1 ) );
+    FD_TEST( !fd_sched_direct_try_pop( worker, 2UL, d2 ) );
+
+    /* Identify which tile got T0 (index_in_slot 0) vs T2 (index_in_slot 2). */
+    ulong chain_tile = (d0->index_in_slot==0UL) ? 0UL : 1UL;
+    ulong indep_tile = 1UL - chain_tile;
+    fd_sched_direct_txn_t * chain_cur = (chain_tile==0UL) ? d0 : d1;
+    fd_sched_direct_txn_t * indep_cur = (chain_tile==0UL) ? d1 : d0;
+    FD_TEST( chain_cur->index_in_slot==0UL && indep_cur->index_in_slot==2UL );
+
+    /* Completing T0 on chain_tile must immediately unlock and pop T1 (index 1),
+       and completing T1 must immediately unlock and pop T3 (index 3), with zero
+       replay tile polls in between. */
+    lthash_write( ctx, 2UL, fd_type_pun_const( acct+0 ) );
+    fd_sched_direct_txn_t next[ 1 ];
+    FD_TEST( fd_sched_direct_complete_and_next( worker, chain_tile, 2UL, chain_cur->txn_idx, 1,
+                                                FD_SCHED_TXN_IS_COMMITTABLE, 0, 0UL, 1, next ) );
+    FD_TEST( next->index_in_slot==1UL );
+
+    lthash_write( ctx, 2UL, fd_type_pun_const( acct+0 ) );
+    lthash_write( ctx, 2UL, fd_type_pun_const( acct+1 ) );
+    FD_TEST( fd_sched_direct_complete_and_next( worker, chain_tile, 2UL, next->txn_idx, 1,
+                                                FD_SCHED_TXN_IS_COMMITTABLE, 0, 0UL, 1, next ) );
+    FD_TEST( next->index_in_slot==3UL );
+
+    lthash_write( ctx, 2UL, fd_type_pun_const( acct+0 ) );
+    FD_TEST( !fd_sched_direct_complete_and_next( worker, chain_tile, 2UL, next->txn_idx, 1,
+                                                 FD_SCHED_TXN_IS_COMMITTABLE, 0, 0UL, 1, next ) );
+
+    lthash_write( ctx, 2UL, fd_type_pun_const( acct+2 ) );
+    FD_TEST( !fd_sched_direct_complete_and_next( worker, indep_tile, 2UL, indep_cur->txn_idx, 1,
+                                                 FD_SCHED_TXN_IS_COMMITTABLE, 0, 0UL, 1, next ) );
+
+    /* Tile 0 yields sigverify while tiles 1..3 are idle, keeping tile 0 open
+       for TXN_EXEC.  Tiles 1..3 pop and complete all 4 sigverifies. */
+    ulong sv_txn = ULONG_MAX, sv_bank = ULONG_MAX;
+    FD_TEST( !fd_sched_direct_try_pop_sigverify( worker, 0UL, &sv_txn, &sv_bank ) );
+    for( ulong i=0UL; i<4UL; i++ ) {
+      ulong t = 1UL + (i % 3UL);
+      FD_TEST( fd_sched_direct_try_pop_sigverify( worker, t, &sv_txn, &sv_bank ) );
+      FD_TEST( sv_bank==2UL );
+      fd_sched_direct_complete_sigverify( worker, t, sv_bank, sv_txn, 0 );
+    }
+    FD_TEST( !fd_sched_direct_try_pop_sigverify( worker, 1UL, &sv_txn, &sv_bank ) );
+
+    fd_sched_direct_done_t done[ 16 ];
+    int dead_reason = FD_SCHED_DEAD_REASON_NONE;
+    ulong drained = fd_sched_direct_drain_done( sched, done, 16UL, NULL, 0UL, 0UL, &dead_reason );
+    FD_TEST( drained==8UL && dead_reason==FD_SCHED_DEAD_REASON_NONE );
+
+    /* Drive replay poll: LTHASH_SUB runs, then speculative LTHASH_ADD is
+       dispatched for {A, B, C}.  Hold the speculative LTHASH_ADD for A in
+       flight while FEC 2 arrives and rewrites A! */
+    fd_sched_task_t held_add[ 1 ];
+    int got_spec_add = 0;
+    for( ulong step=0UL; step<32UL; step++ ) {
+      if( !fd_sched_task_next_ready( sched, task ) ) break;
+      /* Neither TXN_EXEC, TXN_SIGVERIFY, nor hashcnt==0 POH_HASH may be
+         emitted as round-trip tasks in direct mode. */
+      FD_TEST( task->task_type!=FD_SCHED_TT_TXN_EXEC );
+      FD_TEST( task->task_type!=FD_SCHED_TT_TXN_SIGVERIFY );
+      FD_TEST( task->task_type!=FD_SCHED_TT_POH_HASH );
+      if( task->task_type==FD_SCHED_TT_LTHASH_ADD &&
+          memcmp( task->lthash->accts[ 0 ].b, acct[ 0 ].uc, sizeof(fd_acct_addr_t) )==0 ) {
+        *held_add = *task;
+        got_spec_add = 1;
+        break;
+      }
+      lthash_drive_task( sched, task, ctx );
+    }
+    FD_TEST( got_spec_add && held_add->lthash->cnt==1UL );
+
+    fd_lthash_value_t sum[ 1 ];
+    fake_hash( sum, &held_add->lthash->accts[ 0 ], 1, lthash_acct( ctx, &held_add->lthash->accts[ 0 ] )->write_cnt[ 2UL ] );
+
+    /* Ingest FEC 2 (which rewrites A and closes the block) BEFORE held_add
+       completes, so A's speculative entry is invalidated mid-flight and T4
+       stays blocked in rdisp behind the in-flight speculative read of A
+       until held_add finishes. */
+    ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded2, sz2, 0, 1 );
+
+    fd_sched_direct_txn_t d4[ 1 ];
+    for( ulong t=0UL; t<TEST_EXEC_CNT; t++ ) {
+      FD_TEST( !fd_sched_direct_try_pop( worker, t, d4 ) );
+    }
+
+    /* Completing held_add discards A's stale speculative hash and unlocks
+       T4 for direct execution. */
+    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_LTHASH_ADD, ULONG_MAX, held_add->lthash->exec_idx, sum ) );
+
+    int popped_t4 = 0;
+    for( ulong t=0UL; t<TEST_EXEC_CNT; t++ ) {
+      if( fd_sched_direct_try_pop( worker, t, d4 ) ) {
+        FD_TEST( d4->index_in_slot==4UL );
+        lthash_write( ctx, 2UL, fd_type_pun_const( acct+0 ) );
+        FD_TEST( !fd_sched_direct_complete_and_next( worker, t, 2UL, d4->txn_idx, 1,
+                                                     FD_SCHED_TXN_IS_COMMITTABLE, 0, 0UL, 1, next ) );
+        popped_t4 = 1;
+        break;
+      }
+    }
+    FD_TEST( popped_t4 );
+    for( ulong t=0UL; t<TEST_EXEC_CNT; t++ ) {
+      if( fd_sched_direct_try_pop_sigverify( worker, t, &sv_txn, &sv_bank ) ) {
+        fd_sched_direct_complete_sigverify( worker, t, sv_bank, sv_txn, 0 );
+        break;
+      }
+    }
+    drained = fd_sched_direct_drain_done( sched, done, 16UL, NULL, 0UL, 0UL, &dead_reason );
+    FD_TEST( drained==2UL && dead_reason==FD_SCHED_DEAD_REASON_NONE );
+
+    /* Drive remaining end-of-slot LtHash + BLOCK_END. */
+    for( ulong step=0UL; step<64UL; step++ ) {
+      while( fd_sched_pruned_block_next( sched )!=ULONG_MAX ) {}
+      if( !fd_sched_task_next_ready( sched, task ) ) break;
+      FD_TEST( task->task_type!=FD_SCHED_TT_TXN_EXEC && task->task_type!=FD_SCHED_TT_TXN_SIGVERIFY );
+      lthash_drive_task( sched, task, ctx );
+    }
+    FD_TEST( ctx->block_end_cnt==1UL );
+    fd_lthash_value_t expected[ 1 ];
+    lthash_expected_delta( expected, ctx, 2UL, acct, 3UL );
+    FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
+    FD_TEST( fd_sched_is_drained( sched ) );
+
+    delete_sched( sched );
+  }
+
+  /* Case 2: Abandoning an active direct-mode block cleanly reclaims both
+     pre-assigned tile_slot entries and unpopped sv_ring sigverify entries,
+     and failed sigverify is surfaced through fd_sched_direct_drain_done. */
+  {
+    fd_sched_t * sched = new_sched( 4UL );
+    fd_sched_set_bypass_poh_verify( sched, 1 );
+    fd_sched_direct_enable( sched );
+    fd_sched_t * worker = fd_sched_join_worker( sched );
+
+    fd_pubkey_t acct[ 3 ];
+    for( ulong i=0UL; i<3UL; i++ ) fd_memset( acct[ i ].uc, (int)(0x81UL+i), sizeof(fd_pubkey_t) );
+    uchar t0[ FD_TXN_MTU ]; ulong t0_sz = build_legacy_test_txn( t0, acct+0, NULL, 0UL, 0x20 );
+    uchar t1[ FD_TXN_MTU ]; ulong t1_sz = build_legacy_test_txn( t1, acct+1, NULL, 0UL, 0x21 );
+    uchar t2[ FD_TXN_MTU ]; ulong t2_sz = build_legacy_test_txn( t2, acct+2, NULL, 0UL, 0x22 );
+    uchar const * txns[ 3 ]   = { t0, t1, t2 };
+    ulong         txn_sz[ 3 ] = { t0_sz, t1_sz, t2_sz };
+    uchar         encoded[ 8192 ];
+    ulong         sz = encode_lthash_batch( encoded, txns, txn_sz, 3UL );
+
+    fd_hash_t start_poh[ 1 ];
+    hash_from_seed( start_poh, 0x5162738495a6b7c8UL );
+    ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded, sz, 1, 1 );
+    fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+    fd_sched_task_t task[ 1 ];
+    FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) && task->task_type==FD_SCHED_TT_BLOCK_START );
+    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+    FD_TEST( fd_sched_direct_set_active_bank( sched, 2UL, 48000000UL ) );
+
+    /* Pop tile 0's TXN_EXEC, leaving tiles 1 and 2 in SLOT_ASSIGNED, and pop
+       one sigverify on tile 3 that fails verification (sv_err=1), leaving 2
+       entries unpopped in sv_ring. */
+    fd_sched_direct_txn_t d0[ 1 ], next[ 1 ];
+    FD_TEST( fd_sched_direct_try_pop( worker, 0UL, d0 ) );
+    ulong sv_txn = ULONG_MAX, sv_bank = ULONG_MAX;
+    FD_TEST( fd_sched_direct_try_pop_sigverify( worker, 3UL, &sv_txn, &sv_bank ) );
+    fd_sched_direct_complete_sigverify( worker, 3UL, sv_bank, sv_txn, 1 );
+
+    fd_sched_direct_done_t done[ 8 ];
+    int dead_reason = FD_SCHED_DEAD_REASON_NONE;
+    ulong drained = fd_sched_direct_drain_done( sched, done, 8UL, NULL, 0UL, 0UL, &dead_reason );
+    FD_TEST( drained==1UL && done[ 0 ].is_sigverify && done[ 0 ].txn_err!=0 && !done[ 0 ].is_committable );
+
+    /* Replay abandons the block on sigverify failure while tile 0 is still
+       in flight and tiles 1..2 + 2 sv_ring entries are unpopped. */
+    fd_sched_block_abandon( sched, 2UL, FD_SCHED_ABANDON_INVALID );
+    FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX ); /* tile 0 still in flight */
+
+    /* Tile 0 finishes its in-flight txn; no continuation may be handed out
+       for the dying block, and draining retires the block cleanly. */
+    FD_TEST( !fd_sched_direct_complete_and_next( worker, 0UL, 2UL, d0->txn_idx, 1,
+                                                 FD_SCHED_TXN_IS_COMMITTABLE, 0, 0UL, 1, next ) );
+    drained = fd_sched_direct_drain_done( sched, done, 8UL, NULL, 0UL, 0UL, &dead_reason );
+    FD_TEST( drained==1UL && !done[ 0 ].is_sigverify );
+    FD_TEST( fd_sched_pruned_block_next( sched )==2UL );
+    FD_TEST( fd_sched_pruned_block_next( sched )==ULONG_MAX );
+    FD_TEST( fd_sched_is_drained( sched ) );
+
+    delete_sched( sched );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -5403,6 +5657,7 @@ main( int     argc,
   run_sigverify_batch_case( 1UL );
   if( FD_ED25519_VERIFIER_GROUP==8UL ) run_sigverify_batch_case( 8UL ); /* the group is capped at FD_ED25519_VERIFIER_GROUP */
   run_sigverify_abandon_case();
+  run_direct_mode_cases();
 
   fd_wksp_delete_anonymous( test_wksp );
   FD_LOG_NOTICE(( "pass" ));

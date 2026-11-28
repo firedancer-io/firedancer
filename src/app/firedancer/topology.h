@@ -30,6 +30,15 @@ setup_topo_execrp_result( fd_topo_t *  topo,
                           char const * wksp_name,
                           ulong        execrp_tile_cnt );
 
+fd_topo_obj_t *
+setup_topo_replay_sched( fd_topo_t *  topo,
+                         char const * wksp_name,
+                         ulong        sched_depth,
+                         ulong        max_live_slots,
+                         ulong        max_shreds_per_block,
+                         ulong        max_txn_per_slot,
+                         ulong        execrp_tile_cnt );
+
 /* Smallest program_cache_size that setup_topo_progcache accepts: a huge-page
    multiple that is locked exactly.  0 if txn_max is invalid. */
 ulong

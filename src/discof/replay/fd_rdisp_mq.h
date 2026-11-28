@@ -144,11 +144,12 @@ typedef struct fd_rdisp_mq_prqe fd_rdisp_mq_prqe_t;
 
 /* In this macro, heap (which is defined each place the macro expands)
    is a pointer to the field with offset 16B from private_t.  The field
-   before the private_t struct is a pointer to the start of the 4u_t
-   array, with 4B*staging lane added. */
-#define PRQ_TMP_ST(p, t) do {                                                                 \
-    (p)[0] = (t);                                                                             \
-    ((fd_rdisp_mq_4u_t *)((void * const *)heap)[-3])[(t).idx].per_lane[0] = (uint)((p)-heap); \
+   before the private_t struct is the byte offset from heap back to
+   flat[0].per_lane[staging_lane] so mq is position-independent across
+   processes mapping shared memory at different virtual addresses. */
+#define PRQ_TMP_ST(p, t) do {                                                                            \
+    (p)[0] = (t);                                                                                        \
+    ((fd_rdisp_mq_4u_t *)((ulong)heap - ((ulong const *)heap)[-3]))[(t).idx].per_lane[0] = (uint)((p)-heap); \
   } while(0)
 #define PRQ_NAME      fd_rdisp_mprq
 #define PRQ_T         fd_rdisp_mq_prqe_t
@@ -175,16 +176,19 @@ struct fd_rdisp_mq_private {
   ulong max_writers_per_block;
   ulong prio0_cnt[4];
 
-  fd_rdisp_mq_4u_t *   flat; /* indexed [0, acct_depth+1) */
-  fd_rdisp_mq_prqe_t * prq[4];
+  ulong flat_off;   /* byte offset from mq to flat[0..acct_depth+1) */
+  ulong prq_off[4]; /* byte offset from mq to prq[i] */
   /* Then follows:
      the footprint for flat
      for i in [0, 4)
-        a pointer to flat[0].per_lane[i]
+        byte offset from prq[i] back to flat[0].per_lane[i]
         the footprint for prq[i]
    */
 };
 typedef struct fd_rdisp_mq_private fd_rdisp_mq_t;
+
+#define FD_RDISP_MQ_FLAT(mq)    ((fd_rdisp_mq_4u_t *  )((ulong)(mq) + (mq)->flat_off   ))
+#define FD_RDISP_MQ_PRQ(mq, ln) ((fd_rdisp_mq_prqe_t *)((ulong)(mq) + (mq)->prq_off[ln]))
 
 static inline ulong
 fd_rdisp_mq_footprint( ulong acct_depth,
@@ -195,7 +199,7 @@ fd_rdisp_mq_footprint( ulong acct_depth,
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_rdisp_mq_t),                     sizeof(fd_rdisp_mq_t)            );
   l = FD_LAYOUT_APPEND( l, alignof(fd_rdisp_mq_4u_t), (acct_depth+1UL)*sizeof(fd_rdisp_mq_4u_t)         );
-  l = FD_LAYOUT_APPEND( l, 8UL, 4UL*(sizeof(void *)+fd_rdisp_mprq_footprint( max_writers_per_block )) );
+  l = FD_LAYOUT_APPEND( l, 8UL, 4UL*(sizeof(ulong)+fd_rdisp_mprq_footprint( max_writers_per_block )) );
   return FD_LAYOUT_FINI( l, fd_rdisp_mq_align() );
 }
 
@@ -212,47 +216,36 @@ fd_rdisp_mq_new( void * mem,
   mq->acct_depth = acct_depth;
   mq->max_writers_per_block = max_writers_per_block;
   memset( mq->prio0_cnt, '\0', 4UL*sizeof(ulong) );
+  mq->flat_off = (ulong)u4 - (ulong)mq;
 
   memset( u4, '\xFF', (acct_depth+1UL)*sizeof(fd_rdisp_mq_4u_t) );
 
   for( ulong i=0UL; i<4UL; i++ ) {
-    void * _pq = FD_SCRATCH_ALLOC_APPEND( l, 8UL, sizeof(void *)+fd_rdisp_mprq_footprint( max_writers_per_block ) );
-    fd_rdisp_mprq_new( (void *)(8UL + (ulong)_pq), max_writers_per_block );
+    void *               _pq = FD_SCRATCH_ALLOC_APPEND( l, 8UL, sizeof(ulong)+fd_rdisp_mprq_footprint( max_writers_per_block ) );
+    fd_rdisp_mq_prqe_t * prq = fd_rdisp_mprq_join( fd_rdisp_mprq_new( (void *)(sizeof(ulong) + (ulong)_pq), max_writers_per_block ) );
+    *((ulong *)_pq) = (ulong)prq - (ulong)(u4->per_lane+i);
+    mq->prq_off[ i ] = (ulong)prq - (ulong)mq;
   }
   return mem;
 }
 
 static inline fd_rdisp_mq_t *
 fd_rdisp_mq_join( void * mem ) {
-  fd_rdisp_mq_t * mq                    = (fd_rdisp_mq_t *)mem;
-  ulong           acct_depth            = mq->acct_depth;
-  ulong           max_writers_per_block = mq->max_writers_per_block;
-
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  /*                   */ FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rdisp_mq_t),    sizeof(fd_rdisp_mq_t)                     );
-  fd_rdisp_mq_4u_t * u4 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rdisp_mq_4u_t), (acct_depth+1UL)*sizeof(fd_rdisp_mq_4u_t) );
-
-  mq->flat = u4;
-  for( ulong i=0UL; i<4UL; i++ ) {
-    void * _pq = FD_SCRATCH_ALLOC_APPEND( l, 8UL, sizeof(void *)+fd_rdisp_mprq_footprint( max_writers_per_block ) );
-    *((uint **)_pq) = u4->per_lane+i;
-    mq->prq[i] = fd_rdisp_mprq_join( (void *)(sizeof(void *) + (ulong)_pq) );
-  }
-  return mq;
+  return (fd_rdisp_mq_t *)mem;
 }
 
 static inline int
 fd_rdisp_mq_test( fd_rdisp_mq_t const * mq,
                   ulong                 acct_idx,
                   ulong                 staging_lane ) {
-  return mq->flat[acct_idx].per_lane[staging_lane]!=UINT_MAX;
+  return FD_RDISP_MQ_FLAT( mq )[acct_idx].per_lane[staging_lane]!=UINT_MAX;
 }
 
 static inline int
 fd_rdisp_mq_test_prio0( fd_rdisp_mq_t const * mq,
                         ulong                 acct_idx,
                         ulong                 staging_lane ) {
-  return mq->flat[acct_idx].per_lane[staging_lane]>fd_rdisp_mprq_cnt( mq->prq[staging_lane] );
+  return FD_RDISP_MQ_FLAT( mq )[acct_idx].per_lane[staging_lane]>fd_rdisp_mprq_cnt( FD_RDISP_MQ_PRQ( mq, staging_lane ) );
 }
 
 static inline ulong
@@ -270,12 +263,14 @@ fd_rdisp_mq_insert( fd_rdisp_mq_t * mq,
     .idx  = (uint)acct_idx,
     .prio = prio,
   }};
+  fd_rdisp_mq_prqe_t * prq  = FD_RDISP_MQ_PRQ( mq, staging_lane );
+  fd_rdisp_mq_4u_t *   flat = FD_RDISP_MQ_FLAT( mq );
   if( FD_UNLIKELY( prio==0.0f ) ) {
     ulong fidx = mq->max_writers_per_block - (mq->prio0_cnt[staging_lane]++);
-    mq->prq[staging_lane][fidx] = *temp;
-    mq->flat[acct_idx].per_lane[staging_lane] = (uint)fidx;
+    prq[fidx] = *temp;
+    flat[acct_idx].per_lane[staging_lane] = (uint)fidx;
   } else {
-    fd_rdisp_mprq_insert( mq->prq[staging_lane], temp );
+    fd_rdisp_mprq_insert( prq, temp );
     /* flat is auto-populated by _insert */
   }
 }
@@ -288,9 +283,10 @@ fd_rdisp_mq_adjust( fd_rdisp_mq_t * mq,
   ulong M      = mq->max_writers_per_block;
   ulong p0_cnt = mq->prio0_cnt[staging_lane];
 
-  fd_rdisp_mq_prqe_t * prq = mq->prq[staging_lane];
+  fd_rdisp_mq_prqe_t * prq  = FD_RDISP_MQ_PRQ( mq, staging_lane );
+  fd_rdisp_mq_4u_t *   flat = FD_RDISP_MQ_FLAT( mq );
 
-  uint fidx                = mq->flat[acct_idx].per_lane[staging_lane];
+  uint fidx                = flat[acct_idx].per_lane[staging_lane];
   int  pre_prio0           = fd_rdisp_mq_test_prio0( mq, acct_idx, staging_lane );
   int  new_prio0           = prio==0.0f;
 
@@ -300,7 +296,7 @@ fd_rdisp_mq_adjust( fd_rdisp_mq_t * mq,
   if( pre_prio0 ) {
     /* move tail to hole (they could be the same) */
     prq[fidx] = prq[M - (--p0_cnt)];
-    mq->flat[prq[fidx].idx].per_lane[staging_lane] = fidx;
+    flat[prq[fidx].idx].per_lane[staging_lane] = fidx;
   } else {
     fd_rdisp_mprq_remove( prq, fidx );
   }
@@ -310,7 +306,7 @@ fd_rdisp_mq_adjust( fd_rdisp_mq_t * mq,
   if( new_prio0 ) {
     ulong new_idx = M-(p0_cnt++);
     prq[new_idx] = temp;
-    mq->flat[acct_idx].per_lane[staging_lane] = (uint)new_idx;
+    flat[acct_idx].per_lane[staging_lane] = (uint)new_idx;
   } else {
     fd_rdisp_mprq_insert( prq, &temp );
   }
@@ -321,17 +317,18 @@ fd_rdisp_mq_adjust( fd_rdisp_mq_t * mq,
 static inline ulong
 fd_rdisp_mq_pop( fd_rdisp_mq_t * mq,
                  ulong           staging_lane ) {
-  fd_rdisp_mq_prqe_t * prq = mq->prq[staging_lane];
+  fd_rdisp_mq_prqe_t * prq  = FD_RDISP_MQ_PRQ( mq, staging_lane );
+  fd_rdisp_mq_4u_t *   flat = FD_RDISP_MQ_FLAT( mq );
 
   if( FD_LIKELY( mq->prio0_cnt[ staging_lane ] ) ) {
     ulong tail_idx  = mq->max_writers_per_block - (--mq->prio0_cnt[staging_lane]);
     ulong to_return = prq[tail_idx].idx;
-    mq->flat[to_return].per_lane[staging_lane] = UINT_MAX;
+    flat[to_return].per_lane[staging_lane] = UINT_MAX;
     return to_return;
   } else {
     ulong to_return = prq->idx;
     fd_rdisp_mprq_remove_min( prq );
-    mq->flat[to_return].per_lane[staging_lane] = UINT_MAX;
+    flat[to_return].per_lane[staging_lane] = UINT_MAX;
     return to_return;
   }
 }
@@ -339,7 +336,7 @@ fd_rdisp_mq_pop( fd_rdisp_mq_t * mq,
 static inline ulong
 fd_rdisp_mq_cnt( fd_rdisp_mq_t * mq,
                  ulong           staging_lane ) {
-  return fd_rdisp_mprq_cnt( mq->prq[staging_lane] ) + mq->prio0_cnt[staging_lane];
+  return fd_rdisp_mprq_cnt( FD_RDISP_MQ_PRQ( mq, staging_lane ) ) + mq->prio0_cnt[staging_lane];
 }
 
 static inline void * fd_rdisp_mq_leave ( fd_rdisp_mq_t * mq ) { return (void *)mq;  }
