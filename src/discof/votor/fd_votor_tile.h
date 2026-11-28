@@ -12,6 +12,7 @@
 #define FD_VOTOR_SIG_REWARD       (3)
 #define FD_VOTOR_SIG_QUORUM       (4)
 #define FD_VOTOR_SIG_PARENT_READY (5)
+#define FD_VOTOR_SIG_SKIP_TIMEOUT (6)
 
 #define FD_VOTOR_NET_BURST (2UL*(1UL+FD_QUIC_TLS_HS_DATA_CNT+3UL)) /* 1 ACK + 1 TLS + 3 1-RTT pkts * 2 for both client and server. EXCLUDES DATAGRAMS. */
 
@@ -117,6 +118,11 @@ struct fd_votor_parent_ready {
 };
 typedef struct fd_votor_parent_ready fd_votor_parent_ready_t;
 
+struct fd_votor_skip_timeout {
+  ulong slot;
+};
+typedef struct fd_votor_skip_timeout fd_votor_skip_timeout_t;
+
 union fd_votor_msg {
   fd_votor_certed_t       certed;
   fd_votor_repair_t       repair;
@@ -124,6 +130,7 @@ union fd_votor_msg {
   fd_votor_reward_t       reward;
   fd_votor_quorum_t       quorum;
   fd_votor_parent_ready_t parent_ready;
+  fd_votor_skip_timeout_t skip_timeout;
 };
 typedef union fd_votor_msg fd_votor_msg_t;
 

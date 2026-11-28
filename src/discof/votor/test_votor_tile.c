@@ -2104,14 +2104,31 @@ test_park( void ) {
   FD_TEST( !charge_busy );
   FD_TEST( fd_votor_loop_next_skip_timeout( ctx->votor )==timeout );
 
+  fd_frag_meta_t * mcache = fd_mcache_join( fd_mcache_new( reward_mcache_mem, 128UL, 0UL, 0UL ) );
+  FD_TEST( mcache );
+  ctx->votor_out_mem    = reward_out_mem;
+  ctx->votor_out_chunk0 = 0UL;
+  ctx->votor_out_chunk  = 0UL;
+  ctx->votor_out_wmark  = REWARD_OUT_WMARK;
+  fd_frag_meta_t *  mcaches[1]      = { mcache };
+  ulong             seqs[1]         = { 0UL };
+  ulong             depths[1]       = { 128UL };
+  ulong             cr_avail[1]     = { ULONG_MAX };
+  ulong             min_cr_avail[1] = { ULONG_MAX };
+  int               reliable[1]     = { 0 };
+  fd_stem_context_t stem[1]         = {{ .mcaches = mcaches, .seqs = seqs, .depths = depths, .cr_avail = cr_avail, .min_cr_avail = min_cr_avail, .out_reliable = reliable }};
+
   /* The clock reaches the timer: the deadline is due (never park past
      it) and the pass that wakes pops it.  It is the root's, so no vote,
      and the park moves on to slot 1's timer, one slot later. */
   fd_clock_tile_set( ctx->clock, timeout );
   FD_TEST( next_deadline( ctx )<=fd_tickcount() );
   charge_busy = 0;
-  after_credit( ctx, NULL, &poll_in, &charge_busy );
+  after_credit( ctx, stem, &poll_in, &charge_busy );
   FD_TEST( charge_busy );
+  fd_frag_meta_t const * meta = mcache + fd_mcache_line_idx( seqs[ 0 ]-1UL, 128UL );
+  FD_TEST( seqs[ 0 ]==1UL && meta->sig==FD_VOTOR_SIG_SKIP_TIMEOUT );
+  FD_TEST( ((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx->votor_out_mem, meta->chunk ))->skip_timeout.slot==0UL );
   uchar reason;
   FD_TEST( !fd_votor_loop_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) );
   long timeout1 = fd_votor_loop_next_skip_timeout( ctx->votor );
@@ -2129,11 +2146,14 @@ test_park( void ) {
   ulong busy_cnt = 0UL;
   for( ulong i=0UL; i<16UL; i++ ) {
     charge_busy = 0;
-    after_credit( ctx, NULL, &poll_in, &charge_busy );
+    after_credit( ctx, stem, &poll_in, &charge_busy );
     if( !charge_busy ) break;
     busy_cnt++;
   }
   FD_TEST( busy_cnt==3UL ); /* the pop sends the first vote in the same pass */
+  meta = mcache + fd_mcache_line_idx( seqs[ 0 ]-1UL, 128UL );
+  FD_TEST( seqs[ 0 ]==2UL && meta->sig==FD_VOTOR_SIG_SKIP_TIMEOUT );
+  FD_TEST( ((fd_votor_msg_t const *)fd_chunk_to_laddr_const( ctx->votor_out_mem, meta->chunk ))->skip_timeout.slot==1UL );
   FD_TEST( !fd_votor_loop_poll_vote( ctx->votor, &ctx->scratch.vote, &reason ) );
   long next = fd_votor_loop_next_skip_timeout( ctx->votor );
   FD_TEST( next==timeout1+ctx->ns_per_slot ); /* slot 2: still set, a no-op when it fires */
