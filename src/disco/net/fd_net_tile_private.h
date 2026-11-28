@@ -109,6 +109,8 @@ struct fd_net_tile {
   ulong  rx_proto_ids   [ FD_NET_RX_PROTO_CNT ];
   ulong  rx_out_link_idx[ FD_NET_RX_PROTO_CNT ];
   ulong  rx_out_cnt;
+  ulong  shred_out_cnt;
+  ulong  shred_out_idx[ FD_NET_SHRED_OUT_MAX ];
   uint   gre_tunnel_ip[ FD_NET_GRE_MAX ];
 
   /* sock is a raw socket for packets that failed userland routing */
@@ -534,7 +536,12 @@ fd_net_rx_proto_add( fd_net_tile_t *           ctx,
                      fd_topo_tile_t const *    tile,
                      fd_net_rx_proto_t const * proto ) {
   if( FD_UNLIKELY( !proto->listen_port ) ) return;
-  ulong out_idx = fd_topo_find_tile_out_link( topo, tile, proto->out_link, tile->kind_id );
+  ulong out_idx;
+  if( proto->proto_id==DST_PROTO_SHRED || proto->proto_id==DST_PROTO_REPAIR ) {
+    out_idx = ctx->shred_out_idx[ 0 ];
+  } else {
+    out_idx = fd_topo_find_tile_out_link( topo, tile, proto->out_link, tile->kind_id );
+  }
 
   if( FD_UNLIKELY( out_idx==ULONG_MAX ) ) {
     if( FD_UNLIKELY( proto->out_link_required ) ) {
@@ -563,6 +570,7 @@ fd_net_rx_protos_init( fd_net_tile_t *        ctx,
                        fd_topo_t const *      topo,
                        fd_topo_tile_t const * tile ) {
   ctx->rx_out_cnt = tile->out_cnt;
+  ctx->shred_out_cnt = fd_topo_net_shred_outs( topo, tile, ctx->shred_out_idx );
 
   fd_net_rx_proto_t protos[ FD_NET_RX_PROTO_CNT ];
   fd_net_rx_protos_list( protos, &tile->net );
@@ -737,6 +745,10 @@ fd_net_rx_pkt( fd_net_tile_t *     ctx,
     }
     ctx->metrics.rx_drop_cnt[ FD_METRICS_ENUM_PKT_RX_DROP_REASON_V_DST_PORT_UNBOUND_IDX ]++;
     return 0;
+  }
+
+  if( proto_id==DST_PROTO_SHRED || proto_id==DST_PROTO_REPAIR ) {
+    out_idx = ctx->shred_out_idx[ fd_net_shred_steer( (uchar const *)eth_hdr+dgram_off, udp_sz-sizeof(fd_udp_hdr_t), ctx->shred_out_cnt ) ];
   }
 
   fd_frag_meta_t * mcache = stem->mcaches[ out_idx ];

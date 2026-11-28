@@ -5,6 +5,8 @@
 
 #include "../../../util/fd_util_base.h"
 #include "../../metrics/generated/fd_metrics_enums.h"
+#include "../fd_net_tile.h"
+
 #include <poll.h>
 #include <sys/socket.h>
 
@@ -21,7 +23,7 @@
 /* MAX_NET_OUTS controls the max number of RX links that a sock tile can
    serve. */
 
-#define MAX_NET_OUTS (7UL)
+#define MAX_NET_OUTS (32UL)
 
 /* Local metrics.  Periodically copied to the metric_in shm region. */
 
@@ -83,6 +85,8 @@ struct fd_sock_tile {
   /* RX links */
   ushort            rx_listen_ports[ FD_SOCK_TILE_MAX_SOCKETS ];
   uchar             link_rx_map    [ FD_SOCK_TILE_MAX_SOCKETS ];
+  ulong             shred_rx_cnt;
+  ulong             shred_rx[ FD_NET_SHRED_OUT_MAX ];
   ulong             link_rx_cnt;
   fd_sock_link_rx_t link_rx[ MAX_NET_OUTS ];
 

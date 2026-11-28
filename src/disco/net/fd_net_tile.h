@@ -9,6 +9,8 @@
 #include "../../waltz/ip/fd_fib4.h"
 #include "iavf/fd_iavf.h"
 
+#include <stddef.h>
+
 struct fd_topo;
 typedef struct fd_topo fd_topo_t;
 struct fd_topo_tile;
@@ -76,6 +78,18 @@ fd_net_rx_translate_frag( fd_net_rx_bounds_t const * bounds,
   return (void const *)p;
 }
 
+#define FD_NET_SHRED_OUT_MAX (16UL)
+
+FD_FN_PURE static inline ulong
+fd_net_shred_steer( uchar const * dgram,
+                    ulong         dgram_sz,
+                    ulong         shred_cnt ) {
+  if( FD_UNLIKELY( dgram_sz<offsetof( fd_shred_t, fec_set_idx )+sizeof(uint) ) ) return 0UL;
+  ulong slot        = fd_ulong_load_8( dgram+offsetof( fd_shred_t, slot        ) );
+  uint  fec_set_idx = fd_uint_load_4 ( dgram+offsetof( fd_shred_t, fec_set_idx ) );
+  return fd_ulong_hash( slot ^ ((ulong)fec_set_idx<<40) ) % shred_cnt;
+}
+
 FD_PROTOTYPES_END
 
 /* Topology APIs */
@@ -137,6 +151,11 @@ fd_topos_net_rx_link( fd_topo_t *  topo,
                       char const * link_name,
                       ulong        net_kind_id,
                       ulong        depth );
+
+ulong
+fd_topo_net_shred_outs( fd_topo_t const *           topo,
+                        struct fd_topo_tile const * net_tile,
+                        ulong                       out_idx[ FD_NET_SHRED_OUT_MAX ] );
 
 /* fd_topob_tile_in_net registers a net TX link with all net tiles. */
 

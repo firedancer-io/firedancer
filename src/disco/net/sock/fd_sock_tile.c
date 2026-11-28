@@ -300,6 +300,8 @@ unprivileged_init( fd_topo_t const *      topo,
     }
   }
 
+  ctx->shred_rx_cnt = fd_topo_net_shred_outs( topo, tile, ctx->shred_rx );
+
   FD_CHECK_ERR( tile->in_cnt<=MAX_NET_INS, "too many input links" );
 
   /* The loopback-only sock tile has no TX links and is not counted */
@@ -381,10 +383,9 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
 
   if( FD_UNLIKELY( msg_cnt==0 ) ) return 0UL;
 
-  /* Only frags published to rx_link may consume rx_link dcache space.
-     Packets that are dropped or redirected leave a hole, so subsequent
-     packets are compacted down to chunk_pub. */
-  ulong chunk_pub = link->chunk;
+  /* Only frags published to a link consume its dcache space: dropped
+     or steered packets leave a hole in rx_link's, so later packets are
+     compacted down to link->chunk. */
 
   for( ulong j=0; j<(ulong)msg_cnt; j++ ) {
     uchar * payload         = ctx->batch_iov[ j ].iov_base;
@@ -438,19 +439,21 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     };
 
     ctx->metrics.rx_pkt_cnt++;
-    ulong chunk = fd_laddr_to_chunk( base, eth_hdr );
     ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), sa->sin_addr.s_addr, proto_id, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
 
-    if( FD_UNLIKELY( chunk!=chunk_pub ) ) {
-      memcpy( fd_chunk_to_laddr( base, chunk_pub ), eth_hdr, frame_sz );
+    ulong out = rx_link;
+    if( proto_id==DST_PROTO_SHRED || proto_id==DST_PROTO_REPAIR ) {
+      out = ctx->shred_rx[ fd_net_shred_steer( payload, payload_sz, ctx->shred_rx_cnt ) ];
     }
-    fd_stem_publish( stem, rx_link, sig, chunk_pub, frame_sz, 0UL, 0UL, tspub );
-    chunk_pub = fd_dcache_compact_next( chunk_pub, FD_NET_MTU, chunk0, wmark );
+
+    fd_sock_link_rx_t * dst = ctx->link_rx + out;
+    uchar * dst_buf = fd_chunk_to_laddr( dst->base, dst->chunk );
+    if( FD_UNLIKELY( dst_buf!=(uchar *)eth_hdr ) ) memcpy( dst_buf, eth_hdr, frame_sz );
+    fd_stem_publish( stem, out, sig, dst->chunk, frame_sz, 0UL, 0UL, tspub );
+    dst->chunk = fd_dcache_compact_next( dst->chunk, FD_NET_MTU, dst->chunk0, dst->wmark );
   }
 
-  /* Rewind the chunk index to the first free index. */
-  link->chunk = chunk_pub;
   return (ulong)msg_cnt;
 }
 
