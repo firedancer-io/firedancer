@@ -421,12 +421,9 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   return adjusted_haddr;
 }
 
-/* FD_VM_GROW_MIN amortizes {stack,heap} growth by rounding up request
-   sizes. */
-
-#define FD_VM_GROW_MIN (16384UL)
-
-/* fd_vm_{stack,heap}_grow lazily grow the stack and heap */
+/* fd_vm_{stack,heap}_grow lazily grow the stack and heap with geometric
+   amortization so small programs avoid wiping L1d cache while large
+   programs zero in O(log cap) steps. */
 
 static inline void
 fd_vm_region_grow( fd_vm_t * vm,
@@ -434,29 +431,32 @@ fd_vm_region_grow( fd_vm_t * vm,
                    uchar *   base,
                    ulong *   pclean,
                    ulong     cap,
+                   ulong     min_quantum,
                    ulong     sz ) {
   ulong clean = *pclean;
   if( FD_LIKELY( sz<=clean ) ) return; /* nothing to do */
 
-  sz = fd_ulong_min( fd_ulong_align_up( sz, FD_VM_GROW_MIN ), cap );
+  ulong step = clean ? (clean << 1) : min_quantum;
+  ulong tgt  = fd_ulong_max( fd_ulong_align_up( sz, min_quantum ), step );
+  sz         = fd_ulong_min( tgt, cap );
 
   fd_memset( base + clean, 0, sz-clean );
 
-  *pclean                        = sz;
-  vm->region_ld_sz[ region ]     = (uint)sz;
-  vm->region_st_sz[ region ]     = (uint)sz;
+  *pclean                    = sz;
+  vm->region_ld_sz[ region ] = (uint)sz;
+  vm->region_st_sz[ region ] = (uint)sz;
 }
 
 static inline void
 fd_vm_stack_grow( fd_vm_t * vm,
                   ulong     sz ) {
-  fd_vm_region_grow( vm, FD_VM_STACK_REGION, vm->stack, &vm->stack_clean, FD_VM_STACK_MAX, sz );
+  fd_vm_region_grow( vm, FD_VM_STACK_REGION, vm->stack, &vm->stack_clean, FD_VM_STACK_MAX, FD_VM_STACK_FRAME_SZ, sz );
 }
 
 static inline void
 fd_vm_heap_grow( fd_vm_t * vm,
                  ulong     sz ) {
-  fd_vm_region_grow( vm, FD_VM_HEAP_REGION, vm->heap, &vm->heap_clean, vm->heap_max, sz );
+  fd_vm_region_grow( vm, FD_VM_HEAP_REGION, vm->heap, &vm->heap_clean, vm->heap_max, 1024UL, sz );
 }
 
 /* fd_vm_mem_init_full eagerly initializes the whole stack and heap. */

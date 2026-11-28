@@ -312,6 +312,95 @@ test_lazy_stack_zeroing( fd_sbpf_syscalls_t *  syscalls,
 }
 
 static void
+test_geometric_region_growth( fd_sbpf_syscalls_t *  syscalls,
+                              fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha[1]; fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t     _vm [1]; fd_vm_t     * vm  = fd_vm_join   ( fd_vm_new   ( _vm  ) );
+  FD_TEST( vm );
+
+  ulong noop_text[] = { fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+
+  /* 1. Stack geometric doubling: 0 -> 4096 -> 8192 -> ... -> FD_VM_STACK_MAX (262144) */
+  fd_memset( vm->stack, 0xA5, FD_VM_STACK_MAX );
+  FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+                       (uchar *)noop_text, 8UL, noop_text, 1UL, 0UL, 8UL, 0UL, NULL,
+                       FD_SBPF_V3, syscalls, NULL, sha, NULL, 0U, NULL, 0, 0,
+                       (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
+  FD_TEST( vm->stack_clean == 0UL );
+  fd_vm_stack_grow( vm, 0UL );
+  FD_TEST( vm->stack_clean == 0UL );
+
+  static ulong const stack_reqs[] = {    1UL, 4096UL, 4097UL,  8193UL, 16385UL, 32769UL,  65537UL, 131073UL };
+  static ulong const stack_exps[] = { 4096UL, 4096UL, 8192UL, 16384UL, 32768UL, 65536UL, 131072UL, 262144UL };
+  for( ulong i=0UL; i<sizeof(stack_reqs)/sizeof(stack_reqs[0]); i++ ) {
+    fd_vm_stack_grow( vm, stack_reqs[i] );
+    ulong exp = stack_exps[i];
+    FD_TEST( vm->stack_clean == exp );
+    FD_TEST( vm->region_ld_sz[ FD_VM_STACK_REGION ] == (uint)exp );
+    FD_TEST( vm->region_st_sz[ FD_VM_STACK_REGION ] == (uint)exp );
+    FD_TEST( vm->stack[ exp - 1UL ] == 0U );
+    if( exp < FD_VM_STACK_MAX ) FD_TEST( vm->stack[ exp ] == 0xA5U );
+  }
+
+  /* 2. Large stride jump (> 2*clean) aligns up to quantum, then doubles and caps */
+  fd_memset( vm->stack, 0x5A, FD_VM_STACK_MAX );
+  FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+                       (uchar *)noop_text, 8UL, noop_text, 1UL, 0UL, 8UL, 0UL, NULL,
+                       FD_SBPF_V3, syscalls, NULL, sha, NULL, 0U, NULL, 0, 0,
+                       (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
+  fd_vm_stack_grow( vm, 8UL );
+  FD_TEST( vm->stack_clean == 4096UL );
+  fd_vm_stack_grow( vm, 20000UL ); /* align_up(20000, 4096) == 20480 > 8192 */
+  FD_TEST( vm->stack_clean == 20480UL );
+  FD_TEST( vm->stack[ 20479UL ] == 0U && vm->stack[ 20480UL ] == 0x5AU );
+  fd_vm_stack_grow( vm, 20481UL ); /* 2 * 20480 == 40960 */
+  FD_TEST( vm->stack_clean == 40960UL );
+  fd_vm_stack_grow( vm, 150000UL ); /* align_up(150000, 4096) == 151552 > 81920 */
+  FD_TEST( vm->stack_clean == 151552UL );
+  fd_vm_stack_grow( vm, 151553UL ); /* 2 * 151552 == 303104 -> clamped to FD_VM_STACK_MAX (262144) */
+  FD_TEST( vm->stack_clean == FD_VM_STACK_MAX );
+  FD_TEST( vm->stack[ FD_VM_STACK_MAX - 1UL ] == 0U );
+
+  /* 3. Heap geometric doubling with non-quantum-aligned heap_max (5000B) */
+  fd_memset( vm->heap, 0xCC, 8192UL );
+  FD_TEST( fd_vm_init( vm, instr_ctx, 5000UL, FD_VM_COMPUTE_UNIT_LIMIT,
+                       (uchar *)noop_text, 8UL, noop_text, 1UL, 0UL, 8UL, 0UL, NULL,
+                       FD_SBPF_V3, syscalls, NULL, sha, NULL, 0U, NULL, 0, 0,
+                       (ulong[ FD_VM_REG_CNT ]){ 0 } ) );
+  static ulong const heap_reqs[] = {    8UL, 1024UL, 1025UL, 2049UL, 4097UL };
+  static ulong const heap_exps[] = { 1024UL, 1024UL, 2048UL, 4096UL, 5000UL };
+  for( ulong i=0UL; i<sizeof(heap_reqs)/sizeof(heap_reqs[0]); i++ ) {
+    fd_vm_heap_grow( vm, heap_reqs[i] );
+    ulong exp = heap_exps[i];
+    FD_TEST( vm->heap_clean == exp );
+    FD_TEST( vm->region_ld_sz[ FD_VM_HEAP_REGION ] == (uint)exp );
+    FD_TEST( vm->region_st_sz[ FD_VM_HEAP_REGION ] == (uint)exp );
+    FD_TEST( vm->heap[ exp - 1UL ] == 0U );
+    FD_TEST( vm->heap[ 5000UL ] == 0xCCU );
+  }
+
+  /* 4. Multi-step interpreter execution across geometric heap boundaries */
+  fd_memset( vm->heap, 0xFF, FD_VM_HEAP_DEFAULT );
+  ulong prog[] = {
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 1UL, 0UL,    0, 3U  ),
+    fd_vm_instr( FD_SBPF_OP_LSH64_IMM, 1UL, 0UL,    0, 32U ),
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     0UL, 1UL,  512, 0U  ), /* grows 0 -> 1024 */
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 1UL, 1504, 0U  ), /* grows 1024 -> 2048 */
+    fd_vm_instr( FD_SBPF_OP_OR64_REG,  0UL, 2UL,    0, 0U  ),
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 1UL, 3504, 0U  ), /* grows 2048 -> 4096 */
+    fd_vm_instr( FD_SBPF_OP_OR64_REG,  0UL, 2UL,    0, 0U  ),
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 1UL,12000, 0U  ), /* grows 4096 -> 12288 */
+    fd_vm_instr( FD_SBPF_OP_OR64_REG,  0UL, 2UL,    0, 0U  ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL,    0, 0U  ),
+  };
+  FD_TEST( lazy_exec( vm, sha, "geom-heap-steps", FD_SBPF_V3, prog,
+                      sizeof(prog)/sizeof(prog[0]), FD_VM_SUCCESS, syscalls, instr_ctx )==0UL );
+  FD_TEST( vm->heap_clean == 12288UL );
+
+  FD_LOG_NOTICE(( "%-20s PASS", "geom-region-grow" ));
+}
+
+static void
 generate_random_alu_instrs( fd_rng_t * rng,
                             ulong *    text,
                             ulong      text_cnt ) {
@@ -2045,6 +2134,7 @@ main( int     argc,
   test_stack_configuration( syscalls, instr_ctx );
   test_lazy_stack_zeroing( syscalls, instr_ctx );
   test_lazy_heap_zeroing( syscalls, instr_ctx );
+  test_geometric_region_growth( syscalls, instr_ctx );
 
   ulong   text_cnt = 1024UL*1024UL;
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
