@@ -62,8 +62,9 @@
 
    Snapshot production is either periodically scheduled (driven by
    replay tile) or externally requested (through admin tile).  The
-   replay tile stops compaction (via snapshot_sync) and rooting until
-   the snapshot is created.
+   replay tile holds the root until snapmk has written the manifest and
+   status cache (FD_SNAPMK_MSG_RELEASED); accdb keeps the snapshot's
+   account versions while rooting continues after that.
 
    ALPENGLOW
 

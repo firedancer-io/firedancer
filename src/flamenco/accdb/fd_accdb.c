@@ -493,6 +493,8 @@ fd_accdb_reset( fd_accdb_t * accdb ) {
   shmem->epoch = 1UL;
   for( ulong i=0UL; i<FD_ACCDB_MAX_JOINERS; i++ ) shmem->joiner_epochs[ i ].val = ULONG_MAX;
 
+  fd_accdb_shmem_snap_reset( shmem ); /* the kept versions went with the pool */
+
   /* Deferred acc stack. */
   shmem->deferred_acc_head    = UINT_MAX;
   shmem->deferred_acc_tail    = UINT_MAX;
@@ -600,7 +602,10 @@ delta_insert( fd_accdb_t * accdb,
   fd_accdb_delta_t * delta = &pool[ idx ];
   delta->next = head;
   memcpy( delta->pubkey, pubkey, 32UL );
-  *chain = (uint)idx;
+  /* A snapshot producer may walk the chains concurrently (rooting runs
+     during snapshots): the entry before the head that publishes it */
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *chain ) = (uint)idx;
   return 1;
 }
 
@@ -1330,12 +1335,14 @@ line_writeback( fd_accdb_t *             accdb,
 
     /* Queue the record: header, then the line's bytes */
     fd_accdb_accmeta_t const * m = &accdb->acc_pool[ line[ k ]->acc_idx ];
+    ulong data_len = esz-sizeof(fd_accdb_disk_meta_t);
     fd_memcpy( hdr[ n ].pubkey, m->key.pubkey, 32UL );
-    hdr[ n ].size       = (uint)( esz-sizeof(fd_accdb_disk_meta_t) );
+    hdr[ n ].size       = FD_ACCDB_DISK_SIZE( data_len, FD_ACCDB_SIZE_EXEC( FD_ACCDB_DATA_ES( FD_VOLATILE_CONST( m->data ) ) ) );
     hdr[ n ].generation = m->key.generation;
+    hdr[ n ].lamports   = m->lamports;
     fd_memcpy( hdr[ n ].owner, line[ k ]->owner, 32UL );
     iov[ 2UL*n     ] = (struct iovec){ .iov_base = &hdr[ n ],     .iov_len = sizeof(fd_accdb_disk_meta_t) };
-    iov[ 2UL*n+1UL ] = (struct iovec){ .iov_base = line[ k ]+1UL, .iov_len = hdr[ n ].size };
+    iov[ 2UL*n+1UL ] = (struct iovec){ .iov_base = line[ k ]+1UL, .iov_len = data_len };
     rsz[ n ] = esz;
     who[ n ] = (uint)k;
     n++;
@@ -1687,6 +1694,190 @@ acc_unlink( fd_accdb_t * accdb,
   accdb->metrics->accounts_deleted++;
 }
 
+/* Snapshot keeps.
+
+   A full snapshot of root generation snap_gen holds, per account, the
+   newest version with key.generation<=snap_gen (tombstones excepted).
+   Rooting keeps going while it is produced, and rooting a version
+   normally frees the older version it supersedes.  If the snapshot
+   still needs that version, it is kept instead: left linked on its
+   chain, behind the newer one, until the producer has emitted it.
+
+   Regular readers never see a kept version: they stop at the newer
+   rooted version ahead of it (versions are prepended).  Snapshot
+   readers skip versions newer than snap_gen (snap_lookup), and lookups
+   by disk offset (the producer's disk scan, compaction) find kept
+   versions like any other.
+
+   Freeing is a handshake on one bit per version, the visit bit.  Both
+   rooting (when it supersedes a needed version) and the producer (once
+   it emitted one) visit it (fd_accdb_snap_visit); whichever finds it
+   already visited is second and frees it: rooting directly
+   (keep_or_free), snapzp by sending it to this tile over its
+   snapzp_accdb link (fd_accdb_snap_free_kept), as only this tile
+   unlinks.
+
+   The bit is never cleared.  Instead the value meaning "visited" flips
+   every snapshot (snap_visit), and every version is set to the
+   unvisited value of the next snapshot as it is rooted (root_level,
+   snapshot load).  So a version rooted at any time enters a snapshot
+   unvisited, and one visited by only one party (emitted but never
+   superseded) reads as unvisited again to the next snapshot.  That
+   requires each version to be visited at most once per party per
+   snapshot, and only versions the snapshot emits (no tombstones, full
+   snapshots only: incrementals hold the root).
+
+   A rooted tombstone is normally unlinked as it is rooted.  With a kept
+   version behind it, that would make the kept version visible again,
+   so the tombstone stays until the kept version goes (free_kept).
+
+   At DONE, anything still kept (the producer missed a version: a bug or
+   an aborted snapshot) is swept (keeps_sweep). */
+
+static inline uint
+chain_idx( fd_accdb_t *  accdb,
+           uchar const * pubkey ) {
+  return (uint)( fd_hash32( pubkey, accdb->shmem->seed ) & (accdb->shmem->chain_cnt-1UL) );
+}
+
+/* snap_lookup returns the version of pubkey a snapshot of generation
+   snap_gen holds (tombstones included), or NULL.  Caller is inside an
+   epoch section. */
+
+static fd_accdb_accmeta_t const *
+snap_lookup( fd_accdb_t *  accdb,
+             uint          snap_gen,
+             uchar const * pubkey ) {
+  uint const * head = &accdb->acc_map[ chain_idx( accdb, pubkey ) ];
+  uint a = FD_VOLATILE_CONST( *head );
+  while( a!=UINT_MAX ) {
+    fd_accdb_accmeta_t const * m = &accdb->acc_pool[ a ];
+    uint next = FD_VOLATILE_CONST( m->map.next );
+    if( m->key.generation<=snap_gen && !memcmp( m->key.pubkey, pubkey, 32UL ) ) return m;
+    if( FD_UNLIKELY( fd_accdb_acc_unlinked( m ) ) ) { a = FD_VOLATILE_CONST( *head ); continue; }
+    a = next;
+  }
+  return NULL;
+}
+
+/* mark_unvisited sets rooted version m's visit bit to the next
+   snapshot's unvisited value (the running one's visited value, or with
+   none running, the value the next will consider unvisited: the same). */
+
+static inline void
+mark_unvisited( fd_accdb_t *         accdb,
+                fd_accdb_accmeta_t * m ) {
+  ulong bit = FD_ACCDB_DATA( 0U, FD_ACCDB_SIZE_VISIT_BIT );
+  if( accdb->shmem->snap_visit ) FD_ATOMIC_FETCH_AND_OR ( &m->data,  bit );
+  else                           FD_ATOMIC_FETCH_AND_AND( &m->data, ~bit );
+}
+
+/* snap_kept returns 1 if version m (behind another rooted version of
+   its account) is one the running snapshot needs, i.e. kept. */
+
+static inline int
+snap_kept( fd_accdb_t *               accdb,
+           fd_accdb_accmeta_t const * m ) {
+  uint snap_gen = accdb->shmem->snap_gen;
+  return snap_gen!=UINT_MAX && m->key.generation<=snap_gen && m->lamports;
+}
+
+static inline void
+acc_free( fd_accdb_t * accdb,
+          uint         map_idx,
+          uint         acc_idx ) {
+  acc_unlink( accdb, map_idx, acc_idx );
+  deferred_acc_append( accdb, acc_idx );
+}
+
+/* keep_or_free retires version acc_idx (on chain map_idx), which
+   rooting just superseded.  Returns 1 if it was kept for the snapshot,
+   0 if freed. */
+
+static int
+keep_or_free( fd_accdb_t * accdb,
+              uint         map_idx,
+              uint         acc_idx ) {
+  fd_accdb_shmem_t *   shmem = accdb->shmem;
+  fd_accdb_accmeta_t * m     = &accdb->acc_pool[ acc_idx ];
+  int needed = shmem->snap_gen!=UINT_MAX && m->key.generation<=shmem->snap_gen && m->lamports;
+  if( FD_LIKELY( !needed ) ) { acc_free( accdb, map_idx, acc_idx ); return 0; }
+
+  if( fd_accdb_snap_visit( m, shmem->snap_visit ) ) { acc_free( accdb, map_idx, acc_idx ); return 0; } /* already emitted */
+  shmem->keep_cnt++;
+  return 1;
+}
+
+/* free_kept frees kept version acc_idx, then the rooted tombstone that
+   was shadowing it, if no other kept version is left behind it. */
+
+static void
+free_kept( fd_accdb_t * accdb,
+           uint         acc_idx ) {
+  fd_accdb_shmem_t *   shmem = accdb->shmem;
+  fd_accdb_accmeta_t * meta  = &accdb->acc_pool[ acc_idx ];
+  uint                 map   = chain_idx( accdb, meta->key.pubkey );
+  FD_TEST( shmem->keep_cnt );
+  shmem->keep_cnt--;
+  acc_free( accdb, map, acc_idx );
+
+  /* The newest rooted version of the account ahead of it */
+  uint root_gen = accdb->fork_pool[ shmem->root_fork_id.val ].shmem->generation;
+  uint tomb     = UINT_MAX;
+  for( uint a=accdb->acc_map[ map ]; a!=UINT_MAX; a=accdb->acc_pool[ a ].map.next ) {
+    fd_accdb_accmeta_t const * m = &accdb->acc_pool[ a ];
+    if( m->key.generation>root_gen || memcmp( m->key.pubkey, meta->key.pubkey, 32UL ) ) continue;
+    if( tomb==UINT_MAX ) {
+      if( m->lamports ) return; /* live: nothing shadowed */
+      tomb = a;
+    } else if( m->key.generation<=shmem->snap_gen && m->lamports ) {
+      return;                   /* still shadows another kept version */
+    }
+  }
+  if( tomb!=UINT_MAX ) acc_free( accdb, map, tomb );
+}
+
+/* keeps_sweep frees every version still kept once the producer is done
+   (only if it missed some).  Scans the whole pool: a kept version is a
+   linked one at or below snap_gen that a newer rooted version shadows. */
+
+static void
+keeps_sweep( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_LIKELY( !shmem->keep_cnt ) ) return;
+  FD_LOG_WARNING(( "snapshot left %lu superseded versions unemitted, sweeping", shmem->keep_cnt ));
+  uint root_gen = accdb->fork_pool[ shmem->root_fork_id.val ].shmem->generation;
+  ulong chain_cnt = shmem->chain_cnt;
+  for( ulong c=0UL; c<chain_cnt && shmem->keep_cnt; c++ ) {
+    /* On each chain, a rooted version behind a newer rooted version of
+       the same account is kept */
+    for( uint a=accdb->acc_map[ c ]; a!=UINT_MAX; ) {
+      fd_accdb_accmeta_t const * m    = &accdb->acc_pool[ a ];
+      uint                       next = m->map.next;
+      int shadowed = 0;
+      for( uint b=accdb->acc_map[ c ]; b!=a; b=accdb->acc_pool[ b ].map.next ) {
+        fd_accdb_accmeta_t const * n = &accdb->acc_pool[ b ];
+        shadowed |= n->key.generation<=root_gen && !memcmp( n->key.pubkey, m->key.pubkey, 32UL );
+      }
+      if( m->key.generation<=shmem->snap_gen && m->lamports && shadowed ) free_kept( accdb, a );
+      a = next;
+    }
+  }
+  FD_TEST( !shmem->keep_cnt );
+}
+
+/* keeps_full returns 1 if rooting should wait for the snapshot to end
+   rather than keep more: the pool might not fit another level of
+   commits on top of what is kept. */
+
+static int
+keeps_full( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_LIKELY( shmem->snap_gen==UINT_MAX ) ) return 0;
+  ulong total = FD_VOLATILE_CONST( shmem->shmetrics->accounts_total );
+  return total+2UL*shmem->max_account_writes_per_slot>acc_pool_ele_max( accdb->acc_pool_join );
+}
+
 /* fork_slot_defer chains a retired fork pool slot onto the deferred
    fork chain.  The slot is released only after concurrent readers that
    could still hold its fork ID (via root_fork_id or descends_set) have
@@ -1814,8 +2005,9 @@ root_level( fd_accdb_t *       accdb,
       for( ulong w=0UL; w<cnt; w++ ) {
         fd_accdb_txn_t * txne = txns[ w ];
 
-        fd_accdb_accmeta_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
+        fd_accdb_accmeta_t * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
         uint acc_map_idx = map_idxs[ w ];
+        mark_unvisited( accdb, new_acc ); /* enters the next snapshot unvisited */
 
         delta_insert( accdb, new_acc->key.pubkey );
 
@@ -1832,14 +2024,22 @@ root_level( fd_accdb_t *       accdb,
         }
         FD_TEST( chk==txne->acc_pool_idx );
 #endif
-        uint acc = FD_VOLATILE_CONST( new_acc->map.next );
+        /* Retire the older versions.  A rooted one behind another
+           rooted one was kept for the running snapshot by an earlier
+           level ("Snapshot keeps"), and rooting visited it already: it
+           stays.  (Without a snapshot running, nothing is kept.) */
+        int  kept   = 0;
+        int  behind = 0; /* passed an older rooted version already */
+        uint acc    = FD_VOLATILE_CONST( new_acc->map.next );
         while( acc!=UINT_MAX ) {
           fd_accdb_accmeta_t const * cur_acc = &accdb->acc_pool[ acc ];
           uint next = FD_VOLATILE_CONST( cur_acc->map.next );
           if( FD_LIKELY( (cur_acc->key.generation<=parent_fork->shmem->generation || descends_set_test( fork->descends, fd_accdb_acc_fork_id(cur_acc) ) ) && !memcmp( new_acc->key.pubkey, cur_acc->key.pubkey, 32UL ) ) ) {
             fd_racesan_hook( "accdb_advance:pre_unlink" );
-            acc_unlink( accdb, acc_map_idx, acc );
-            deferred_acc_append( accdb, acc );
+            int prev_kept = behind && snap_kept( accdb, cur_acc );
+            if( FD_UNLIKELY( prev_kept ) ) kept = 1;
+            else                           kept |= keep_or_free( accdb, acc_map_idx, acc );
+            behind |= cur_acc->key.generation<=parent_fork->shmem->generation;
           }
           acc = next;
         }
@@ -1848,9 +2048,8 @@ root_level( fd_accdb_t *       accdb,
            account was closed), drop it from the index too: no fork can
            reach it anymore, and keeping it around just wastes a hash
            slot and the disk bytes it occupies. */
-        if( FD_UNLIKELY( new_acc->lamports==0UL ) ) {
-          acc_unlink( accdb, acc_map_idx, txne->acc_pool_idx );
-          deferred_acc_append( accdb, txne->acc_pool_idx );
+        if( FD_UNLIKELY( new_acc->lamports==0UL && !kept ) ) { /* else shadows a kept version (free_kept) */
+          acc_free( accdb, acc_map_idx, txne->acc_pool_idx );
         }
 
         txn_tail = txne;
@@ -1898,8 +2097,6 @@ void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
-  FD_CHECK_CRIT( fd_accdb_snapshot_sync_state( &shmem->snapshot_sync )!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING,
-                 "fd_accdb_advance_root called during snapshot production" );
 
   /* The caller roots sequentially: fork_id is a child of the last
      requested root. */
@@ -1982,6 +2179,34 @@ background_release( fd_accdb_t * accdb ) {
   return 1;
 }
 
+/* retire_batch publishes done (this pass's progress), retiring what it
+   unlinked or retired as one batch: one grace period for all of it. */
+
+static void
+retire_batch( fd_accdb_t *    accdb,
+              fd_accdb_done_t done ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  if( FD_LIKELY( shmem->deferred_acc_head!=UINT_MAX || shmem->deferred_fork_head.val!=USHORT_MAX ) ) {
+    shmem->deferred_epoch = FD_ATOMIC_FETCH_AND_ADD( &shmem->epoch, 1UL );
+    done.retiring         = 1U;
+  }
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->done.u ) = done.u;
+  FD_COMPILER_MFENCE();
+}
+
+int
+fd_accdb_snap_free_kept( fd_accdb_t * accdb,
+                         uint const * acc_idx,
+                         ulong        cnt ) {
+  /* A held batch is released whole, so new frees wait for it */
+  if( FD_UNLIKELY( !background_release( accdb ) ) ) return 0;
+  for( ulong i=0UL; i<cnt; i++ ) free_kept( accdb, acc_idx[ i ] );
+  retire_batch( accdb, accdb->shmem->done );
+  accdb->shmem->emit_done++;
+  return 1;
+}
+
 /* background_requests applies the root and purge requests published
    since the last pass, then retires everything they unlinked as one
    batch.  Returns 1 if it did any work.
@@ -2019,19 +2244,12 @@ background_requests( fd_accdb_t * accdb ) {
     done.root_gen = root->generation;
     if( done.root_gen==req.root_gen ) break;
     FD_TEST( done.root_gen<req.root_gen );
+    if( FD_UNLIKELY( keeps_full( accdb ) ) ) break; /* the rest once the snapshot ends */
     root_level( accdb, root->child_id );
   }
 
-  /* One grace period for everything unlinked or retired in this pass. */
-  if( FD_LIKELY( shmem->deferred_acc_head!=UINT_MAX || shmem->deferred_fork_head.val!=USHORT_MAX ) ) {
-    shmem->deferred_epoch = FD_ATOMIC_FETCH_AND_ADD( &shmem->epoch, 1UL );
-    done.retiring         = 1U;
-  }
-
   fd_racesan_hook( "accdb_requests:pre_done" );
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( shmem->done.u ) = done.u;
-  FD_COMPILER_MFENCE();
+  retire_batch( accdb, done );
   return 1;
 }
 
@@ -2135,6 +2353,16 @@ background_compact( fd_accdb_t * accdb,
     return;
   }
 
+  /* The snapshot producer's disk scan finds records by exact offset,
+     so records it has not resolved yet must not move: hold partitions
+     it has not scanned ("Snapshot keeps"). */
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->shmem->snap_gen )!=UINT_MAX &&
+                   !fd_accdb_shmem_snap_is_scanned( accdb->shmem, partition_pool_idx( accdb->partition_pool, compact ) ) ) ) {
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+    return;
+  }
+
   *charge_busy = 1;
 
   if( FD_UNLIKELY( !compact->compacting_now ) ) {
@@ -2166,7 +2394,7 @@ background_compact( fd_accdb_t * accdb,
   ulong span = 0UL;
   for(;;) {
     if( FD_UNLIKELY( span+sizeof(fd_accdb_disk_meta_t)>bytes_read ) ) break;
-    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)((fd_accdb_disk_meta_t const *)(accdb->bounce+span))->size;
+    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_DISK_DATA_LEN( ((fd_accdb_disk_meta_t const *)(accdb->bounce+span))->size );
     if( FD_UNLIKELY( span+record_sz>bytes_read ) ) break;
     span += record_sz;
   }
@@ -2202,7 +2430,7 @@ background_compact( fd_accdb_t * accdb,
       acc_idx = next_idx;
     }
 
-    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)meta->size;
+    ulong record_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_DISK_DATA_LEN( meta->size );
     if( FD_UNLIKELY( !accmeta ) ) compact->compaction_dead_records++; /* index entry gone, extent is garbage */
     else {
       live_accmeta[ live_cnt ] = accmeta;
@@ -2734,8 +2962,9 @@ commit_disk( fd_accdb_t *                  accdb,
              fd_accdb_cache_line_t const * staging ) {
   fd_accdb_disk_meta_t hdr;
   fd_memcpy( hdr.pubkey, a->pubkey, 32UL );
-  hdr.size       = (uint)a->data_len;
+  hdr.size       = FD_ACCDB_DISK_SIZE( a->data_len, a->executable );
   hdr.generation = generation;
+  hdr.lamports   = a->lamports;
   fd_memcpy( hdr.owner, a->owner, 32UL );
   struct iovec iov[ 2 ] = {
     { .iov_base = &hdr,                    .iov_len = sizeof(fd_accdb_disk_meta_t) },
@@ -2951,40 +3180,18 @@ fd_accdb_unwrite_one( fd_accdb_t * accdb,
   fd_accdb_release( accdb, 1UL, acc );
 }
 
-int
-fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
-                           fd_accdb_fork_id_t fork_id,
-                           uchar const *      pubkey,
-                           ulong *            out_lamports,
-                           int *              out_executable,
-                           uchar *            out_owner,
-                           uchar *            out_data,
-                           ulong *            out_data_len ) {
-  /* The epoch keeps the accmeta and its record alive */
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
-  FD_HW_MFENCE();
+/* read_copy copies out the version accmeta (NULL if none), found by
+   the caller inside its epoch section, as fd_accdb_read_one_nocache
+   describes. */
 
-  /* Find the visible version, as acquire does. */
-  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
-  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-  uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
-  fd_accdb_accmeta_t const * accmeta = NULL;
-  while( acc_idx!=UINT_MAX ) {
-    fd_accdb_accmeta_t const * candidate = &accdb->acc_pool[ acc_idx ];
-    uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
-    if( FD_LIKELY( !memcmp( pubkey, candidate->key.pubkey, 32UL ) &&
-                   ( candidate->key.generation<=root_generation ||
-                     fd_accdb_acc_fork_id( candidate )==fork_id.val ||
-                     descends_set_test( fork->descends, fd_accdb_acc_fork_id( candidate ) ) ) ) ) {
-      accmeta = candidate;
-      break;
-    }
-    if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
-    acc_idx = next_idx;
-  }
-
+static int
+read_copy( fd_accdb_t *               accdb,
+           fd_accdb_accmeta_t const * accmeta,
+           ulong *                    out_lamports,
+           int *                      out_executable,
+           uchar *                    out_owner,
+           uchar *                    out_data,
+           ulong *                    out_data_len ) {
   int result = FD_ACCDB_READ_ONE_NOCACHE_MISS;
   *out_lamports = 0UL;
   if( FD_UNLIKELY( !accmeta ) ) {
@@ -3039,6 +3246,64 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   *out_data_len   = data_len;
 
 done:
+  return result;
+}
+
+int
+fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
+                           fd_accdb_fork_id_t fork_id,
+                           uchar const *      pubkey,
+                           ulong *            out_lamports,
+                           int *              out_executable,
+                           uchar *            out_owner,
+                           uchar *            out_data,
+                           ulong *            out_data_len ) {
+  /* The epoch keeps the accmeta and its record alive */
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
+  /* Find the visible version, as acquire does. */
+  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+  ulong hash = fd_hash32( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
+  fd_accdb_accmeta_t const * accmeta = NULL;
+  while( acc_idx!=UINT_MAX ) {
+    fd_accdb_accmeta_t const * candidate = &accdb->acc_pool[ acc_idx ];
+    uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
+    if( FD_LIKELY( !memcmp( pubkey, candidate->key.pubkey, 32UL ) &&
+                   ( candidate->key.generation<=root_generation ||
+                     fd_accdb_acc_fork_id( candidate )==fork_id.val ||
+                     descends_set_test( fork->descends, fd_accdb_acc_fork_id( candidate ) ) ) ) ) {
+      accmeta = candidate;
+      break;
+    }
+    if( FD_UNLIKELY( fd_accdb_acc_unlinked( candidate ) ) ) { acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] ); continue; }
+    acc_idx = next_idx;
+  }
+
+  int result = read_copy( accdb, accmeta, out_lamports, out_executable, out_owner, out_data, out_data_len );
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+  return result;
+}
+
+int
+fd_accdb_read_one_snap( fd_accdb_t *  accdb,
+                        uint          snap_gen,
+                        uchar const * pubkey,
+                        ulong *       out_lamports,
+                        int *         out_executable,
+                        uchar *       out_owner,
+                        uchar *       out_data,
+                        ulong *       out_data_len ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
+  fd_accdb_accmeta_t const * accmeta = snap_lookup( accdb, snap_gen, pubkey );
+  int result = read_copy( accdb, accmeta, out_lamports, out_executable, out_owner, out_data, out_data_len );
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
   return result;
@@ -3518,7 +3783,9 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
 
     accmeta->cache_idx       = (uint)slots[ i ];
     accmeta->lamports        = lamports[ i ];
-    accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] );
+    /* Loaded versions are rooted: unvisited for the next snapshot */
+    accmeta->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] )
+                             | ( accdb->shmem->snap_visit ? FD_ACCDB_SIZE_VISIT_BIT : 0U );
     ulong file_off           = file_offsets[ i ];
     accmeta->offset_fork     = incremental ? fd_accdb_acc_pack_offset_fork( file_off, fork_id.val ) : file_off;
 
@@ -3562,6 +3829,22 @@ delta_is_valid( fd_accdb_shmem_t const * accdb ) {
   return accdb->delta.head < accdb->delta.ele_max;
 }
 
+/* snap_begin starts keeping for a full snapshot of the current root
+   ("Snapshot keeps").  Runs between request passes, so root_fork_id is
+   the applied root. */
+
+static void
+snap_begin( fd_accdb_t * accdb ) {
+  fd_accdb_shmem_t * shmem = accdb->shmem;
+  FD_TEST( !shmem->keep_cnt );
+  /* Every rooted version holds the old visited value: unvisited now */
+  FD_VOLATILE( shmem->snap_visit ) = !shmem->snap_visit;
+  for( ulong i=0UL; i<FD_ACCDB_PARTITION_CNT_MAX/64UL; i++ ) FD_VOLATILE( shmem->snap_scanned[ i ] ) = 0UL;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->snap_gen ) = accdb->fork_pool[ shmem->root_fork_id.val ].shmem->generation;
+  FD_COMPILER_MFENCE();
+}
+
 void
 fd_accdb_background( fd_accdb_t * accdb,
                      int *        charge_busy ) {
@@ -3585,16 +3868,25 @@ fd_accdb_background( fd_accdb_t * accdb,
   if( FD_UNLIKELY( snap_sync!=FD_ACCDB_SNAPSHOT_SYNC_IDLE ) ) {
     switch( snap_sync ) {
     case FD_ACCDB_SNAPSHOT_SYNC_RUNNING:
-      /* while producing a snapshot, don't do compaction work */
-      background_preevict( accdb, charge_busy, 0 );
-      return;
-    case FD_ACCDB_SNAPSHOT_SYNC_DONE:
-      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+      /* rooting keeps what the snapshot needs, compaction holds what it
+         has not scanned (background_compact) */
       break;
+    case FD_ACCDB_SNAPSHOT_SYNC_DONE:
+      /* Free what is still kept, as a batch of its own, once every
+         batch the producer sent is freed */
+      if( FD_UNLIKELY( shmem->done.retiring ||
+                       FD_VOLATILE_CONST( shmem->emit_pub )!=shmem->emit_done ) ) { *charge_busy = 1; return; }
+      keeps_sweep( accdb );
+      FD_VOLATILE( shmem->snap_gen ) = UINT_MAX;
+      retire_batch( accdb, shmem->done );
+      fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+      *charge_busy = 1;
+      return;
     case FD_ACCDB_SNAPSHOT_SYNC_START_FULL:
       FD_CHECK_CRIT( !FD_VOLATILE_CONST( shmem->snapshot_loading ),
                      "snapshot production requested during snapshot load" );
       delta_reset( accdb );
+      snap_begin( accdb );
       fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
       *charge_busy = 1;
       return;
@@ -3602,6 +3894,7 @@ fd_accdb_background( fd_accdb_t * accdb,
       FD_CHECK_CRIT( !FD_VOLATILE_CONST( shmem->snapshot_loading ),
                      "snapshot production requested during snapshot load" );
       if( delta_is_valid( accdb->shmem ) ) {
+        /* Incrementals are small: replay holds the root until DONE */
         fd_accdb_snapshot_sync_advance( snap_sync_p, FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
       } else {
         /* cannot produce incrementals because delta ran out of space,

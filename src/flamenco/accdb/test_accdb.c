@@ -2881,6 +2881,239 @@ test_reservation_credits( void ) {
   test_teardown( a, fd );
 }
 
+/* test_snapshot_keeps: while a full snapshot of root R runs, rooting
+   moves on.  Superseded versions R holds stay linked (kept) until the
+   producer emits them, then go.  Later snapshots check the visit bit
+   across snapshots (fd_accdb_snap_visit).  Records are 4 MiB in 12 MiB partitions
+   with a tiny cache, so rewrites push old versions to disk and fill
+   partitions past the compaction threshold.  Compaction must hold
+   partitions the producer has not scanned (snap_scanned) and relocate
+   kept records once it has.  Also covers: a version emitted before it
+   is superseded is freed at once; a rooted tombstone is kept while it
+   shadows a kept version; DONE sweeps what was never emitted. */
+
+#define KEEP_REC_SZ  (4UL<<20)
+#define KEEP_ACC_CNT (4UL)
+
+static void
+keep_mk_key( ulong i, uchar key[ 32UL ] ) {
+  memset( key, 0, 32UL );
+  key[ 0 ] = 0x77;
+  FD_STORE( ulong, key+8, i );
+}
+
+/* keep_check reads key's snapshot version and checks it.  emit then
+   plays the producer: visit it, and if it was kept (we are second),
+   have the accdb tile free it. */
+
+static void
+keep_check( fd_accdb_t *  accdb,
+            uint          gen,
+            uchar const * key,
+            ulong         expect_lamports,
+            uchar         expect_fill,
+            int           emit ) {
+  static uchar buf[ KEEP_REC_SZ ];
+  ulong lamports = 0UL; int exec = 0; uchar owner[ 32UL ]; ulong data_len = 0UL;
+  int src = fd_accdb_read_one_snap( accdb, gen, key, &lamports, &exec, owner, buf, &data_len );
+  FD_TEST( src!=FD_ACCDB_READ_ONE_NOCACHE_MISS );
+  FD_TEST( lamports==expect_lamports );
+  FD_TEST( data_len==KEEP_REC_SZ );
+  FD_TEST( buf[ 0 ]==expect_fill && buf[ KEEP_REC_SZ-1UL ]==expect_fill );
+  if( !emit ) return;
+
+  /* Find it in the pool (same layout walk as fd_accdb_join_readonly) */
+  fd_accdb_shmem_t * shmem = test_shmem_mem;
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN, sizeof(fd_accdb_shmem_t) );
+  FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), shmem->max_live_slots*sizeof(fd_accdb_fork_shmem_t) );
+  FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(), shmem->max_live_slots*descends_set_footprint( shmem->max_live_slots ) );
+  FD_SCRATCH_ALLOC_APPEND( l, alignof(uint), shmem->chain_cnt*sizeof(uint) );
+  fd_accdb_accmeta_t * pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t), shmem->max_accounts*sizeof(fd_accdb_accmeta_t) );
+  uint idx = UINT_MAX;
+  for( uint i=0U; i<(uint)shmem->max_accounts; i++ ) {
+    fd_accdb_accmeta_t * m = &pool[ i ];
+    if( !memcmp( m->key.pubkey, key, 32UL ) && m->key.generation<=gen &&
+        !FD_ACCDB_SIZE_UNLINKED( FD_ACCDB_DATA_ES( m->data ) ) && m->lamports==expect_lamports ) idx = i;
+  }
+  FD_TEST( idx!=UINT_MAX );
+  if( fd_accdb_snap_visit( &pool[ idx ], shmem->snap_visit ) ) {
+    shmem->emit_pub++;
+    FD_TEST( fd_accdb_snap_free_kept( accdb, &idx, 1UL ) );
+  }
+}
+
+static void
+test_snapshot_keeps( void ) {
+  ulong const data[ FD_ACCDB_CACHE_CLASS_CNT ] =
+    { 128UL, 512UL, 2048UL, 8192UL, 32768UL, 131072UL, 1048576UL, 10485760UL };
+  ulong tiny_fp = 0UL;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) tiny_fp += 2UL*( data[ c ] + FD_ACCDB_CACHE_META_SZ );
+
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 1024UL, 64UL, 64UL, 64UL, 12UL<<20, tiny_fp, 2UL, 1UL, 0UL );
+  fd_accdb_shmem_t * shmem = test_shmem_mem;
+  static uchar fill[ KEEP_REC_SZ ];
+
+  uchar keys[ KEEP_ACC_CNT ][ 32UL ];
+  for( ulong i=0UL; i<KEEP_ACC_CNT; i++ ) keep_mk_key( i, keys[ i ] );
+
+  /* Root R holds version 1 of every account */
+  fd_accdb_fork_id_t root = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t r    = fd_accdb_attach_child( accdb, root );
+  for( ulong i=0UL; i<KEEP_ACC_CNT; i++ ) {
+    memset( fill, (int)(0x10+i), KEEP_REC_SZ );
+    accdb_write( accdb, r, keys[ i ], 100UL+i, fill, KEEP_REC_SZ, owner2 );
+  }
+  fd_accdb_advance_root( accdb, r );
+  drain_background( accdb );
+
+  /* Start the snapshot: keeps for the applied root R */
+  fd_accdb_snapshot_sync_advance( &shmem->snapshot_sync, FD_ACCDB_SNAPSHOT_SYNC_START_FULL );
+  drain_background( accdb );
+  FD_TEST( fd_accdb_snapshot_sync_state( &shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_RUNNING );
+  FD_TEST( shmem->root_fork_id.val==r.val );
+  uint gen = shmem->snap_gen;
+  FD_TEST( gen!=UINT_MAX );
+  for( ulong p=0UL; p<shmem->partition_max; p++ ) FD_TEST( !fd_accdb_shmem_snap_is_scanned( shmem, p ) );
+
+  /* Account 0 is emitted before anything supersedes it */
+  keep_check( accdb, gen, keys[ 0 ], 100UL, 0x10, 1 );
+
+  /* Root three more levels, each rewriting accounts 0..2, and closing
+     account 3 on the last (a rooted tombstone over a kept version) */
+  fd_accdb_fork_id_t parent = r;
+  for( ulong lvl=0UL; lvl<3UL; lvl++ ) {
+    fd_accdb_fork_id_t f = fd_accdb_attach_child( accdb, parent );
+    for( ulong i=0UL; i<KEEP_ACC_CNT; i++ ) {
+      if( i==3UL && lvl<2UL ) continue;
+      memset( fill, (int)(0x40+16UL*lvl+i), KEEP_REC_SZ );
+      ulong lamports = i==3UL ? 0UL : 1000UL*(lvl+1UL)+i;
+      accdb_write( accdb, f, keys[ i ], lamports, i==3UL ? NULL : fill, i==3UL ? 0UL : KEEP_REC_SZ, owner2 );
+    }
+    fd_accdb_advance_root( accdb, f );
+    for( int k=0; k<8; k++ ) drain_background( accdb );
+    parent = f;
+  }
+
+  /* Account 0 went at once (emitted already), 1..3 are kept; account 3's
+     tombstone stays to shadow its kept version */
+  FD_TEST( shmem->keep_cnt==3UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL+3UL+1UL ); /* live 0..2, kept 1..3, tombstone 3 */
+
+  /* The live fork sees the newest (account 3 closed); the snapshot sees R */
+  for( ulong i=0UL; i<KEEP_ACC_CNT; i++ ) {
+    ulong lamports; ulong dl; uchar o[ 32UL ];
+    int found = accdb_read( accdb, parent, keys[ i ], &lamports, NULL, &dl, o );
+    if( i==3UL ) FD_TEST( !found );
+    else         FD_TEST( found && lamports==3000UL+i );
+  }
+  keep_check( accdb, gen, keys[ 1 ], 101UL, 0x11, 0 );
+  keep_check( accdb, gen, keys[ 3 ], 103UL, 0x13, 0 );
+
+  /* Compaction holds every partition until the producer scanned it */
+  fd_accdb_shmem_metrics_t const * m = fd_accdb_shmetrics( accdb );
+  FD_TEST( m->compactions_requested>0UL );
+  ulong done_before = m->compactions_completed;
+  for( int k=0; k<64; k++ ) drain_background( accdb );
+  FD_TEST( m->compactions_completed==done_before );
+
+  /* Scanning the head of the compaction queue (earliest enqueued)
+     releases it alone */
+  ulong part_max = shmem->partition_max;
+  ulong head = ULONG_MAX, head_epoch = ULONG_MAX, queued_cnt = 0UL;
+  for( ulong p=0UL; p<part_max; p++ ) {
+    fd_accdb_shmem_partition_info_t info[ 1 ];
+    fd_accdb_shmem_partition_info( shmem, p, info );
+    if( info->compaction_state!=1 ) continue;
+    queued_cnt++;
+    if( info->compaction_epoch<head_epoch ) { head = p; head_epoch = info->compaction_epoch; }
+  }
+  FD_TEST( head!=ULONG_MAX );
+  fd_accdb_shmem_snap_scanned( shmem, head );
+  for( int k=0; k<64; k++ ) drain_background( accdb );
+  FD_TEST( m->compactions_completed==done_before+1UL );
+  if( queued_cnt>1UL ) FD_TEST( m->compactions_completed<done_before+queued_cnt );
+
+  /* The rest, relocating kept records too */
+  for( ulong p=0UL; p<part_max; p++ ) {
+    fd_accdb_shmem_snap_scanned( shmem, p );
+    for( int k=0; k<16; k++ ) drain_background( accdb );
+  }
+  for( int k=0; k<256; k++ ) drain_background( accdb );
+  FD_TEST( m->compactions_completed>done_before );
+  keep_check( accdb, gen, keys[ 1 ], 101UL, 0x11, 0 );
+
+  /* Emitting 1 and 3 frees them (and 3's tombstone); 2 is never emitted */
+  keep_check( accdb, gen, keys[ 1 ], 101UL, 0x11, 1 );
+  keep_check( accdb, gen, keys[ 3 ], 103UL, 0x13, 1 );
+  for( int k=0; k<4; k++ ) drain_background( accdb );
+  FD_TEST( shmem->keep_cnt==1UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL+1UL );
+  { /* the closed account is gone for live readers still */
+    ulong lamports; ulong dl; uchar o[ 32UL ];
+    FD_TEST( !accdb_read( accdb, parent, keys[ 3 ], &lamports, NULL, &dl, o ) );
+  }
+
+  /* Done waits for a batch the producer sent but the accdb tile has
+     not freed yet (else the sweep would free its versions first) */
+  shmem->emit_pub++;
+  fd_accdb_snapshot_sync_advance( &shmem->snapshot_sync, FD_ACCDB_SNAPSHOT_SYNC_DONE );
+  for( int k=0; k<4; k++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_snapshot_sync_state( &shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_DONE );
+  FD_TEST( shmem->keep_cnt==1UL );
+  FD_TEST( fd_accdb_snap_free_kept( accdb, NULL, 0UL ) ); /* the batch lands (empty here) */
+
+  /* Done: the sweep frees the unemitted keep */
+  for( int k=0; k<4; k++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_snapshot_sync_state( &shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+  FD_TEST( shmem->snap_gen==UINT_MAX );
+  FD_TEST( !shmem->keep_cnt );
+  FD_TEST( !fd_accdb_requests_pending( accdb ) );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==3UL );
+
+  /* A second snapshot.  Account 0's version (3000) was rooted during
+     the first snapshot and never visited: it must enter unvisited.
+     Account 1's version (3001) was rooted during the first and is
+     emitted by the second without being superseded (one visit). */
+  fd_accdb_snapshot_sync_advance( &shmem->snapshot_sync, FD_ACCDB_SNAPSHOT_SYNC_START_FULL );
+  drain_background( accdb );
+  uint gen2 = shmem->snap_gen;
+  keep_check( accdb, gen2, keys[ 1 ], 3001UL, 0x61, 1 );
+  fd_accdb_fork_id_t f = fd_accdb_attach_child( accdb, parent );
+  memset( fill, 0x99, KEEP_REC_SZ );
+  accdb_write( accdb, f, keys[ 0 ], 7UL, fill, KEEP_REC_SZ, owner2 );
+  fd_accdb_advance_root( accdb, f );
+  for( int k=0; k<4; k++ ) drain_background( accdb );
+  FD_TEST( shmem->keep_cnt==1UL ); /* account 0's 3000 kept, not freed */
+  keep_check( accdb, gen2, keys[ 0 ], 3000UL, 0x60, 1 );
+  for( int k=0; k<4; k++ ) drain_background( accdb );
+  FD_TEST( !shmem->keep_cnt );
+  fd_accdb_snapshot_sync_advance( &shmem->snapshot_sync, FD_ACCDB_SNAPSHOT_SYNC_DONE );
+  for( int k=0; k<4; k++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_snapshot_sync_state( &shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+
+  /* A third snapshot: account 1's 3001 was visited once (emitted) by the
+     second; the flip makes it unvisited again, so superseding it now
+     keeps it rather than freeing it before this snapshot emits it */
+  fd_accdb_snapshot_sync_advance( &shmem->snapshot_sync, FD_ACCDB_SNAPSHOT_SYNC_START_FULL );
+  drain_background( accdb );
+  uint gen3 = shmem->snap_gen;
+  fd_accdb_fork_id_t g = fd_accdb_attach_child( accdb, f );
+  memset( fill, 0xAA, KEEP_REC_SZ );
+  accdb_write( accdb, g, keys[ 1 ], 8UL, fill, KEEP_REC_SZ, owner2 );
+  fd_accdb_advance_root( accdb, g );
+  for( int k=0; k<4; k++ ) drain_background( accdb );
+  FD_TEST( shmem->keep_cnt==1UL );
+  keep_check( accdb, gen3, keys[ 1 ], 3001UL, 0x61, 1 );
+  FD_TEST( !shmem->keep_cnt );
+  fd_accdb_snapshot_sync_advance( &shmem->snapshot_sync, FD_ACCDB_SNAPSHOT_SYNC_DONE );
+  for( int k=0; k<4; k++ ) drain_background( accdb );
+  FD_TEST( fd_accdb_snapshot_sync_state( &shmem->snapshot_sync )==FD_ACCDB_SNAPSHOT_SYNC_IDLE );
+
+  test_teardown( accdb, fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -3020,6 +3253,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_release_alloc ..." ));
   test_release_alloc();
+
+  FD_LOG_NOTICE(( "test_snapshot_keeps ..." ));
+  test_snapshot_keeps();
 
   FD_LOG_NOTICE(( "success" ));
 

@@ -13,6 +13,7 @@
 #include "../../util/pod/fd_pod.h"
 
 #include "fd_accdb.h"
+#include "../../discof/backup/fd_backup.h"
 #include "../progcache/fd_progcache.h"
 #include "../progcache/fd_progcache_clock.h"
 #include "../progcache/fd_progcache_user.h"
@@ -37,6 +38,13 @@ struct fd_accdb_tile_ctx {
   int busy;
 
   ulong seed;
+
+  /* snapzp_accdb in links: kept versions to free */
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+  } in[ FD_TOPO_MAX_TILE_IN_LINKS ];
 };
 
 typedef struct fd_accdb_tile_ctx fd_accdb_tile_ctx_t;
@@ -121,6 +129,28 @@ prevent_park( fd_accdb_tile_ctx_t * ctx ) {
   return ctx->busy;
 }
 
+/* returnable_frag frees a batch of kept versions snapzp emitted
+   (fd_accdb.c "Snapshot keeps").  Leaves the frag unconsumed while a
+   deferred batch is still held. */
+
+static inline int
+returnable_frag( fd_accdb_tile_ctx_t * ctx,
+                 ulong                 in_idx,
+                 ulong                 seq     FD_PARAM_UNUSED,
+                 ulong                 sig     FD_PARAM_UNUSED,
+                 ulong                 chunk,
+                 ulong                 sz,
+                 ulong                 ctl     FD_PARAM_UNUSED,
+                 ulong                 tsorig  FD_PARAM_UNUSED,
+                 ulong                 tspub   FD_PARAM_UNUSED,
+                 fd_stem_context_t *   stem    FD_PARAM_UNUSED ) {
+  fd_startup_gate_busy( ctx->startup_gate );
+  FD_CHECK_CRIT( chunk>=ctx->in[ in_idx ].chunk0 && chunk<=ctx->in[ in_idx ].wmark && sz>=sizeof(uint), "snapzp_accdb frag out of bounds" );
+  fd_backup_emitted_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+  FD_CHECK_CRIT( msg->cnt<=FD_BACKUP_EMITTED_MAX && sz==sizeof(uint)+msg->cnt*sizeof(uint), "invalid snapzp_accdb frag" );
+  return !fd_accdb_snap_free_kept( ctx->accdb, msg->acc_idx, msg->cnt );
+}
+
 static void
 privileged_init( fd_topo_t const *      topo,
                  fd_topo_tile_t const * tile ) {
@@ -187,6 +217,14 @@ unprivileged_init( fd_topo_t const *      topo,
 
   fd_startup_gate_init( ctx->startup_gate, topo, tile->in_cnt );
 
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    FD_TEST( !strcmp( link->name, "snapzp_accdb" ) );
+    ctx->in[ i ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+  }
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -228,6 +266,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
 #define STEM_CALLBACK_PREVENT_PARK  prevent_park
 #define STEM_CALLBACK_BEFORE_CREDIT before_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 

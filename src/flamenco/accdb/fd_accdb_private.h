@@ -258,10 +258,11 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
 #define FD_ACCDB_OFF_CLEAN(o)  ( !( (o) & FD_ACCDB_OFF_DIRTY_BIT ) )
 
 /* The in-memory executable_size field in fd_accdb_accmeta_t packs
-   five things into 32 bits:
+   these into 32 bits:
 
      bit  31     executable flag                       (FD_ACCDB_SIZE_EXEC_BIT)
      bit  30     cache_valid flag, in-memory only      (FD_ACCDB_SIZE_CACHE_VALID_BIT)
+     bit  29     visit flag,       in-memory only      (FD_ACCDB_SIZE_VISIT_BIT)
      bit  28     pd_write flag,    in-memory only      (FD_ACCDB_SIZE_PD_WRITE_BIT)
      bit  27     unlinked flag,    in-memory only      (FD_ACCDB_SIZE_UNLINKED_BIT)
      bits 26..0  data length in bytes                  (FD_ACCDB_SIZE_MASK)
@@ -269,7 +270,7 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
    The data length is therefore 27 bits, max 128 MiB, still well above
    FD_RUNTIME_ACC_SZ_MAX of 10 MiB (enforced by the static assert below).
 
-   The cache_valid, pd_write and unlinked bits exist only in the
+   All but the executable bit and the length exist only in the
    in-memory index, never on disk:
      - cache_valid (bit 30): when set, cache_idx holds a valid
        (class, idx) pair; when clear, cache_idx must not be dereferenced
@@ -289,6 +290,9 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
        loaded may already point into the stack, so it restarts from the
        chain head.  Cleared only when the accmeta is reinitialized from
        the pool.
+     - visit (bit 29): the free handshake between rooting and the
+       snapshot producer for versions a running snapshot still needs
+       (fd_accdb.c "Snapshot keeps", fd_accdb_snap_visit).
 
    The on-disk fd_accdb_disk_meta_t.size is only the raw data length,
    written via FD_ACCDB_SIZE_DATA.  It includes neither the executable
@@ -297,6 +301,7 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
 
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
+#define FD_ACCDB_SIZE_VISIT_BIT       (1U<<29)
 #define FD_ACCDB_SIZE_PD_WRITE_BIT    (1U<<28)
 #define FD_ACCDB_SIZE_UNLINKED_BIT    (1U<<27)
 #define FD_ACCDB_SIZE_MASK            ((1U<<27)-1U)
@@ -306,6 +311,7 @@ FD_STATIC_ASSERT( offsetof(fd_accdb_accmeta_t, data)==offsetof(fd_accdb_accmeta_
 #define FD_ACCDB_SIZE_CACHE_VALID(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_VALID_BIT))
 #define FD_ACCDB_SIZE_PD_WRITE(p)     (!!((p) & FD_ACCDB_SIZE_PD_WRITE_BIT))
 #define FD_ACCDB_SIZE_UNLINKED(p)     (!!((p) & FD_ACCDB_SIZE_UNLINKED_BIT))
+#define FD_ACCDB_SIZE_VISIT(p)        (!!((p) & FD_ACCDB_SIZE_VISIT_BIT))
 
 FD_STATIC_ASSERT( (10UL<<20) < (1UL<<27), unlinked_bit_collides_with_len );
 
@@ -650,9 +656,37 @@ struct fd_accdb_shmem_private {
      and never decremented. */
   ulong epoch __attribute__((aligned(64)));
 
-  /* Synchronization with snapshot producer to inhibit compaction
-     Holds one of FD_ACCDB_SNAPSHOT_SYNC_* */
+  /* Synchronization with snapshot producer.  Holds one of
+     FD_ACCDB_SNAPSHOT_SYNC_* */
   ulong snapshot_sync __attribute__((aligned(64)));
+
+  /* Snapshot keeps (fd_accdb.c "Snapshot keeps").
+
+     snap_gen     root generation of the running full snapshot, UINT_MAX
+                  when none.  Accdb tile only (set on START, cleared on
+                  DONE).
+     snap_visit   value of the visit bit meaning "visited" for the
+                  running snapshot (the other value means not yet).
+                  Accdb tile only; flipped on START, so a version
+                  rooted after it starts is born unvisited for the next.
+     keep_cnt     versions kept for it (visited by rooting, not yet by
+                  the producer).  Accdb tile only.
+     snap_scanned bit p set: the producer's disk scan has resolved
+                  every record of partition p, or does not read it.
+                  Compaction holds unscanned partitions.  Cleared on
+                  START; set by the producer (fd_accdb_shmem_snap_scanned).
+     emit_pub     batches of kept versions the producer sent to be freed
+                  (fd_accdb_snap_free_kept), counted before sending.
+     emit_done    of those, batches freed.  Accdb tile only.  DONE
+                  waits for emit_done==emit_pub: a batch still in
+                  flight would otherwise be swept, then freed again. */
+
+  uint  snap_gen;
+  uint  snap_visit;
+  ulong keep_cnt;
+  ulong emit_done;
+  ulong emit_pub __attribute__((aligned(64)));
+  ulong snap_scanned[ FD_ACCDB_PARTITION_CNT_MAX/64UL ] __attribute__((aligned(64)));
 
   /* Each joiner epoch is padded to a full cache line to prevent
      false sharing between joiners writing to adjacent slots. */
@@ -778,6 +812,44 @@ fd_accdb_shmem_cache_alloc_reset( fd_accdb_shmem_t * shmem ) {
       shmem->join_cred [ j ].val[ c ]    = 0UL;
     }
     shmem->cache_hazard[ j ].cnt = 0UL;
+  }
+}
+
+/* fd_accdb_shmem_snap_reset clears the snapshot keep state. */
+
+static inline void
+fd_accdb_shmem_snap_reset( fd_accdb_shmem_t * shmem ) {
+  shmem->snap_gen    = UINT_MAX;
+  shmem->snap_visit  = 0U;
+  shmem->keep_cnt    = 0UL;
+  memset( shmem->snap_scanned, 0, sizeof(shmem->snap_scanned) );
+}
+
+/* fd_accdb_shmem_snap_is_scanned returns 1 if the running snapshot's
+   disk scan is done with partition_idx (see snap_scanned). */
+
+static inline int
+fd_accdb_shmem_snap_is_scanned( fd_accdb_shmem_t const * shmem,
+                                ulong                    partition_idx ) {
+  return (int)( ( FD_VOLATILE_CONST( shmem->snap_scanned[ partition_idx>>6 ] )>>(partition_idx&63UL) ) & 1UL );
+}
+
+/* fd_accdb_snap_visit marks version m visited for the running snapshot
+   (whose visit value is visit, shmem->snap_visit) and returns 1 if it
+   was already visited, i.e. the other party (rooting or the snapshot
+   producer) got there first and m may now be freed ("Snapshot keeps"
+   in fd_accdb.c). */
+
+static inline int
+fd_accdb_snap_visit( fd_accdb_accmeta_t * m,
+                     uint                 visit ) {
+  ulong want = visit ? FD_ACCDB_DATA( 0U, FD_ACCDB_SIZE_VISIT_BIT ) : 0UL;
+  ulong old  = FD_VOLATILE_CONST( m->data );
+  for(;;) {
+    if( ( old & FD_ACCDB_DATA( 0U, FD_ACCDB_SIZE_VISIT_BIT ) )==want ) return 1;
+    ulong seen = FD_ATOMIC_CAS( &m->data, old, old ^ FD_ACCDB_DATA( 0U, FD_ACCDB_SIZE_VISIT_BIT ) );
+    if( FD_LIKELY( seen==old ) ) return 0;
+    old = seen;
   }
 }
 

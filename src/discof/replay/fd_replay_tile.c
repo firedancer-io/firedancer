@@ -3295,8 +3295,9 @@ try_advance_published_root( fd_replay_tile_t *  ctx,
 
   if( FD_LIKELY( ctx->published_root_slot==ctx->consensus_root_slot ) ) return 0;
 
-  /* accdb does not root while producing a snapshot. */
-  if( FD_UNLIKELY( ctx->snapmk.active ) ) return 0;
+  /* snapmk holds the root bank (and so the root) until it has written
+     the manifest and status cache.  accdb serves the accounts after. */
+  if( FD_UNLIKELY( ctx->snapmk.bank_held ) ) return 0;
 
   /* If the new root is not available because the bank is/has been
      evicted, we can't advance the root.  Try again later. */
@@ -4040,40 +4041,52 @@ snapmk_start( fd_replay_tile_t *  ctx,
   }
 
   /* update internal state */
-  ctx->snapmk.active = 1;
+  ctx->snapmk.active    = 1;
+  ctx->snapmk.bank_held = 1;
 }
 
-/* snapmk_done reacts to the snapmk tile reporting completion. */
+/* snapmk_bank_release drops the snapshot bank reference once snapmk is
+   done with it (FD_SNAPMK_MSG_RELEASED), letting rooting resume. */
+
+static void
+snapmk_bank_release( fd_replay_tile_t * ctx ) {
+  if( !ctx->snapmk.bank_held ) return;
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->snapmk.bank_idx );
+  FD_CHECK_CRIT( bank, "invalid snapmk.bank_idx" );
+  FD_CHECK_CRIT( bank->refcnt > 0UL, "invalid snapmk.bank_idx refcnt" );
+  fd_epoch_credits_view_fini( ctx->snapmk.epoch_credits_view );
+  bank->refcnt--;
+  ctx->snapmk.bank_held = 0;
+}
+
+/* snapmk_done reacts to the snapmk tile reporting completion.  slot is
+   the snapshot's (the bank may be gone by now). */
 
 static void
 snapmk_done( fd_replay_tile_t *  ctx,
              fd_stem_context_t * stem,
-             int                 success ) {
+             int                 success,
+             ulong               slot ) {
   (void)stem;
 
   FD_CHECK_CRIT( ctx->snapmk.active, "spurious snap complete msg (not creating snapshot)" );
 
-  /* release bank */
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->snapmk.bank_idx );
-  FD_CHECK_CRIT( bank, "invalid snapmk.bank_idx" );
-  FD_CHECK_CRIT( bank->refcnt > 0UL, "invalid snapmk.bank_idx refcnt" );
+  snapmk_bank_release( ctx ); /* if snapmk failed before releasing it */
 
   /* A completed full snapshot becomes the base of later incrementals. */
   if( FD_LIKELY( success && !ctx->snapmk.incremental ) ) {
-    ctx->snapmk.base_slot = bank->f.slot;
+    ctx->snapmk.base_slot = slot;
   }
 
   if( FD_LIKELY( success ) ) {
     if( FD_UNLIKELY( ctx->snapmk.incremental ) ) {
-      ctx->snapmk.snap_finished_incr = bank->f.slot;
+      ctx->snapmk.snap_finished_incr = slot;
       ctx->snapmk.snap_produced_incr_cnt++;
     } else {
-      ctx->snapmk.snap_finished_full = bank->f.slot;
+      ctx->snapmk.snap_finished_full = slot;
     }
   }
 
-  fd_epoch_credits_view_fini( ctx->snapmk.epoch_credits_view );
-  bank->refcnt--;
   ctx->snapmk.active = 0;
 }
 
@@ -4104,12 +4117,19 @@ msg_snapmk( fd_replay_tile_t *  ctx,
     }
     break;
   }
-  case FD_SNAPMK_MSG_CREATED:
-    snapmk_done( ctx, stem, 1 );
+  case FD_SNAPMK_MSG_RELEASED:
+    snapmk_bank_release( ctx );
     break;
-  case FD_SNAPMK_MSG_FAILED:
-    snapmk_done( ctx, stem, 0 );
+  case FD_SNAPMK_MSG_CREATED: {
+    fd_snapmk_msg_created_t const * created = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+    snapmk_done( ctx, stem, 1, created->slot );
     break;
+  }
+  case FD_SNAPMK_MSG_FAILED: {
+    fd_snapmk_msg_failed_t const * failed = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+    snapmk_done( ctx, stem, 0, failed->slot );
+    break;
+  }
   default:
     break;
   }

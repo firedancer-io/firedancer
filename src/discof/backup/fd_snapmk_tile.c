@@ -175,7 +175,20 @@ struct fd_snapmk {
   ulong zp_barrier[ SNAPZP_TILE_MAX ];
 
   fd_banks_t *    banks;
-  fd_bank_t *     bank;
+  fd_bank_t *     bank;     /* snapshot bank, NULL once released to replay */
+  uint            root_gen; /* accdb generation of the snapshot root */
+
+  /* Bank fields needed after the bank is released */
+  struct {
+    ulong     slot;
+    ulong     epoch;
+    ulong     block_height;
+    ulong     capitalization;
+    ulong     transaction_count;
+    fd_hash_t bank_hash;
+    fd_hash_t block_id;
+    uchar     lthash[ sizeof(((fd_bank_t *)0)->f.lthash.bytes) ];
+  } snap;
   fd_pubkey_t     leader; /* slot leader of bank */
   fd_txncache_t * txncache;
   fd_ssmanifest_writer_t manifest_writer[1];
@@ -756,7 +769,6 @@ snapmk_status_cache( fd_snapmk_t * ctx ) {
       zip_append( ctx, zero, pad );
     }
     zip_end_frame( ctx );
-    ctx->state = SNAPMK_STATE_EOF_MARKER;
     return 0;
   }
   ctx->raw_buf.size    += chunk_sz;
@@ -806,14 +818,14 @@ snapmk_done_rename( fd_snapmk_t * ctx ) {
 
   if( FD_UNLIKELY( ctx->incremental ) ) {
     inode->full_slot = ctx->base_slot;
-    inode->incr_slot = ctx->bank->f.slot;
-    ctx->metrics.last_snapshot_slot_finished_incremental = ctx->bank->f.slot;
+    inode->incr_slot = ctx->snap.slot;
+    ctx->metrics.last_snapshot_slot_finished_incremental = ctx->snap.slot;
     ctx->metrics.snapshots_finished[ FD_METRICS_ENUM_SNAP_TYPE_V_INCREMENTAL_IDX ]++;
   } else {
-    inode->full_slot = ctx->bank->f.slot;
+    inode->full_slot = ctx->snap.slot;
     inode->incr_slot = ULONG_MAX;
-    ctx->base_slot   = ctx->bank->f.slot;
-    ctx->metrics.last_snapshot_slot_finished_full = ctx->bank->f.slot;
+    ctx->base_slot   = ctx->snap.slot;
+    ctx->metrics.last_snapshot_slot_finished_full = ctx->snap.slot;
     ctx->metrics.snapshots_finished[ FD_METRICS_ENUM_SNAP_TYPE_V_FULL_IDX ]++;
   }
 
@@ -1189,8 +1201,6 @@ snapmk_manifest_chunk( fd_snapmk_t * ctx ) {
     ctx->raw_buf.size = ctx->manifest_pad;
   }
   zip_flush( ctx, ZSTD_e_end );
-  zip_align( ctx );
-  ctx->accounts_start_time = fd_log_wallclock();
   return 0;
 }
 
@@ -1252,8 +1262,13 @@ snapmk_accdb_delta( fd_snapmk_t *       ctx,
       ctx->delta.ele_idx = __atomic_load_n( &ctx->delta.chain[ ctx->delta.chain_idx++ ], __ATOMIC_ACQUIRE );
       continue;
     }
-    fd_accdb_delta_t const * cur = &ctx->delta.pool[ ctx->delta.ele_idx ];
+    ulong                    ele = ctx->delta.ele_idx;
+    fd_accdb_delta_t const * cur = &ctx->delta.pool[ ele ];
     ctx->delta.ele_idx = __atomic_load_n( &cur->next, __ATOMIC_RELAXED );
+    /* Skip accounts rooting added after the snapshot started: they
+       belong to a later incremental (entries are bump allocated, so
+       they are the ones at or past the total sampled at start). */
+    if( FD_UNLIKELY( ele>=ctx->delta.ele_total ) ) continue;
     fd_memcpy( &batch.pubkey[ batch.cnt ], cur->pubkey, sizeof(fd_pubkey_t) );
     batch.cnt++;
   }
@@ -1318,6 +1333,7 @@ snapmk_msg_publish( fd_snapmk_t *       ctx,
   case FD_SNAPMK_MSG_STARTED: sz = sizeof(fd_snapmk_msg_started_t); break;
   case FD_SNAPMK_MSG_FAILED:  sz = sizeof(fd_snapmk_msg_failed_t);  break;
   case FD_SNAPMK_MSG_FOUND:   sz = sizeof(fd_snapmk_msg_found_t);   break;
+  case FD_SNAPMK_MSG_RELEASED: sz = sizeof(fd_snapmk_msg_released_t); break;
   default:
     FD_LOG_CRIT(( "invalid msg_type %lu", msg_type ));
   }
@@ -1350,12 +1366,12 @@ snapshot_event_init( fd_snapmk_t const *          ctx,
                      fd_event_snapshot_created_t * ev ) {
   *ev = (fd_event_snapshot_created_t) {
     .result            = result,
-    .slot              = ctx->bank->f.slot,
+    .slot              = ctx->snap.slot,
     .base_slot         = ctx->incremental ? ctx->base_slot : 0UL,
-    .epoch             = ctx->bank->f.epoch,
-    .block_height      = ctx->bank->f.block_height,
-    .capitalization    = ctx->bank->f.capitalization,
-    .transaction_count = ctx->bank->f.parent_txn_count + ctx->bank->f.txn_count,
+    .epoch             = ctx->snap.epoch,
+    .block_height      = ctx->snap.block_height,
+    .capitalization    = ctx->snap.capitalization,
+    .transaction_count = ctx->snap.transaction_count,
     .start_time          = (ulong)ctx->start_time,
     .accounts_start_time = (ulong)ctx->accounts_start_time,
     .end_time            = (ulong)ctx->end_time
@@ -1365,13 +1381,28 @@ snapshot_event_init( fd_snapmk_t const *          ctx,
     fd_memcpy( ev->filename, ctx->final_name, ev->filename_len );
   }
   fd_memcpy( ev->hash,                 ctx->snap_hash,             sizeof(ev->hash)                 );
-  fd_memcpy( ev->bank_hash,            ctx->bank->f.bank_hash.uc, sizeof(ev->bank_hash)            );
-  fd_memcpy( ev->block_id,             ctx->bank->f.block_id.uc,  sizeof(ev->block_id)             );
-  fd_memcpy( ev->bank_accounts_lthash, ctx->bank->f.lthash.bytes, sizeof(ev->bank_accounts_lthash) );
+  fd_memcpy( ev->bank_hash,            ctx->snap.bank_hash.uc, sizeof(ev->bank_hash)            );
+  fd_memcpy( ev->block_id,             ctx->snap.block_id.uc,  sizeof(ev->block_id)             );
+  fd_memcpy( ev->bank_accounts_lthash, ctx->snap.lthash,       sizeof(ev->bank_accounts_lthash) );
   ev->bank_accounts_lthash_len = sizeof(ev->bank_accounts_lthash);
   ZSTD_compressionParameters zstd_params = ZSTD_getCParams( FD_BACKUP_ZSTD_LEVEL, ZSTD_CONTENTSIZE_UNKNOWN, 0UL );
   ev->zstd_window_size = 1UL << zstd_params.windowLog;
   ev->zstd_strategy    = snapshot_zstd_strategy( zstd_params.strategy );
+}
+
+/* snapmk_bank_release hands the snapshot bank back to replay
+   (FD_SNAPMK_MSG_RELEASED), which drops its reference and resumes
+   rooting.  The bank must not be used afterwards. */
+
+static void
+snapmk_bank_release( fd_snapmk_t *       ctx,
+                     fd_stem_context_t * stem ) {
+  FD_TEST( ctx->bank );
+  snapmk_msg_alloc( ctx )->released = (fd_snapmk_msg_released_t) {
+    .slot = ctx->snap.slot
+  };
+  snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_RELEASED );
+  ctx->bank = NULL;
 }
 
 /* after_credit runs every run loop iteration, provided that all out
@@ -1411,7 +1442,7 @@ after_credit( fd_snapmk_t *       ctx,
       frag->slot     = ctx->bank->f.slot;
       frag->slot_lo  = ctx->incremental ? ctx->base_slot+1UL : 0UL;
       frag->snap_idx = ctx->snap_idx;
-      frag->fork_id  = ctx->bank->accdb_fork_id.val;
+      frag->root_gen = ctx->root_gen;
       ulong ctl = fd_frag_meta_ctl( FD_BACKUP_ORIG_START, 0, 0, 0 );
       zp_publish( ctx, stem, i, 0UL, chunk, sizeof(fd_backup_start_msg_t), ctl, 0UL, 0UL );
       ctx->zp_flush_pending &= ~fd_ulong_mask_bit( (int)i );
@@ -1433,7 +1464,10 @@ after_credit( fd_snapmk_t *       ctx,
   case SNAPMK_STATE_MANIFEST:
     *charge_busy = 1;
     if( FD_UNLIKELY( !snapmk_manifest_chunk( ctx ) ) ) {
-      ctx->state = ctx->incremental ? SNAPMK_STATE_ACCDB_DELTA : SNAPMK_STATE_ACCDB_CACHE;
+      /* The status cache goes before the accounts (any TAR order
+         loads), so the bank and the txncache root are released early */
+      snapmk_status_cache_prepare( ctx );
+      ctx->state = SNAPMK_STATE_STATUS_CACHE;
     }
     break;
   case SNAPMK_STATE_ACCDB_CACHE: {
@@ -1492,21 +1526,31 @@ after_credit( fd_snapmk_t *       ctx,
   }
   case SNAPMK_STATE_ACCDB_DISK_FINISH:
   case SNAPMK_STATE_ACCDB_DELTA_FINISH: {
-    /* accounts done, snapzp workers idle; now process status cache */
+    /* accounts done, snapzp workers idle; now the EOF marker */
     long file_sz = lseek( ctx->snap_fd, 0L, SEEK_END );
     if( FD_UNLIKELY( file_sz<0L ) ) {
       FD_LOG_ERR(( "lseek failed: %i-%s", errno, fd_io_strerror( errno ) ));
     }
     ctx->pool_sz[ ctx->snap_idx ] = (ulong)file_sz;
-    snapmk_status_cache_prepare( ctx );
-    ctx->state = SNAPMK_STATE_STATUS_CACHE;
+    ctx->state = SNAPMK_STATE_EOF_MARKER;
     break;
   }
   case SNAPMK_STATE_STATUS_CACHE:
     /* process status cache piece wise */
     *charge_busy = 1;
     if( FD_UNLIKELY( !snapmk_status_cache( ctx ) ) ) {
-      ctx->state = SNAPMK_STATE_EOF_MARKER;
+      zip_align( ctx );
+      ctx->accounts_start_time = fd_log_wallclock();
+      if( ctx->incremental ) {
+        /* Small: replay holds the root until DONE */
+        ctx->state = SNAPMK_STATE_ACCDB_DELTA;
+      } else {
+        /* Accounts are read by snapshot generation, which accdb keeps
+           while rooting moves on (fd_accdb.c "Snapshot keeps"): give
+           replay its bank back */
+        snapmk_bank_release( ctx, stem );
+        ctx->state = SNAPMK_STATE_ACCDB_CACHE;
+      }
     }
     break;
   case SNAPMK_STATE_EOF_MARKER:
@@ -1526,7 +1570,7 @@ after_credit( fd_snapmk_t *       ctx,
       snapshot_sync_transition( ctx, FD_ACCDB_SNAPSHOT_SYNC_RUNNING, FD_ACCDB_SNAPSHOT_SYNC_DONE, FD_ACCDB_SNAPSHOT_SYNC_IDLE );
       fd_snapmk_msg_created_t * msg = &snapmk_msg_alloc( ctx )->created;
       *msg = (fd_snapmk_msg_created_t) {
-        .slot      = ctx->bank->f.slot,
+        .slot      = ctx->snap.slot,
         .base_slot = ctx->incremental ? ctx->base_slot : ULONG_MAX,
         .sz        = ctx->final_sz,
         .pool_idx  = ctx->snap_idx
@@ -1585,7 +1629,7 @@ after_credit( fd_snapmk_t *       ctx,
     fd_event_snapshot_created_t ev[1];
     snapshot_event_init( ctx, FD_EVENT_SNAPSHOT_CREATED_RESULT_TOO_MANY_INCREMENTAL_ACCOUNTS, ev );
     snapmk_msg_alloc( ctx )->failed = (fd_snapmk_msg_failed_t) {
-      .slot      = ctx->bank->f.slot,
+      .slot      = ctx->snap.slot,
       .base_slot = ctx->base_slot
     };
     snapmk_msg_publish( ctx, stem, FD_SNAPMK_MSG_FAILED );
@@ -1737,7 +1781,16 @@ snap_start( fd_snapmk_t *                  ctx,
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
   FD_TEST( bank );
-  ctx->bank = bank;
+  ctx->bank                   = bank;
+  ctx->snap.slot              = bank->f.slot;
+  ctx->snap.epoch             = bank->f.epoch;
+  ctx->snap.block_height      = bank->f.block_height;
+  ctx->snap.capitalization    = bank->f.capitalization;
+  ctx->snap.transaction_count = bank->f.parent_txn_count + bank->f.txn_count;
+  ctx->snap.bank_hash         = bank->f.bank_hash;
+  ctx->snap.block_id          = bank->f.block_id;
+  FD_STATIC_ASSERT( sizeof(ctx->snap.lthash)==sizeof(bank->f.lthash.bytes), lthash );
+  fd_memcpy( ctx->snap.lthash, bank->f.lthash.bytes, sizeof(ctx->snap.lthash) );
 
   int incremental = msg->slot!=msg->base_slot;
   if( FD_UNLIKELY( incremental ) ) {
@@ -1759,6 +1812,7 @@ snap_start( fd_snapmk_t *                  ctx,
     return 0; /* not ready */
   }
   ulong root_generation = __atomic_load_n( &ctx->accdb_shfork[ root_fork_id.val ].generation, __ATOMIC_ACQUIRE );
+  ctx->root_gen = (uint)root_generation;
 
   /* wait for accdb to disable compaction */
   ulong sync_req = incremental ? FD_ACCDB_SNAPSHOT_SYNC_START_INCR
@@ -1774,6 +1828,8 @@ snap_start( fd_snapmk_t *                  ctx,
   if( FD_UNLIKELY( sync_ack!=FD_ACCDB_SNAPSHOT_SYNC_RUNNING ) ) {
     FD_LOG_CRIT(( "unexpected accdb snapshot sync state %lu", sync_ack ));
   }
+  FD_CHECK_CRIT( incremental || __atomic_load_n( &ctx->accdb_shmem->snap_gen, __ATOMIC_ACQUIRE )==ctx->root_gen,
+                 "accdb keeps a different snapshot generation" );
 
   /* user might have changed available snapshots */
   fd_snap_pool_recover( ctx->snap_dir_fd, ctx->snap_dir, ctx->pool, ctx->snap_max );
@@ -1896,12 +1952,19 @@ snaprd_frag( fd_snapmk_t *       ctx,
              ulong               tspub ) {
   ulong frag_sz = tspub;
   FD_CHECK_CRIT( ctx->state==SNAPMK_STATE_ACCDB_DISK, "lifecycle bug" );
-  FD_CHECK_CRIT( fd_frag_meta_ctl_orig( ctl )==FD_BACKUP_ORIG_DISK_FRAG, "unexpected snaprd frag orig" );
-  FD_CHECK_CRIT( frag_sz<=FD_BACKUP_RD_MTU && frag_sz<UINT_MAX, "invalid snaprd frag data size" );
-  FD_CHECK_CRIT( frag_sz || fd_frag_meta_ctl_eom( ctl ), "empty snaprd frag" );
-
   fd_snapmk_accparse_t * parse = ctx->accparse;
   ctx->rd_seq = seq;
+
+  if( FD_UNLIKELY( fd_frag_meta_ctl_orig( ctl )==FD_BACKUP_ORIG_DISK_END ) ) {
+    FD_CHECK_CRIT( !parse->input_active, "snaprd stream ended mid-frag" );
+    ctx->disk_out_idx = -1;
+    barrier_install( ctx, stem );
+    broadcast_prepare( ctx );
+    ctx->state = SNAPMK_STATE_ACCDB_DISK_FLUSH;
+    return 0;
+  }
+  FD_CHECK_CRIT( fd_frag_meta_ctl_orig( ctl )==FD_BACKUP_ORIG_DISK_FRAG, "unexpected snaprd frag orig" );
+  FD_CHECK_CRIT( frag_sz && frag_sz<=FD_BACKUP_RD_MTU, "invalid snaprd frag data size" );
   if( FD_LIKELY( !parse->input_active ) ) {
     uchar const * data = fd_chunk_to_laddr_const( ctx->rd_in_mem, chunk );
     parse->data            = data;
@@ -1967,17 +2030,19 @@ snaprd_frag( fd_snapmk_t *       ctx,
           be drained before this frag is released (publish_batch above
           returns 0 only once the prestage is empty). */
       FD_CHECK_ERR( !parse->ps_cnt, "prestaged batch outlived its frag" );
+
+      /* Last frag of a partition: every record in it has been
+         resolved against the index, so compaction may move it
+         (fd_accdb.c "Snapshot keeps").  Records do not cross
+         partitions. */
       if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) {
         if( FD_UNLIKELY( parse->meta_sz || parse->acc_active || parse->pub_pending ) ) {
-          FD_LOG_CRIT(( "snaprd stream ended mid-account record at accdb offset %lu "
+          FD_LOG_CRIT(( "snaprd partition ended mid-account record at accdb offset %lu "
                         "(meta_sz=%u acc_active=%i acc_off=%u acc_sz=%u pub_pending=%i)",
                         parse->src_off, parse->meta_sz, parse->acc_active,
                         parse->acc_off, parse->acc_sz, parse->pub_pending ));
         }
-        ctx->disk_out_idx = -1;
-        barrier_install( ctx, stem );
-        broadcast_prepare( ctx );
-        ctx->state = SNAPMK_STATE_ACCDB_DISK_FLUSH;
+        fd_accdb_shmem_snap_scanned( ctx->accdb_shmem, sig/fd_accdb_shmem_partition_sz( ctx->accdb_shmem ) );
       }
       return 0;
     }
@@ -1995,7 +2060,8 @@ snaprd_frag( fd_snapmk_t *       ctx,
       fd_backup_disk_msg_t * frag = zp_alloc( ctx, out_idx, sizeof(fd_backup_disk_msg_t), &out_chunk );
       memcpy( frag->pubkey.uc, parse->meta.pubkey, sizeof(fd_pubkey_t) );
       memcpy( frag->owner.uc,  parse->meta.owner,  sizeof(fd_pubkey_t) );
-      frag->size    = parse->meta.size;
+      frag->size     = parse->meta.size;
+      frag->lamports = parse->meta.lamports;
       frag->acc_idx = parse->acc_idx;
       frag->snap_sz = parse->acc_snap_sz;
       frag->data_sz = (uint)meta->tspub;

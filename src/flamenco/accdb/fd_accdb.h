@@ -116,7 +116,8 @@ fd_accdb_join( void * shaccdb );
    external_epoch_slots[] pointer and defers partition reclamation
    accordingly, the same way it does for in-shmem joiner_epochs[].
 
-   Only fd_accdb_read_one_nocache, fd_accdb_read_one_meta, fd_accdb_exists,
+   Only fd_accdb_read_one_nocache, fd_accdb_read_one_snap,
+   fd_accdb_read_one_meta, fd_accdb_exists,
    fd_accdb_lamports, and fd_accdb_data_len are supported on a readonly
    join; any other API is undefined behavior. */
 
@@ -509,6 +510,34 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            uchar *            out_owner,
                            uchar *            out_data,
                            ulong *            out_data_len );
+
+/* fd_accdb_read_one_snap is fd_accdb_read_one_nocache for snapshot
+   producers: reads the version of pubkey that a snapshot of root
+   generation snap_gen holds, even after rooting moved past it.  Only
+   valid while that snapshot runs (fd_accdb.c "Snapshot keeps").
+   Read-only joins may call it. */
+
+int
+fd_accdb_read_one_snap( fd_accdb_t *  accdb,
+                        uint          snap_gen,
+                        uchar const * pubkey,
+                        ulong *       out_lamports,
+                        int *         out_executable,
+                        uchar *       out_owner,
+                        uchar *       out_data,
+                        ulong *       out_data_len );
+
+/* fd_accdb_snap_free_kept frees the kept versions acc_idx[0,cnt), which
+   the snapshot producer emitted after rooting kept them (it visited
+   them second, fd_accdb_snap_visit), as one deferred batch.  Accdb tile
+   only.  Returns 0 without freeing anything if a batch is still held
+   (retry later), 1 on success.  The producer counts every batch it
+   sends in shmem emit_pub before sending it. */
+
+int
+fd_accdb_snap_free_kept( fd_accdb_t * accdb,
+                         uint const * acc_idx,
+                         ulong        cnt );
 
 /* Reads owner (32 bytes) and data length without acquiring account data.
    Uses cache when available, otherwise reads only the owner from disk.

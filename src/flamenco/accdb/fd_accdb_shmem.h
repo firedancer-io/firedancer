@@ -13,6 +13,11 @@
    are successively colder compaction tiers: partitions at layer K are
    compacted into layer K+1. */
 
+/* FD_ACCDB_PARTITION_CNT_MAX bounds partition_cnt (partition indices
+   are packed into 13 bits of a file offset). */
+
+#define FD_ACCDB_PARTITION_CNT_MAX (1UL<<13)
+
 #define FD_ACCDB_COMPACTION_LAYER_CNT (3UL)
 
 #define FD_ACCDB_COMPACTION_THRESHOLD_PCT (30UL)
@@ -67,21 +72,31 @@ struct fd_accdb_metrics {
 
 typedef struct fd_accdb_metrics fd_accdb_metrics_t;
 
-/* fd_accdb_disk_meta_t is the on-disk account revision header. */
+/* fd_accdb_disk_meta_t is the on-disk account revision header.  A
+   record is self-describing (everything an account holds), so readers
+   of the file need not consult the index for the account's fields.
+   size is the data length, with the executable flag in its high bit
+   (FD_ACCDB_DISK_SIZE_*). */
 
 union fd_accdb_disk_meta {
   struct __attribute__((packed)) {
     uchar pubkey[ 32UL ];
     uint  size;
     uint  generation;
+    ulong lamports;
     uchar owner[ 32UL ];
   };
-  uchar b[72];
+  uchar b[80];
 };
 
 typedef union fd_accdb_disk_meta fd_accdb_disk_meta_t;
 
-FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)==72UL, layout );
+#define FD_ACCDB_DISK_SIZE_EXEC_BIT  (1U<<31)
+#define FD_ACCDB_DISK_SIZE(len,exec) ( (uint)(len) | ( (exec) ? FD_ACCDB_DISK_SIZE_EXEC_BIT : 0U ) )
+#define FD_ACCDB_DISK_DATA_LEN(size) ( (size) & ~FD_ACCDB_DISK_SIZE_EXEC_BIT )
+#define FD_ACCDB_DISK_EXEC(size)     ( !!( (size) & FD_ACCDB_DISK_SIZE_EXEC_BIT ) )
+
+FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)==80UL, layout );
 FD_STATIC_ASSERT( offsetof(fd_accdb_disk_meta_t,owner)+32UL==sizeof(fd_accdb_disk_meta_t), layout );
 
 FD_PROTOTYPES_BEGIN
@@ -144,6 +159,7 @@ struct fd_accdb_shmem_partition_info {
   ulong write_offset_raw;   /* active head's reservation tip, may exceed the partition size */
   ulong bytes_freed;        /* bytes marked freed within the partition          */
   ulong compaction_offset;  /* current compaction read offset within partition  */
+  ulong compaction_epoch;   /* enqueue order while queued (lower is earlier)     */
   ulong read_ops;
   ulong bytes_read;
   ulong write_ops;
@@ -189,6 +205,17 @@ fd_accdb_shmem_writer_barrier_poll( fd_accdb_shmem_t const *          accdb,
 
 ulong const *
 fd_accdb_shmem_snapshot_sync( fd_accdb_shmem_t const * accdb );
+
+/* fd_accdb_shmem_snap_scanned tells compaction that the running full
+   snapshot's disk scan is done with partition_idx: every record in it
+   has been resolved against the index, or the scan does not read it.
+   Compaction holds a partition until then (fd_accdb.c "Snapshot
+   keeps").  Called by the snapshot producer while snapshot_sync is
+   RUNNING. */
+
+void
+fd_accdb_shmem_snap_scanned( fd_accdb_shmem_t * accdb,
+                             ulong              partition_idx );
 
 FD_PROTOTYPES_END
 

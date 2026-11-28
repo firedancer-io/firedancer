@@ -2,7 +2,8 @@
    replaced by an in-memory accounts.db.  Every read must be 4 KiB
    aligned in offset, length and buffer (O_DIRECT), must stay inside
    the partition it started in, and every frag must carry exactly the
-   partition bytes in order. */
+   partition bytes in order, one partition at a time (som..eom), in
+   compaction priority order.  Also checks the partition capture. */
 
 #define _GNU_SOURCE
 #include <unistd.h>
@@ -62,6 +63,8 @@ test_pread( int    fd,
 }
 
 static fd_snaprd_t       ctx[1];
+static fd_accdb_shmem_t * shmem;
+static fd_accdb_partition_t * pool;
 static fd_stem_context_t stem[1];
 static fd_frag_meta_t *  mcache;
 static ulong             seqs[1];
@@ -84,15 +87,16 @@ setup( void ) {
   mcache = fd_mcache_join( fd_mcache_new( mcache_mem, DEPTH, 0UL, 0UL ) );
   FD_TEST( mcache );
 
-  /* the read path only looks at accdb's snapshot sync word */
+  /* snaprd reads accdb's snapshot sync word and partition state */
   ulong shmem_fp = fd_accdb_shmem_footprint( 1024UL, 16UL, 128UL, 32UL, 32UL<<20, 2UL, 1UL, 0UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
-  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
-      fd_accdb_shmem_new( shmem_mem, 1024UL, 16UL, 128UL, 32UL, 32UL<<20,
+  shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( shmem_mem, 1024UL, 16UL, 128UL, 32UL, PART_FULL_SZ,
                           32UL<<20, 2UL, 0, 42UL, 1UL, 0UL ) );
   FD_TEST( shmem );
   shmem->snapshot_sync = FD_ACCDB_SNAPSHOT_SYNC_RUNNING;
+  pool = (fd_accdb_partition_t *)( (uchar *)shmem + shmem->partition_pool_off );
 
   ctx->accdb           = shmem;
   ctx->accdb_direct_fd = DIRECT_FD;
@@ -115,32 +119,30 @@ setup( void ) {
 
 /* run_read reads ctx->part[] to the end, one frag per after_credit
    like stem does with STEM_BURST 1, checking each frag against the
-   file as snapmk would see it.  Returns the number of frags. */
+   file as snapmk would see it.  order[] is the expected partition
+   order (empty partitions are not in ctx->part[]).  Returns the number
+   of frags. */
 
 static ulong
-run_read( void ) {
-  ctx->state    = SNAPRD_STATE_READ;
-  ctx->part_idx = 0UL;
+run_read( ulong const * order,
+          ulong         order_cnt ) {
+  ulong expect_total = 0UL;
+  for( ulong i=0UL; i<ctx->part_cnt; i++ ) expect_total += ctx->part[ i ].sz;
+  ulong part_sz[ SNAPRD_PART_MAX ] = {0};
+  for( ulong i=0UL; i<ctx->part_cnt; i++ ) part_sz[ ctx->part[ i ].idx ] = ctx->part[ i ].sz;
+  FD_TEST( order_cnt==ctx->part_cnt );
+
+  ctx->state = SNAPRD_STATE_READ;
   next_partition( ctx );
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
   read_bytes = 0UL;
 
-  ulong expect_total = 0UL;
-  for( ulong i=0UL; i<ctx->part_cnt; i++ ) expect_total += ctx->part[ i ].sz;
-
-  ulong expect_idx  = 0UL;
+  ulong expect_idx  = 0UL; /* into order[] */
   ulong expect_cur  = 0UL;
   ulong expect_read = 0UL;
   ulong frag_cnt    = 0UL;
   ulong seq0        = seqs[0];
   for(;;) {
-    while( expect_idx<ctx->part_cnt && expect_cur==ctx->part[ expect_idx ].sz ) {
-      expect_idx++;
-      expect_cur = 0UL;
-    }
-    ulong expect_sz = expect_idx<ctx->part_cnt ? ctx->part[ expect_idx ].sz : 0UL;
-    ulong frag_sz   = fd_ulong_min( MTU, expect_sz-expect_cur );
-
     cr_avail[0] = 1UL;
     int poll_in = 1;
     int busy    = 0;
@@ -149,26 +151,29 @@ run_read( void ) {
 
     fd_frag_meta_t const * m = mcache + fd_mcache_line_idx( seq0+frag_cnt, DEPTH );
     FD_TEST( m->seq==seq0+frag_cnt );
+    frag_cnt++;
+    if( fd_frag_meta_ctl_orig( m->ctl )==FD_BACKUP_ORIG_DISK_END ) {
+      FD_TEST( !m->sz && !m->tspub );
+      break;
+    }
+    FD_TEST( fd_frag_meta_ctl_orig( m->ctl )==FD_BACKUP_ORIG_DISK_FRAG );
+    FD_TEST( expect_idx<order_cnt );
+    ulong p       = order[ expect_idx ];
+    ulong frag_sz = fd_ulong_min( MTU, part_sz[ p ]-expect_cur );
+    FD_TEST( frag_sz );
     FD_TEST( m->tspub==frag_sz );
     FD_TEST( m->sz==fd_ulong_min( frag_sz, USHORT_MAX ) );
-    FD_TEST( fd_frag_meta_ctl_orig( m->ctl )==FD_BACKUP_ORIG_DISK_FRAG );
     FD_TEST( m->chunk>=ctx->out.chunk0 && m->chunk<=ctx->out.wmark );
-    if( frag_sz ) {
-      FD_TEST( m->sig==ctx->part[ expect_idx ].file_off+expect_cur );
-      image_check( fd_chunk_to_laddr_const( ctx->out.mem, m->chunk ), m->sig, frag_sz );
-      expect_read += fd_ulong_align_up( frag_sz, 4096UL );
-    }
-    expect_cur += frag_sz;
-    frag_cnt++;
-
-    if( fd_frag_meta_ctl_eom( m->ctl ) ) break;
+    FD_TEST( m->sig==p*PART_FULL_SZ+expect_cur );
+    FD_TEST( fd_frag_meta_ctl_som( m->ctl )==!expect_cur );
+    image_check( fd_chunk_to_laddr_const( ctx->out.mem, m->chunk ), m->sig, frag_sz );
+    expect_read += fd_ulong_align_up( frag_sz, 4096UL );
+    expect_cur  += frag_sz;
+    FD_TEST( fd_frag_meta_ctl_eom( m->ctl )==(expect_cur==part_sz[ p ]) );
+    if( expect_cur==part_sz[ p ] ) { expect_idx++; expect_cur = 0UL; }
   }
 
-  while( expect_idx<ctx->part_cnt && expect_cur==ctx->part[ expect_idx ].sz ) {
-    expect_idx++;
-    expect_cur = 0UL;
-  }
-  FD_TEST( expect_idx==ctx->part_cnt );
+  FD_TEST( expect_idx==order_cnt );
   FD_TEST( ctx->state==SNAPRD_STATE_DONE );
   FD_TEST( ctx->metrics.bytes_read==expect_read );
   FD_TEST( read_bytes==expect_read );
@@ -176,11 +181,28 @@ run_read( void ) {
   return frag_cnt;
 }
 
+/* part_set makes accdb partition idx hold sz bytes */
+
 static void
 part_set( ulong idx,
           ulong sz ) {
-  ctx->part[ idx ].file_off = idx*PART_FULL_SZ;
-  ctx->part[ idx ].sz       = sz;
+  fd_accdb_partition_t * p = &pool[ idx ];
+  p->write_offset      = sz;
+  p->compaction_offset = 0UL;
+  p->bytes_freed       = 0UL;
+  p->queued            = 0;
+  p->compacting_now    = 0;
+  shmem->partition_max = fd_ulong_max( shmem->partition_max, idx+1UL );
+}
+
+static void
+capture( void ) {
+  memset( shmem->snap_scanned, 0, sizeof(shmem->snap_scanned) );
+  FD_TEST( backup_disk_capture( ctx ) );
+  /* a partition is read or marked scanned, never both */
+  ulong read[ SNAPRD_PART_MAX ] = {0};
+  for( ulong i=0UL; i<ctx->part_cnt; i++ ) read[ ctx->part[ i ].idx ] = 1UL;
+  for( ulong p=0UL; p<SNAPRD_PART_MAX; p++ ) FD_TEST( (ulong)fd_accdb_shmem_snap_is_scanned( shmem, p )==!read[ p ] );
 }
 
 int
@@ -190,21 +212,41 @@ main( int     argc,
   setup();
 
   /* a 1234 byte tail, an exact frag, a sub-block partition, empty
-     partitions at both ends; 9 frags wrap the 4 deep ring twice */
+     partitions at both ends and a compacted one; 9 frags wrap the 4
+     deep ring twice */
   part_set( 0UL, 0UL );
   part_set( 1UL, 6UL*MTU+1234UL );
   part_set( 2UL, MTU );
   part_set( 3UL, 4095UL );
   part_set( 4UL, 0UL );
-  ctx->part_cnt = 5UL;
-  FD_TEST( run_read()==9UL );
+  part_set( 5UL, MTU ); pool[ 5 ].compaction_offset = MTU;
+  capture();
+  FD_TEST( ctx->part_cnt==3UL );
+  /* idle partitions go by bytes freed, most first */
+  pool[ 3 ].bytes_freed = 100UL;
+  pool[ 1 ].bytes_freed = 10UL;
+  ulong order0[3] = { 3UL, 1UL, 2UL };
+  FD_TEST( run_read( order0, 3UL )==10UL );
   /* 7 full frags take 4 short reads each, the two tails one each */
   FD_TEST( read_cnt==7UL*4UL+2UL );
 
-  /* no data on disk: one empty frag carrying eom, no read */
-  ctx->part_cnt = 0UL;
+  /* compacting, then queued by queue order, then idle */
+  part_set( 1UL, MTU ); pool[ 1 ].bytes_freed = 900UL;
+  part_set( 2UL, MTU ); pool[ 2 ].queued = 1; pool[ 2 ].compaction_ready_epoch = 7UL;
+  part_set( 3UL, MTU ); pool[ 3 ].queued = 1; pool[ 3 ].compaction_ready_epoch = 5UL;
+  part_set( 4UL, MTU ); pool[ 4 ].compacting_now = 1;
+  part_set( 5UL, MTU );
+  capture();
+  FD_TEST( ctx->part_cnt==5UL );
+  ulong order1[5] = { 4UL, 3UL, 2UL, 1UL, 5UL };
+  FD_TEST( run_read( order1, 5UL )==6UL );
+
+  /* no data on disk: just the end frag, no read; all scanned */
+  for( ulong p=0UL; p<shmem->partition_max; p++ ) part_set( p, 0UL );
+  capture();
+  FD_TEST( !ctx->part_cnt );
   ulong read_cnt0 = read_cnt;
-  FD_TEST( run_read()==1UL );
+  FD_TEST( run_read( NULL, 0UL )==1UL );
   FD_TEST( read_cnt==read_cnt0 );
 
   FD_LOG_NOTICE(( "pass" ));

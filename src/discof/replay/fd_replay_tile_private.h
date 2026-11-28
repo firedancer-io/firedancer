@@ -603,6 +603,7 @@ struct fd_replay_tile {
     uint  supported:1;
     uint  active:1;
     uint  incremental:1;
+    uint  bank_held:1;  /* snapmk still uses bank_idx (and the root) */
     ulong bank_idx;
     ulong scheduled_at_slot;
     ulong full_interval_blocks;

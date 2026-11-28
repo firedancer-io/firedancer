@@ -14,8 +14,9 @@
 #define FD_BACKUP_ORIG_FLUSH          4  /* mk->zp: flush compress buffer */
 #define FD_BACKUP_ORIG_DONE           5  /* mk->zp: stop compressing; mk->replay: free bank_idx */
 #define FD_BACKUP_ORIG_ACC_DISK_BATCH 6  /* mk->zp: batch of cold accounts within one rd frag */
-#define FD_BACKUP_ORIG_DISK_FRAG      7  /* rd->mk: accdb file frag */
+#define FD_BACKUP_ORIG_DISK_FRAG      7  /* rd->mk: accdb file frag (som/eom: first/last of a partition) */
 #define FD_BACKUP_ORIG_ACC_DELTA      8  /* mk->zp: address of account */
+#define FD_BACKUP_ORIG_DISK_END       9  /* rd->mk: end of the accdb file frags (empty) */
 
 /* FD_BACKUP_CACHE_PARA controls the batch size of ultra-sparse random
    index lookups from acc_map.  Tunes memory-level parallelism settings
@@ -71,7 +72,7 @@ struct fd_backup_start_msg {
   ulong  slot;      /* slot number */
   ulong  slot_lo;   /* lowest appendvec slot this archive may use */
   uint   snap_idx;  /* identifies file descriptor */
-  ushort fork_id;   /* accdb fork ID */
+  uint   root_gen;  /* accdb generation of the snapshot root */
 };
 typedef struct fd_backup_start_msg fd_backup_start_msg_t;
 
@@ -90,7 +91,8 @@ typedef struct fd_backup_cache_msg fd_backup_cache_msg_t;
 struct fd_backup_disk_msg {
   fd_pubkey_t pubkey;
   fd_pubkey_t owner;
-  uint        size;
+  ulong       lamports;
+  uint        size;     /* fd_accdb_disk_meta_t size (data length, exec bit) */
   uint        acc_idx;
   uint        snap_sz;
   uint        data_sz;
@@ -116,6 +118,20 @@ struct fd_backup_delta_msg {
 };
 
 typedef struct fd_backup_delta_msg fd_backup_delta_msg_t;
+
+/* fd_backup_emitted_msg_t (snapzp_accdb link) is a batch of account
+   index entries snapzp put in the snapshot and that rooting kept for
+   it, for the accdb tile to free (fd_accdb.c "Snapshot keeps"). */
+
+/* One input frag emits at most this many accounts */
+#define FD_BACKUP_EMITTED_MAX (FD_BACKUP_CACHE_PARA>FD_BACKUP_DISK_PARA ? FD_BACKUP_CACHE_PARA : FD_BACKUP_DISK_PARA)
+
+struct fd_backup_emitted_msg {
+  uint cnt;
+  uint acc_idx[ FD_BACKUP_EMITTED_MAX ];
+};
+
+typedef struct fd_backup_emitted_msg fd_backup_emitted_msg_t;
 
 /* fd_backup_frag_t is only used to determine MTU of link */
 
