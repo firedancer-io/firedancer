@@ -27,7 +27,6 @@
 #include "../../../../disco/waker/fd_waker.h"
 #include "../../../../disco/sleep/fd_sleep.h"
 #include "../../../../util/pod/fd_pod_format.h"
-#include "../../../../discof/restore/utils/fd_wfs.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 
 #include "../configure/configure.h"
@@ -387,12 +386,9 @@ main_pid_namespace( void * _args ) {
   ulong store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
   int   has_store     = store_obj_id!=ULONG_MAX;
   ulong snap_max                = 0UL;
-  ulong snap_retained_max       = 0UL;
   int   snapshot_upload_enabled = 0;
   int   snapshot_dio_enabled    = 0;
     snap_max                = initialize_snapshot_fds( config );
-    snap_retained_max       = (ulong)config->firedancer.snapshots.max_full_snapshots_to_keep +
-                              (ulong)config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     snapshot_upload_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
     snapshot_dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
 
@@ -518,20 +514,18 @@ main_pid_namespace( void * _args ) {
         if( FD_UNLIKELY( -1==fcntl( FD_STAKE_DELEGATIONS_FD, F_SETFD, tile_uses_stake_spill ? 0 : FD_CLOEXEC ) ) )
           FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-        int tile_uses_snap_fd     = !strcmp( tile->name, "snapmk" );
+        int tile_uses_snap_fd     = !strcmp( tile->name, "snapmk" ) || !strcmp( tile->name, "snapct" );
         int tile_uses_snap_dio_fd = !strcmp( tile->name, "snapzp" );
         int tile_uses_snap_rd_fd  = !strcmp( tile->name, "snapsv" );
-        int tile_uses_snap_all_fd = !strcmp( tile->name, "snapct" );
         for( ulong j=0UL; j<snap_max; j++ ) {
-          int retained = j<snap_retained_max;
-          if( FD_UNLIKELY( -1==fcntl( FD_SNAP_FD( j ), F_SETFD, tile_uses_snap_all_fd || ( tile_uses_snap_fd && retained ) ? 0 : FD_CLOEXEC ) ) )
+          if( FD_UNLIKELY( -1==fcntl( FD_SNAP_FD( j ), F_SETFD, tile_uses_snap_fd ? 0 : FD_CLOEXEC ) ) )
             FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           if( snapshot_dio_enabled ) {
-            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_DIO_FD( j ), F_SETFD, tile_uses_snap_dio_fd && retained ? 0 : FD_CLOEXEC ) ) )
+            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_DIO_FD( j ), F_SETFD, tile_uses_snap_dio_fd ? 0 : FD_CLOEXEC ) ) )
               FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
           if( snapshot_upload_enabled ) {
-            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_RO_FD( j ), F_SETFD, tile_uses_snap_rd_fd && retained ? 0 : FD_CLOEXEC ) ) )
+            if( FD_UNLIKELY( -1==fcntl( FD_SNAP_RO_FD( j ), F_SETFD, tile_uses_snap_rd_fd ? 0 : FD_CLOEXEC ) ) )
               FD_LOG_ERR(( "fcntl(F_SETFD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
           }
         }
@@ -1384,23 +1378,13 @@ snap_reperm_fd( char const * snap_dir,
 ulong
 initialize_snapshot_fds( config_t const * config ) {
 
-  int download_enabled = fd_topo_find_tile( &config->topo, "snapct", 0UL )!=ULONG_MAX &&
-                         (config->firedancer.snapshots.sources.gossip.allow_any ||
-                          config->firedancer.snapshots.sources.gossip.allow_list_cnt ||
-                          config->firedancer.snapshots.sources.servers_cnt);
   int upload_enabled = fd_topo_find_tile( &config->topo, "snapsv", 0UL )!=ULONG_MAX;
   int dio_enabled    = fd_topo_find_tile( &config->topo, "snapzp", 0UL )!=ULONG_MAX;
   fd_snap_pool_layout_t layout = fd_snap_pool_layout( config->firedancer.snapshots.max_full_snapshots_to_keep,
-                                                      config->firedancer.snapshots.max_incremental_snapshots_to_keep,
-                                                      fd_wfs_needs_incr( config->firedancer.snapshots.incremental_snapshots,
-                                                                         config->firedancer.consensus.wait_for_supermajority_at_slot,
-                                                                         !strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" ),
-                                                                         (ulong)config->consensus.expected_shred_version ),
-                                                      download_enabled );
-  ulong snap_full_max     = layout.full_max;
-  ulong snap_incr_max     = layout.incr_max;
-  ulong retained_snap_max = layout.retained_max;
-  ulong snap_max          = layout.max;
+                                                      config->firedancer.snapshots.max_incremental_snapshots_to_keep );
+  ulong snap_full_max = layout.full_max;
+  ulong snap_incr_max = layout.incr_max;
+  ulong snap_max      = layout.max;
   if( FD_UNLIKELY( !snap_max ) ) return 0UL;
 
   char const * snap_dir = config->paths.snapshots;
@@ -1411,10 +1395,6 @@ initialize_snapshot_fds( config_t const * config ) {
   FD_CHECK_ERR( snap_max<=FD_SNAP_MAX, "[snapshots.max_{full,incremental}_snapshots_to_keep] is set too high" );
   fd_backup_inode_t snap_full[ FD_SNAP_MAX ];
   fd_backup_inode_t snap_incr[ FD_SNAP_MAX ];
-  fd_backup_inode_t scratch[ 2 ] = {
-    { .full_slot=ULONG_MAX, .incr_slot=ULONG_MAX },
-    { .full_slot=ULONG_MAX, .incr_slot=ULONG_MAX }
-  };
   ulong             snap_full_cnt = 0UL;
   ulong             snap_incr_cnt = 0UL;
   FD_STATIC_ASSERT( sizeof(snap_full)+sizeof(snap_incr) < 2UL<<20, "stack overflow" );
@@ -1478,11 +1458,7 @@ initialize_snapshot_fds( config_t const * config ) {
   for( ulong i=snap_incr_cnt; i<snap_incr_max; i++ ) snap_incr[ i ] = (fd_backup_inode_t){ .full_slot=ULONG_MAX, .incr_slot=ULONG_MAX };
 
   for( ulong i=0UL; i<snap_max; i++ ) {
-    fd_backup_inode_t * inode;
-    if(      i<snap_full_max     ) inode = &snap_full[ i ];
-    else if( i<retained_snap_max ) inode = &snap_incr[ i-snap_full_max ];
-    else                           inode = &scratch [ i-retained_snap_max ];
-
+    fd_backup_inode_t * inode = i<snap_full_max ? &snap_full[ i ] : &snap_incr[ i-snap_full_max ];
     int snap_fd;
     if( FD_UNLIKELY( !inode->name[ 0 ] ) ) {
       fd_snap_pool_partial_name( inode->name, (uint)i );

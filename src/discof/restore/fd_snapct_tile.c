@@ -583,9 +583,10 @@ static void
 snapshot_output_prepare( fd_snapct_tile_t * ctx,
                          int                full ) {
   int    fd   = full ? ctx->local_out.full_snapshot_fd   : ctx->local_out.incremental_snapshot_fd;
+  if( FD_UNLIKELY( fd==-1 ) ) return;
   char * name = full ? ctx->local_out.full_snapshot_name : ctx->local_out.incremental_snapshot_name;
 
-  FD_TEST( ctx->local_out.dir_fd!=-1 && fd!=-1 );
+  FD_TEST( ctx->local_out.dir_fd!=-1 );
   FD_TEST( fd>=FD_SNAP_FD( 0U ) && fd<FD_SNAP_FD( FD_SNAP_MAX ) );
 
   char partial_name[ FD_SNAP_NAME_MAX ];
@@ -613,9 +614,10 @@ snapshot_output_prepare( fd_snapct_tile_t * ctx,
 
 static void
 rename_full_snapshot( fd_snapct_tile_t * ctx ) {
+  if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) return;
   FD_TEST( -1!=ctx->local_out.dir_fd );
 
-  if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd && ctx->http_full_snapshot_name[ 0 ]!='\0' ) ) {
+  if( FD_LIKELY( ctx->http_full_snapshot_name[ 0 ]!='\0' ) ) {
     int err = (int)syscall( SYS_renameat2, ctx->local_out.dir_fd, ctx->local_out.full_snapshot_name,
                            ctx->local_out.dir_fd, ctx->http_full_snapshot_name, RENAME_NOREPLACE );
     if( FD_UNLIKELY( err && errno!=EEXIST ) )
@@ -627,9 +629,10 @@ rename_full_snapshot( fd_snapct_tile_t * ctx ) {
 
 static void
 rename_incr_snapshot( fd_snapct_tile_t * ctx ) {
+  if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) return;
   FD_TEST( -1!=ctx->local_out.dir_fd );
 
-  if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd && ctx->http_incr_snapshot_name[ 0 ]!='\0' ) ) {
+  if( FD_LIKELY( ctx->http_incr_snapshot_name[ 0 ]!='\0' ) ) {
     int err = (int)syscall( SYS_renameat2, ctx->local_out.dir_fd, ctx->local_out.incremental_snapshot_name,
                            ctx->local_out.dir_fd, ctx->http_incr_snapshot_name, RENAME_NOREPLACE );
     if( FD_UNLIKELY( err && errno!=EEXIST ) )
@@ -646,11 +649,14 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
               1UL +                             /* logfile */
               1UL;                              /* boot control pipe */
   if( download_enabled( tile ) ) {
+    int need_full = !!tile->snapct.max_full_snapshots_to_keep;
+    int need_incr = snapct_needs_incr( tile ) && !!tile->snapct.max_incremental_snapshots_to_keep;
     cnt +=    FD_SSPING_FD_CNT +                /* ssping sockets */
-              2UL +                             /* dirfd + full snapshot pool fd */
               tile->snapct.sources.servers_cnt; /* http resolver peer full sockets */
+    if( need_full || need_incr ) cnt += 1UL;    /* dirfd */
+    if( need_full              ) cnt += 1UL;    /* full snapshot pool fd */
     if( snapct_needs_incr( tile ) ) {
-      cnt +=  1UL +                             /* incremental snapshot pool fd */
+      cnt +=  (ulong)need_incr +                /* incremental snapshot pool fd */
               tile->snapct.sources.servers_cnt; /* http resolver peer incr sockets */
     }
   }
@@ -2130,9 +2136,9 @@ snapld_frag( fd_snapct_tile_t *  ctx,
   if( full ) ctx->metrics.full.bytes_read        += sz;
   else       ctx->metrics.incremental.bytes_read += sz;
 
-  if( !file && -1!=ctx->local_out.dir_fd ) {
+  int fd = full ? ctx->local_out.full_snapshot_fd : ctx->local_out.incremental_snapshot_fd;
+  if( !file && -1!=fd ) {
     uchar const * data = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
-    int fd = full ? ctx->local_out.full_snapshot_fd : ctx->local_out.incremental_snapshot_fd;
     ulong written_sz = 0;
     while( written_sz<sz ) {
       long result = write( fd, data+written_sz, sz-written_sz );
@@ -2284,15 +2290,10 @@ privileged_init( fd_topo_t const *      topo,
 
   fd_snap_pool_layout_t layout = fd_snap_pool_layout(
       tile->snapct.max_full_snapshots_to_keep,
-      tile->snapct.max_incremental_snapshots_to_keep,
-      snapct_needs_incr( tile ),
-      download_enabled( tile ) );
-  uint snap_full_max     = (uint)layout.full_max;
-  uint snap_incr_max     = (uint)layout.incr_max;
-  uint retained_snap_max = (uint)layout.retained_max;
-  uint scratch_full_cnt  = (uint)layout.scratch_full;
-  uint scratch_incr_cnt  = (uint)layout.scratch_incr;
-  uint snap_max          = (uint)layout.max;
+      tile->snapct.max_incremental_snapshots_to_keep );
+  uint snap_full_max = (uint)layout.full_max;
+  uint snap_incr_max = (uint)layout.incr_max;
+  uint snap_max      = (uint)layout.max;
 
   ulong full_slot = ULONG_MAX;
   ulong incremental_slot = ULONG_MAX;
@@ -2365,12 +2366,13 @@ privileged_init( fd_topo_t const *      topo,
   ctx->local_out.incremental_snapshot_fd = -1;
   fd_cstr_fini( ctx->local_out.full_snapshot_name );
   fd_cstr_fini( ctx->local_out.incremental_snapshot_name );
-  if( FD_LIKELY( download_enabled( tile ) ) ) {
+  int need_incr_fd = snapct_needs_incr( tile ) && !!snap_incr_max;
+  if( FD_LIKELY( download_enabled( tile ) && (snap_full_max || need_incr_fd) ) ) {
     ctx->local_out.dir_fd = open( tile->snapct.snapshots_path, O_RDONLY|O_DIRECTORY|O_CLOEXEC );
     if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) )
       FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->snapct.snapshots_path, errno, fd_io_strerror( errno ) ));
 
-    FD_TEST( snap_max && snap_max<=FD_SNAP_MAX );
+    FD_TEST( snap_max<=FD_SNAP_MAX );
     fd_backup_inode_t pool[ FD_SNAP_MAX ] = {0};
     if( FD_UNLIKELY( snap_max<FD_SNAP_MAX && -1!=fcntl( FD_SNAP_FD( snap_max ), F_GETFD ) ) ) {
       FD_LOG_ERR(( "inherited snapshot pool is larger than the expected %u slots", snap_max ));
@@ -2381,27 +2383,18 @@ privileged_init( fd_topo_t const *      topo,
       FD_TEST( full_idx!=UINT_MAX );
       ctx->local_out.full_snapshot_fd = FD_SNAP_FD( full_idx );
       fd_cstr_ncpy( ctx->local_out.full_snapshot_name, pool[ full_idx ].name, FD_SNAP_NAME_MAX );
-    } else {
-      uint full_idx = retained_snap_max; /* scratch full slot */
-      FD_TEST( scratch_full_cnt && full_idx<snap_max );
-      ctx->local_out.full_snapshot_fd = FD_SNAP_FD( full_idx );
-      fd_cstr_ncpy( ctx->local_out.full_snapshot_name, pool[ full_idx ].name, FD_SNAP_NAME_MAX );
     }
 
-    int need_incr_fd = snapct_needs_incr( tile );
-    if( FD_LIKELY( need_incr_fd && snap_incr_max ) ) {
-      uint incr_idx = snapshot_pool_select( pool, snap_full_max, retained_snap_max );
+    if( FD_LIKELY( need_incr_fd ) ) {
+      uint incr_idx = snapshot_pool_select( pool, snap_full_max, snap_max );
       FD_TEST( incr_idx!=UINT_MAX );
       ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( incr_idx );
       fd_cstr_ncpy( ctx->local_out.incremental_snapshot_name, pool[ incr_idx ].name, FD_SNAP_NAME_MAX );
-    } else if( FD_LIKELY( need_incr_fd ) ) {
-      uint incr_idx = retained_snap_max + scratch_full_cnt; /* scratch incremental slot */
-      FD_TEST( scratch_incr_cnt && incr_idx<snap_max );
-      ctx->local_out.incremental_snapshot_fd = FD_SNAP_FD( incr_idx );
-      fd_cstr_ncpy( ctx->local_out.incremental_snapshot_name, pool[ incr_idx ].name, FD_SNAP_NAME_MAX );
     }
 
-    FD_TEST( ctx->local_out.full_snapshot_fd!=ctx->local_out.incremental_snapshot_fd );
+    if( -1!=ctx->local_out.full_snapshot_fd && -1!=ctx->local_out.incremental_snapshot_fd ) {
+      FD_TEST( ctx->local_out.full_snapshot_fd!=ctx->local_out.incremental_snapshot_fd );
+    }
   }
 
   if( FD_LIKELY( fd_sandbox_gettid()==fd_sandbox_getpid() ) ) {

@@ -8,19 +8,13 @@
 /* fd_snap_pool_layout_t describes how the snapshot pool slots are
    partitioned:
 
-     [0, full_max)                      retained full snapshots
-     [full_max, retained_max)           retained incremental snapshots
-     [retained_max, ...)                up to two scratch slots, for a
-                                        snapshot class that is
-                                        downloaded but not retained */
+     [0, full_max)            retained full snapshots
+     [full_max, max)          retained incremental snapshots */
 
 struct fd_snap_pool_layout {
   ulong full_max;
   ulong incr_max;
-  ulong retained_max; /* full_max+incr_max */
-  ulong scratch_full; /* 0 or 1, slot retained_max */
-  ulong scratch_incr; /* 0 or 1, slot retained_max+scratch_full */
-  ulong max;          /* total slot count */
+  ulong max;      /* full_max+incr_max */
 };
 
 typedef struct fd_snap_pool_layout fd_snap_pool_layout_t;
@@ -29,17 +23,12 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline fd_snap_pool_layout_t
 fd_snap_pool_layout( ulong full_max,
-                     ulong incr_max,
-                     int   incremental_enabled,
-                     int   download_enabled ) {
+                     ulong incr_max ) {
   fd_snap_pool_layout_t layout = {
-    .full_max     = full_max,
-    .incr_max     = incr_max,
-    .retained_max = full_max + incr_max,
-    .scratch_full = (ulong)( !!download_enabled && !full_max ),
-    .scratch_incr = (ulong)( !!download_enabled && !!incremental_enabled && !incr_max )
+    .full_max = full_max,
+    .incr_max = incr_max,
+    .max      = full_max + incr_max
   };
-  layout.max = layout.retained_max + layout.scratch_full + layout.scratch_incr;
   return layout;
 }
 
