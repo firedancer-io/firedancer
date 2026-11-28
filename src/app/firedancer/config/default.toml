@@ -482,6 +482,11 @@ telemetry = true
     # A minimum of 2 is recommended so one useful snapshot remains if
     # the validator crashes while another snapshot is still being
     # created.
+    #
+    # Setting a value to 0 streams downloaded snapshots of that class
+    # directly into the accounts database without saving an archive to
+    # disk.  When both are 0, the snapshots directory is left untouched
+    # on boot.
     max_full_snapshots_to_keep = 2
     max_incremental_snapshots_to_keep = 2
 

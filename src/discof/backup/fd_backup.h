@@ -36,11 +36,9 @@
 FD_STATIC_ASSERT( FD_BACKUP_ZSTD_LEVEL<=3 || FD_BACKUP_ZSTD_LEVEL>=16, zstd_level );
 
 /* FD_SNAP_MAX bounds the number of managed snapshot files
-   (max_full_snapshots_to_keep+max_incremental_snapshots_to_keep, plus
-   up to two scratch slots for a snapshot class that is downloaded but
-   not retained). */
+   (max_full_snapshots_to_keep+max_incremental_snapshots_to_keep). */
 
-#define FD_SNAP_MAX (2U*(uint)FD_SSARCHIVE_MAX_ENTRIES+2U)
+#define FD_SNAP_MAX (2U*(uint)FD_SSARCHIVE_MAX_ENTRIES)
 
 /* Well-known snapshot file descriptors
 

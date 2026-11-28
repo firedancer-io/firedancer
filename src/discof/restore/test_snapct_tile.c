@@ -1905,6 +1905,89 @@ test_log_download_peer_churn( fd_ssping_t * ssping ) {
   free( scratch );
 }
 
+static void
+test_keep_zero_skips_archive_writes( void ) {
+  fd_snap_pool_layout_t l00 = fd_snap_pool_layout( 0UL, 0UL );
+  FD_TEST( l00.full_max==0UL && l00.incr_max==0UL && l00.max==0UL );
+  fd_snap_pool_layout_t l01 = fd_snap_pool_layout( 0UL, 1UL );
+  FD_TEST( l01.full_max==0UL && l01.incr_max==1UL && l01.max==1UL );
+  fd_snap_pool_layout_t l10 = fd_snap_pool_layout( 1UL, 0UL );
+  FD_TEST( l10.full_max==1UL && l10.incr_max==0UL && l10.max==1UL );
+  fd_snap_pool_layout_t l22 = fd_snap_pool_layout( 2UL, 2UL );
+  FD_TEST( l22.full_max==2UL && l22.incr_max==2UL && l22.max==4UL );
+
+  fd_topo_tile_t tile = {0};
+  tile.snapct.sources.servers_cnt = 1UL;
+  tile.snapct.incremental_snapshots = 1;
+  tile.snapct.max_full_snapshots_to_keep = 0U;
+  tile.snapct.max_incremental_snapshots_to_keep = 0U;
+  ulong rlim_zero = rlimit_file_cnt( NULL, &tile );
+  tile.snapct.max_full_snapshots_to_keep = 1U;
+  tile.snapct.max_incremental_snapshots_to_keep = 1U;
+  ulong rlim_keep = rlimit_file_cnt( NULL, &tile );
+  FD_TEST( rlim_keep==rlim_zero+3UL );
+
+  void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
+  uchar  output [ 4096 ]                     __attribute__((aligned(FD_CHUNK_ALIGN)));
+  uchar  in_buf [ sizeof(fd_ssctrl_meta_t) ] __attribute__((aligned(FD_CHUNK_ALIGN)));
+
+  fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)scratch;
+  fd_memset( ctx, 0, sizeof(*ctx) );
+  test_ctx_wake_init( ctx );
+  ctx->download_enabled                  = 1;
+  ctx->load_incremental                  = 1;
+  ctx->local_out.dir_fd                  = -1;
+  ctx->local_out.full_snapshot_fd        = -1;
+  ctx->local_out.incremental_snapshot_fd = -1;
+  ctx->out_ld.mem                        = (fd_wksp_t *)output;
+  ctx->out_ld.wmark                      = 128UL;
+  ctx->snapld_in_mem                     = in_buf;
+  test_output                            = output;
+
+  /* Full HTTP download with keep=0 skips snapshot_output_prepare,
+     data writes, and rename_full_snapshot without touching disk. */
+  ctx->predicted_incremental.full_slot = 100UL;
+  ctx->state = FD_SNAPCT_STATE_READING_FULL_HTTP;
+  init_load( ctx, NULL, 1, 0 );
+
+  fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)in_buf;
+  fd_memset( meta, 0, sizeof(*meta) );
+  meta->total_sz      = 64UL;
+  meta->resolved_slot = 100UL;
+  fd_cstr_ncpy( meta->resolved_name, "snapshot-100-abc.tar.zst", sizeof(meta->resolved_name) );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( ctx->metrics.full.bytes_total==64UL );
+
+  fd_memset( in_buf, 0xAB, 64UL );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_DATA, 64UL, 0UL, NULL );
+  FD_TEST( ctx->metrics.full.bytes_read   ==64UL );
+  FD_TEST( ctx->metrics.full.bytes_written== 0UL );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
+  FD_TEST( ctx->load_complete==1 && !ctx->malformed );
+  rename_full_snapshot( ctx );
+
+  /* Incremental HTTP download with keep=0 likewise writes nothing. */
+  ctx->predicted_incremental.slot = 200UL;
+  ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+  init_load( ctx, NULL, 0, 0 );
+  fd_cstr_ncpy( ctx->http_incr_snapshot_name, "incremental-snapshot-100-200-def.tar.zst", sizeof(ctx->http_incr_snapshot_name) );
+
+  fd_memset( meta, 0, sizeof(*meta) );
+  meta->total_sz = 32UL;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_META, sizeof(*meta), 0UL, NULL );
+  FD_TEST( ctx->metrics.incremental.bytes_total==32UL );
+
+  fd_memset( in_buf, 0xCD, 32UL );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_DATA, 32UL, 0UL, NULL );
+  FD_TEST( ctx->metrics.incremental.bytes_read   ==32UL );
+  FD_TEST( ctx->metrics.incremental.bytes_written== 0UL );
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
+  FD_TEST( ctx->load_complete==1 && !ctx->malformed );
+  rename_incr_snapshot( ctx );
+
+  free( scratch );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1963,6 +2046,7 @@ main( int     argc,
   test_flushing_full_file_done_wfs_floor();
   test_incremental_selection_wfs_floor();
   test_collecting_peers_wfs_selection();
+  test_keep_zero_skips_archive_writes();
 
   fd_ssping_delete( fd_ssping_leave( ssping ) );
   free( _ssping_mem );
