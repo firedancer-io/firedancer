@@ -8,6 +8,10 @@
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/tests/fd_svm_mini.h"
 #include "../../runtime/tests/fd_svm_elfgen.h"
+#include "../../runtime/program/fd_bpf_loader_program.h"
+#include "../../../ballet/murmur3/fd_murmur3.h"
+#include "../../../ballet/elf/fd_elf64.h"
+#include "../../../ballet/elf/fd_elf.h"
 #include "../../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../../ballet/sbpf/fd_sbpf_opcodes.h"
 
@@ -2257,6 +2261,221 @@ test_callee_cu_exhaustion_during( fd_svm_mini_t * mini ) {
   }
 }
 
+static ulong
+build_v3_prog_elf( uchar         buf[ 4096 ],
+                   ulong const * text,
+                   ulong         text_cnt ) {
+  ulong phdr_end    = sizeof(fd_elf64_ehdr) + 2UL*sizeof(fd_elf64_phdr);
+  ulong rodata_sz   = 8UL;
+  ulong bytecode_sz = text_cnt * 8UL;
+  FD_TEST( phdr_end + rodata_sz + bytecode_sz <= 4096UL );
+  fd_memset( buf, 0, phdr_end + rodata_sz );
+
+  fd_elf64_ehdr ehdr = {0};
+  ehdr.e_ident[0] = 0x7f; ehdr.e_ident[1] = 'E'; ehdr.e_ident[2] = 'L'; ehdr.e_ident[3] = 'F';
+  ehdr.e_ident[ FD_ELF_EI_CLASS   ] = FD_ELF_CLASS_64;
+  ehdr.e_ident[ FD_ELF_EI_DATA    ] = FD_ELF_DATA_LE;
+  ehdr.e_ident[ FD_ELF_EI_VERSION ] = 1;
+  ehdr.e_machine   = FD_ELF_EM_BPF;
+  ehdr.e_version   = 1;
+  ehdr.e_entry     = 0x100000000UL;
+  ehdr.e_phoff     = sizeof(fd_elf64_ehdr);
+  ehdr.e_flags     = FD_SBPF_V3;
+  ehdr.e_ehsize    = sizeof(fd_elf64_ehdr);
+  ehdr.e_phentsize = sizeof(fd_elf64_phdr);
+  ehdr.e_phnum     = 2;
+  fd_memcpy( buf, &ehdr, sizeof(ehdr) );
+
+  fd_elf64_phdr ph0 = { .p_type=FD_ELF_PT_LOAD, .p_flags=4U, .p_offset=phdr_end,             .p_vaddr=0UL,           .p_paddr=0UL,           .p_filesz=rodata_sz,   .p_memsz=rodata_sz   };
+  fd_elf64_phdr ph1 = { .p_type=FD_ELF_PT_LOAD, .p_flags=1U, .p_offset=phdr_end + rodata_sz, .p_vaddr=0x100000000UL, .p_paddr=0x100000000UL, .p_filesz=bytecode_sz, .p_memsz=bytecode_sz };
+  fd_memcpy( buf + sizeof(fd_elf64_ehdr),                         &ph0, sizeof(ph0) );
+  fd_memcpy( buf + sizeof(fd_elf64_ehdr) + sizeof(fd_elf64_phdr), &ph1, sizeof(ph1) );
+  fd_memcpy( buf + phdr_end + rodata_sz, text, bytecode_sz );
+  return phdr_end + rodata_sz + bytecode_sz;
+}
+
+/* Verify thread-local bpf_exec_frames[] reuse and stack-depth isolation:
+   1. Sequential invocations at the same stack depth reuse the joined VM
+      frame while resetting clean stack/heap bounds so dirty bytes from a
+      prior invocation never leak into the next.
+   2. Nested bpf_execute (stack_sz 1 -> CPI -> stack_sz 2 -> stack_sz 1)
+      uses distinct frames so the callee clobbering the same stack/heap
+      offsets cannot corrupt the caller's VM state. */
+static void
+test_bpf_exec_frame_reuse_and_isolation( fd_svm_mini_t * mini ) {
+  /* Part 1: sequential reuse at stack_sz==2 must zero-reinitialize dirty stack/heap */
+  {
+    cpi_test_cfg_t dirty_cfg[1]; simple_writable_cfg( dirty_cfg );
+    ulong ic = 0UL;
+    /* *(ulong *)(r10 - 8) = -1; *(ulong *)(0x300000000 + 256) = -1; r0 = 0; exit */
+    dirty_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  2UL,  0UL,   0, 0xffffffffU );
+    dirty_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_STXDW,     10UL,  2UL,  -8, 0U          );
+    dirty_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  3UL,  0UL,   0, 3U          );
+    dirty_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_LSH64_IMM,  3UL,  0UL,   0, 32U         );
+    dirty_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      3UL,  2UL, 256, 0U          );
+    dirty_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  0UL,  0UL,   0, 0U          );
+    dirty_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_EXIT,       0UL,  0UL,   0, 0U          );
+    dirty_cfg->text_sz = ic * 8UL;
+    env_build( mini, dirty_cfg );
+    mini->vm->instr_ctx->txn_out->details.compute_budget.heap_size = FD_VM_HEAP_DEFAULT;
+    ulong instr_va, infos_va, n_infos;
+    rust_cpi_build( mini->vm, dirty_cfg, &instr_va, &infos_va, &n_infos );
+    FD_TEST( fd_vm_syscall_cpi_rust( mini->vm, instr_va, infos_va, n_infos, 0UL, 0UL ) == FD_VM_SUCCESS );
+
+    cpi_test_cfg_t read_cfg[1]; simple_writable_cfg( read_cfg );
+    ic = 0UL;
+    /* r0 = *(ulong *)(r10 - 8) | *(ulong *)(0x300000000 + 256); exit */
+    read_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_LDXDW,      0UL, 10UL,  -8, 0U  );
+    read_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  3UL,  0UL,   0, 3U  );
+    read_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_LSH64_IMM,  3UL,  0UL,   0, 32U );
+    read_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_LDXDW,      2UL,  3UL, 256, 0U  );
+    read_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_OR64_REG,   0UL,  2UL,   0, 0U  );
+    read_cfg->text_buf[ic++] = fd_vm_instr( FD_SBPF_OP_EXIT,       0UL,  0UL,   0, 0U  );
+    read_cfg->text_sz = ic * 8UL;
+    env_build( mini, read_cfg );
+    mini->vm->instr_ctx->txn_out->details.compute_budget.heap_size = FD_VM_HEAP_DEFAULT;
+    rust_cpi_build( mini->vm, read_cfg, &instr_va, &infos_va, &n_infos );
+    FD_TEST( fd_vm_syscall_cpi_rust( mini->vm, instr_va, infos_va, n_infos, 0UL, 0UL ) == FD_VM_SUCCESS );
+  }
+
+  /* Part 2: nested top-level bpf_execute (frame 0) -> CPI callee bpf_execute (frame 1) */
+  {
+    static fd_pubkey_t const caller_pubkey = {{
+      0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC, 0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,
+      0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC, 0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC }};
+
+    /* Callee clobbers stack[r10-8] and heap[256] in frame 1 */
+    ulong callee_text[ 8 ];
+    ulong cic = 0UL;
+    callee_text[cic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  2UL,  0UL,   0, 0xdeadbeefU );
+    callee_text[cic++] = fd_vm_instr( FD_SBPF_OP_STXDW,     10UL,  2UL,  -8, 0U          );
+    callee_text[cic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  3UL,  0UL,   0, 3U          );
+    callee_text[cic++] = fd_vm_instr( FD_SBPF_OP_LSH64_IMM,  3UL,  0UL,   0, 32U         );
+    callee_text[cic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      3UL,  2UL, 256, 0U          );
+    callee_text[cic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  0UL,  0UL,   0, 0U          );
+    callee_text[cic++] = fd_vm_instr( FD_SBPF_OP_EXIT,       0UL,  0UL,   0, 0U          );
+
+    /* Caller (SBPF V3 static syscalls) sets canaries at stack[r10-8] and
+       heap[256] in frame 0, invokes callee via 0-account sol_invoke_signed_c,
+       then checks both canaries remain untouched after CPI returns. */
+    uint cpi_c_hash = fd_murmur3_32( "sol_invoke_signed_c", 19UL, 0U );
+    ulong caller_text[ 40 ];
+    ulong oic = 0UL;
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  6UL,  0UL,   0, 0x11223344U );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,     10UL,  6UL,  -8, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  7UL,  0UL,   0, 3U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_LSH64_IMM,  7UL,  0UL,   0, 32U         );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  6UL,  0UL,   0, 0x55667788U );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  6UL, 256, 0U          );
+    /* Write 32-byte callee_program_pubkey (0xAA..AA) at heap+128 */
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_LDDW,       2UL,  0UL,   0, 0xaaaaaaaaU );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_ADDL_IMM,   0UL,  0UL,   0, 0xaaaaaaaaU );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  2UL, 128, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  2UL, 136, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  2UL, 144, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  2UL, 152, 0U          );
+    /* Populate fd_vm_c_instruction_t at heap+0 */
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_REG,  2UL,  7UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM,  2UL,  0UL,   0, 128U        );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  2UL, (short)offsetof(fd_vm_c_instruction_t, program_id_addr), 0U );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_REG,  2UL,  7UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM,  2UL,  0UL,   0, 192U        );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  2UL, (short)offsetof(fd_vm_c_instruction_t, accounts_addr),   0U );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  2UL, (short)offsetof(fd_vm_c_instruction_t, data_addr),       0U );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  2UL,  0UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  2UL, (short)offsetof(fd_vm_c_instruction_t, accounts_len),    0U );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_STXDW,      7UL,  2UL, (short)offsetof(fd_vm_c_instruction_t, data_len),        0U );
+    /* sol_invoke_signed_c( instr_va=r7, infos_va=r7+192, infos_len=0, seeds_va=0, seeds_len=0 ) */
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_REG,  1UL,  7UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_REG,  2UL,  7UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM,  2UL,  0UL,   0, 192U        );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  3UL,  0UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  4UL,  0UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  5UL,  0UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_CALL_IMM,   0UL,  0UL,   0, cpi_c_hash  );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_JNE_IMM,    0UL,  0UL,   6, 0U          );
+    /* Verify stack[r10-8] == 0x11223344 and heap[256] == 0x55667788 */
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_LDXDW,      2UL, 10UL,  -8, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_JNE_IMM,    2UL,  0UL,   4, 0x11223344U );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_LDXDW,      2UL,  7UL, 256, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_JNE_IMM,    2UL,  0UL,   2, 0x55667788U );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  0UL,  0UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_EXIT,       0UL,  0UL,   0, 0U          );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM,  0UL,  0UL,   0, 99U         );
+    caller_text[oic++] = fd_vm_instr( FD_SBPF_OP_EXIT,       0UL,  0UL,   0, 0U          );
+
+    static uchar caller_elf[ 4096 ] __attribute__((aligned(8)));
+    static uchar callee_elf[ 4096 ] __attribute__((aligned(8)));
+    ulong caller_elf_sz = build_v3_prog_elf( caller_elf, caller_text, oic );
+    ulong callee_elf_sz = fd_svm_elfgen_sz( cic*8UL, 0UL );
+    fd_svm_elfgen( callee_elf, callee_elf_sz, (uchar const *)callee_text, cic*8UL, NULL, 0UL );
+
+    fd_runtime_t * runtime = mini->runtime;
+    fd_svm_mini_params_t params[1];
+    fd_svm_mini_params_default( params );
+    ulong root_bank_idx = fd_svm_mini_reset( mini, params );
+    fd_bank_t * bank = fd_svm_mini_bank( mini, root_bank_idx );
+    fd_features_disable_all( &bank->f.features );
+    bank->f.features.loosen_cpi_size_restriction = 0UL;
+
+    static fd_txn_out_t txn_out[1];
+    memset( txn_out, 0, sizeof(fd_txn_out_t) );
+    txn_out->accounts.cnt = 2;
+    txn_out->details.compute_budget.heap_size     = FD_VM_HEAP_DEFAULT;
+    txn_out->details.compute_budget.compute_meter = 200000UL;
+    fd_memset( txn_out->accounts.keys,    0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
+    fd_memset( runtime->accounts.account, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+    for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) txn_out->accounts.account[i] = &runtime->accounts.account[i];
+
+    acct_spec_t caller_spec = { .pubkey=&caller_pubkey,         .owner=&fd_solana_bpf_loader_program_id, .lamports=LAMPORTS, .dlen=caller_elf_sz, .executable=1 };
+    acct_spec_t callee_spec = { .pubkey=&callee_program_pubkey, .owner=&fd_solana_bpf_loader_program_id, .lamports=LAMPORTS, .dlen=callee_elf_sz, .executable=1 };
+    static uchar caller_buf[ 4096 ] __attribute__((aligned(8)));
+    static uchar callee_buf[ 4096 ] __attribute__((aligned(8)));
+    init_entry_from_spec( txn_out->accounts.account[0], caller_buf, sizeof(caller_buf), &caller_spec );
+    init_entry_from_spec( txn_out->accounts.account[1], callee_buf, sizeof(callee_buf), &callee_spec );
+    fd_memcpy( caller_buf, caller_elf, caller_elf_sz );
+    fd_memcpy( callee_buf, callee_elf, callee_elf_sz );
+    txn_out->accounts.keys[0] = caller_pubkey;
+    txn_out->accounts.keys[1] = callee_program_pubkey;
+    fd_svm_mini_put_account_rooted( mini, txn_out->accounts.account[0] );
+    fd_svm_mini_put_account_rooted( mini, txn_out->accounts.account[1] );
+    runtime->accounts.refcnt[0] = 0UL;
+    runtime->accounts.refcnt[1] = 0UL;
+
+    ulong exec_bank_idx = fd_svm_mini_attach_child( mini, root_bank_idx, bank->f.slot + 1UL );
+    bank = fd_svm_mini_bank( mini, exec_bank_idx );
+
+    static fd_txn_p_t  txn_p[1];
+    static fd_txn_in_t txn_in[1];
+    memset( txn_p,  0, sizeof(txn_p)  );
+    memset( txn_in, 0, sizeof(txn_in) );
+    TXN( txn_p )->instr_cnt = 1;
+    txn_in->txn             = txn_p;
+
+    fd_instr_info_t * instr = &runtime->instr.trace[0];
+    memset( instr, 0, sizeof(*instr) );
+    instr->program_id          = 0;
+    instr->stack_height        = 1;
+    instr->acct_cnt            = 1;
+    instr->starting_lamports_l = LAMPORTS;
+    uchar seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
+    fd_instr_info_setup_instr_account( instr, seen, 1, 0, 0, 0, 0 );
+
+    fd_exec_instr_ctx_t * ctx = &runtime->instr.stack[0];
+    memset( ctx, 0, sizeof(*ctx) );
+    ctx->instr   = instr;
+    ctx->txn_in  = txn_in;
+    ctx->runtime = runtime;
+    ctx->txn_out = txn_out;
+    ctx->bank    = bank;
+    runtime->instr.stack_sz     = 1;
+    runtime->instr.trace_length = 1UL;
+    runtime->instr.current_idx  = 0;
+
+    FD_TEST( fd_bpf_loader_program_execute( ctx ) == FD_EXECUTOR_INSTR_SUCCESS );
+  }
+}
+
 int
 main( int argc, char ** argv ) {
   fd_svm_mini_limits_t limits[1];
@@ -2360,6 +2579,7 @@ main( int argc, char ** argv ) {
   test_callee_returns_error                ( mini );
   test_cpi_to_authorized_program_restricted( mini );
   test_callee_cu_exhaustion_during         ( mini );
+  test_bpf_exec_frame_reuse_and_isolation  ( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

@@ -417,11 +417,25 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                                                                    &instr_ctx->bank->f.features,
                                                                    0 );
 
+  /* Keep the ~573 KiB per-invocation VM + region metadata off the C
+     stack so compilers with -fstack-clash-protection do not probe ~140
+     4 KiB stack pages on every BPF instruction and CPI invocation. */
+  struct bpf_exec_frame {
+    fd_vm_t                 vm[ 1 ];
+    fd_sha256_t             sha[ 1 ];
+    fd_vm_input_region_t    input_mem_regions[ 2UL*FD_TXN_INSTR_ACCT_MAX + 2UL ];
+    fd_vm_acc_region_meta_t acc_region_metas[ 256 ];
+    ulong                   pre_lens[ 256 ];
+  };
+  static FD_TL struct bpf_exec_frame bpf_exec_frames[ FD_MAX_INSTRUCTION_STACK_DEPTH ];
+  ulong const             frame_idx         = instr_ctx->runtime->instr.stack_sz - 1UL;
+  struct bpf_exec_frame * exec_frame        = &bpf_exec_frames[ frame_idx ];
+  ulong *                 pre_lens          = exec_frame->pre_lens;
+  fd_vm_input_region_t *  input_mem_regions = exec_frame->input_mem_regions;
+  fd_vm_acc_region_meta_t * acc_region_metas = exec_frame->acc_region_metas;
+
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
   ulong                   input_sz                                 = 0UL;
-  ulong                   pre_lens[256];
-  fd_vm_input_region_t    input_mem_regions[1000]; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256];   /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                    = 0U;
   int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
   int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, direct_account_pointers_in_program_input );
@@ -431,7 +445,7 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   ulong account_pointers_offset = 0UL;
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60 */
-  uchar * input = instr_ctx->runtime->bpf_loader_serialization.frame[ instr_ctx->runtime->instr.stack_sz-1UL ];
+  uchar * input = instr_ctx->runtime->bpf_loader_serialization.frame[ frame_idx ];
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
                                                   acc_region_metas,
@@ -442,11 +456,8 @@ bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     return err;
   }
 
-  fd_sha256_t _sha[1];
-  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
-
-  fd_vm_t _vm[1];
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  fd_sha256_t * sha = exec_frame->sha->magic==FD_SHA256_MAGIC ? exec_frame->sha : fd_sha256_join( fd_sha256_new( exec_frame->sha ) );
+  fd_vm_t *     vm  = exec_frame->vm->magic ==FD_VM_MAGIC     ? exec_frame->vm  : fd_vm_join    ( fd_vm_new    ( exec_frame->vm  ) );
 
   ulong pre_insn_cus = instr_ctx->txn_out->details.compute_budget.compute_meter;
   ulong heap_size    = instr_ctx->txn_out->details.compute_budget.heap_size;
