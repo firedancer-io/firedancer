@@ -479,6 +479,13 @@ test_validate_opcode_classes( fd_sbpf_syscalls_t *  syscalls,
   FD_TEST( fd_vm_validate_prog( (uchar const *)r10_bump, sizeof(r10_bump), r10_bump, 2UL, sizeof(r10_bump), FD_SBPF_V1 )==FD_VM_SUCCESS );
   FD_TEST( fd_vm_validate_prog( (uchar const *)r10_bump, sizeof(r10_bump), r10_bump, 2UL, sizeof(r10_bump), FD_SBPF_V0 )==FD_VM_ERR_INVALID_DST_REG );
 
+  /* fd_vm_instr_offset sign-extension across arbitrary surrounding fields */
+  short const offs[] = { SHRT_MIN, -12345, -1, 0, 1, 12345, SHRT_MAX };
+  for( ulong k=0UL; k<sizeof(offs)/sizeof(offs[0]); k++ ) {
+    FD_TEST( fd_vm_instr_offset( fd_vm_instr( 0xffUL, 15UL, 15UL, offs[k], 0xffffffffU ) ) == (ulong)(long)offs[k] );
+    FD_TEST( fd_vm_instr_offset( fd_vm_instr( 0x00UL,  0UL,  0UL, offs[k], 0x00000000U ) ) == (ulong)(long)offs[k] );
+  }
+
   FD_LOG_NOTICE(( "%-20s PASS", "validate-opclasses" ));
 }
 

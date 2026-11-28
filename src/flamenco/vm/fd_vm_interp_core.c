@@ -36,15 +36,22 @@
 #define reg      (vm->reg)
 #define text_cnt (vm->text_cnt)
 
-#define FD_VM_DST    fd_vm_instr_dst   ( instr )
+/* Pre-scaled byte offsets into reg[16] (at offset 0 of fd_vm_t) avoid
+   16-bit partial-register shifts (shr $12, %ax) on GCC and 2-cycle BMI1
+   bextr sequences on Clang. */
 #ifdef __clang__
-#define FD_VM_SRC    ((ulong)((ushort)instr >> 12))
+#define FD_VM_REG_AT(off) (*({ ulong _o = (off); FD_COMPILER_FORGET( _o ); (ulong *)((uchar *)reg + _o); }))
 #else
-#define FD_VM_SRC    fd_vm_instr_src   ( instr )
+#define FD_VM_REG_AT(off) (*(ulong *)((uchar *)reg + (off)))
 #endif
-#define FD_VM_OFFSET fd_vm_instr_offset( instr )
-#define FD_VM_IMM    fd_vm_instr_imm   ( instr )
-#define FD_VM_SIMM   ((ulong)(long)(int)(instr >> 32))
+#define FD_VM_DST_OFF (((uint)instr >> 5) & 0x78U)
+#define FD_VM_SRC_OFF (((uint)instr >> 9) & 0x78U)
+#define FD_VM_REG_DST FD_VM_REG_AT( FD_VM_DST_OFF )
+#define FD_VM_REG_SRC FD_VM_REG_AT( FD_VM_SRC_OFF )
+#define FD_VM_SRC     fd_vm_instr_src   ( instr )
+#define FD_VM_OFFSET  fd_vm_instr_offset( instr )
+#define FD_VM_IMM     fd_vm_instr_imm   ( instr )
+#define FD_VM_SIMM    ((ulong)(long)(int)(instr >> 32))
 
 /* These mimic the exact Rust semantics for wrapping_shl and wrapping_shr. */
 #define FD_RUST_ULONG_WRAPPING_SHL( a, b ) ((a) << ( (b) & ( 63 ) ))
@@ -54,10 +61,24 @@
 #define FD_RUST_INT_WRAPPING_SHR( a, b )   ((a) >> ( (b) & ( 31 ) ))
 #define FD_RUST_LONG_WRAPPING_SHR( a, b )  ((a) >> ( (b) & ( 63 ) ))
 
+# if defined(__clang__) && !defined(FD_VM_INTERP_EXE_TRACING_ENABLED)
+# define FD_VM_STR2(x) #x
+# define FD_VM_STR(x)  FD_VM_STR2(x)
+/* Give each handler its own indirectbr target expression so Clang
+   duplicates threaded dispatch per opcode instead of tail-merging all
+   handlers into a single shared indirect jump. */
+# define FD_VM_INTERP_INSTR_EXEC                                                                                    \
+  if( FD_UNLIKELY( pc>=block_text_limit ) ) goto sigtext_or_sigcost; /* Note: untaken branches don't consume BTB */ \
+  instr = text[ pc ];                                                /* Guaranteed in-bounds */                     \
+  { void const * const * _jt = version_interp_jump_table;                                                           \
+    __asm__( "# " FD_VM_STR(__COUNTER__) : "+r"(_jt) );                                                             \
+    goto *_jt[ instr & 255UL ]; }
+# else
 # define FD_VM_INTERP_INSTR_EXEC                                                                                    \
   if( FD_UNLIKELY( pc>=block_text_limit ) ) goto sigtext_or_sigcost; /* Note: untaken branches don't consume BTB */ \
   instr = text[ pc ];                                                /* Guaranteed in-bounds */                     \
   goto *version_interp_jump_table[ instr & 255UL ]                   /* Guaranteed in-bounds */
+# endif
 
 # define FD_VM_INTERP_SYSCALL_EXEC_DUMP                                       \
   /* Dumping for debugging purposes */                                        \
@@ -177,31 +198,40 @@
   } while(0)
 
 /* Memory load/store templates.  Regions 0..4 share a unified 5-slot
-   inline TLB (slot 4 caches the active MRU input sub-region via
-   region_voff[4]); non-NULL haddr is guaranteed on the fast path. */
+   inline TLB: slot 4 caches the active MRU input sub-region with
+   region_haddr[4] pre-biased by -region_voff[4] so the host address
+   issues in parallel with the bounds check. */
+# ifdef __clang__
+# define FD_VM_FORGET_REGION(r) FD_COMPILER_FORGET(r)
+# else
+# define FD_VM_FORGET_REGION(r) ((void)0)
+# endif
+
 # define FD_VM_INTERP_LD(opcode, sz, ld_fn)                                                         \
   FD_VM_INTERP_INSTR_BEGIN(opcode) {                                                                \
-    ulong _vaddr  = reg[ FD_VM_SRC ] + FD_VM_OFFSET;                                                \
+    ulong _vaddr  = FD_VM_REG_SRC + FD_VM_OFFSET;                                                   \
     ulong _region = _vaddr >> 32;                                                                   \
-    ulong _rel;                                                                                     \
+    FD_VM_FORGET_REGION( _region );                                                                 \
+    ulong _off32  = (ulong)(uint)_vaddr;                                                            \
     ulong _haddr;                                                                                   \
-    if( FD_LIKELY( _region<5UL && ((_rel = (ulong)((uint)_vaddr - vm->region_voff[ _region ]))+(sz))<=(ulong)vm->region_ld_sz[ _region ] ) ) { \
-      _haddr = vm->region_haddr[ _region ] + _rel;                                                  \
+    if( FD_LIKELY( _region<5UL && ((ulong)((uint)_off32 - vm->region_voff[ _region ])+(sz))<=(ulong)vm->region_ld_sz[ _region ] ) ) { \
+      _haddr = vm->region_haddr[ _region ] + _off32;                                                \
     } else {                                                                                        \
       _haddr = fd_vm_mem_haddr_ld_slow( vm, _vaddr, (sz) );                                         \
       if( FD_UNLIKELY( !_haddr ) ) goto sigsegv;                                                    \
     }                                                                                               \
-    reg[ FD_VM_DST ] = ld_fn( _haddr );                                                             \
+    FD_VM_REG_DST = ld_fn( _haddr );                                                                \
   } FD_VM_INTERP_INSTR_END
 
 # define FD_VM_INTERP_ST_IMM(opcode, sz, st_fn, val_expr)                                           \
   FD_VM_INTERP_INSTR_BEGIN(opcode) {                                                                \
-    ulong _vaddr  = reg[ FD_VM_DST ] + FD_VM_OFFSET;                                                \
+    ulong _vaddr  = FD_VM_REG_DST + FD_VM_OFFSET;                                                   \
     ulong _region = _vaddr >> 32;                                                                   \
-    ulong _rel;                                                                                     \
+    FD_VM_FORGET_REGION( _region );                                                                 \
+    ulong _off32  = (ulong)(uint)_vaddr;                                                            \
     ulong _haddr;                                                                                   \
-    if( FD_LIKELY( _region<5UL && ((_rel = (ulong)((uint)_vaddr - vm->region_voff[ _region ]))+(sz))<=(ulong)vm->region_st_sz[ _region ] ) ) { \
-      _haddr = vm->region_haddr[ _region ] + _rel;                                                  \
+    if( FD_LIKELY( _region<5UL && ((ulong)((uint)_off32 - vm->region_voff[ _region ])+(sz))<=(ulong)vm->region_st_sz[ _region ] ) ) { \
+      _haddr = vm->region_haddr[ _region ] + _off32;                                                \
     } else {                                                                                        \
       _haddr = fd_vm_mem_haddr_st_slow( vm, _vaddr, (sz) );                                         \
       if( FD_UNLIKELY( !_haddr ) ) goto sigsegv;                                                    \
@@ -211,18 +241,25 @@
 
 # define FD_VM_INTERP_ST_REG(opcode, sz, st_fn, cast_t)                                             \
   FD_VM_INTERP_INSTR_BEGIN(opcode) {                                                                \
-    ulong _vaddr  = reg[ FD_VM_DST ] + FD_VM_OFFSET;                                                \
+    ulong _vaddr  = FD_VM_REG_DST + FD_VM_OFFSET;                                                   \
     ulong _region = _vaddr >> 32;                                                                   \
-    ulong _rel;                                                                                     \
+    FD_VM_FORGET_REGION( _region );                                                                 \
+    ulong _off32  = (ulong)(uint)_vaddr;                                                            \
     ulong _haddr;                                                                                   \
-    if( FD_LIKELY( _region<5UL && ((_rel = (ulong)((uint)_vaddr - vm->region_voff[ _region ]))+(sz))<=(ulong)vm->region_st_sz[ _region ] ) ) { \
-      _haddr = vm->region_haddr[ _region ] + _rel;                                                  \
+    if( FD_LIKELY( _region<5UL && ((ulong)((uint)_off32 - vm->region_voff[ _region ])+(sz))<=(ulong)vm->region_st_sz[ _region ] ) ) { \
+      _haddr = vm->region_haddr[ _region ] + _off32;                                                \
     } else {                                                                                        \
       _haddr = fd_vm_mem_haddr_st_slow( vm, _vaddr, (sz) );                                         \
       if( FD_UNLIKELY( !_haddr ) ) goto sigsegv;                                                    \
     }                                                                                               \
-    st_fn( _haddr, (cast_t)reg[ FD_VM_SRC ] );                                                      \
+    st_fn( _haddr, (cast_t)FD_VM_REG_SRC );                                                         \
   } FD_VM_INTERP_INSTR_END
+
+# define FD_VM_INTERP_ALU(opcode, stmt) \
+  FD_VM_INTERP_INSTR_BEGIN(opcode) { ulong * _d = &FD_VM_REG_DST; stmt; } FD_VM_INTERP_INSTR_END
+
+# define FD_VM_INTERP_JMP(opcode, cond) \
+  FD_VM_INTERP_BRANCH_BEGIN(opcode) pc += fd_ulong_if( (cond), FD_VM_OFFSET, 0UL ); FD_VM_INTERP_BRANCH_END
 
   goto interp_exec;
 interp_exec:
@@ -236,339 +273,113 @@ interp_exec:
 
   /* 0x00 - 0x0f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x04) { /* FD_SBPF_OP_ADD_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(uint)( (int)reg[ dst ] + (int)FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x04depr) { /* FD_SBPF_OP_ADD_IMM deprecated SIMD-0174 */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(long)( (int)reg[ dst ] + (int)FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x04,     *_d = (ulong)(uint)( (int)*_d + (int)FD_VM_IMM )     ); /* FD_SBPF_OP_ADD_IMM        */
+  FD_VM_INTERP_ALU( 0x04depr, *_d = (ulong)(long)( (int)*_d + (int)FD_VM_IMM )     ); /* FD_SBPF_OP_ADD_IMM (depr) */
 
   FD_VM_INTERP_BRANCH_BEGIN(0x05) /* FD_SBPF_OP_JA */
     pc += FD_VM_OFFSET;
   FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x07) /* FD_SBPF_OP_ADD64_IMM */
-    reg[ FD_VM_DST ] += FD_VM_SIMM;
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x0c) { /* FD_SBPF_OP_ADD_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(uint)( (int)reg[ dst ] + (int)reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x0cdepr) { /* FD_SBPF_OP_ADD_REG deprecated SIMD-0174 */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(long)( (int)reg[ dst ] + (int)reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x0f) /* FD_SBPF_OP_ADD64_REG */
-    reg[ FD_VM_DST ] += reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x07,     *_d += FD_VM_SIMM                                    ); /* FD_SBPF_OP_ADD64_IMM      */
+  FD_VM_INTERP_ALU( 0x0c,     *_d = (ulong)(uint)( (int)*_d + (int)FD_VM_REG_SRC ) ); /* FD_SBPF_OP_ADD_REG        */
+  FD_VM_INTERP_ALU( 0x0cdepr, *_d = (ulong)(long)( (int)*_d + (int)FD_VM_REG_SRC ) ); /* FD_SBPF_OP_ADD_REG (depr) */
+  FD_VM_INTERP_ALU( 0x0f,     *_d += FD_VM_REG_SRC                                 ); /* FD_SBPF_OP_ADD64_REG      */
 
   /* 0x10 - 0x1f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x14) { /* FD_SBPF_OP_SUB_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(uint)( (int)FD_VM_IMM - (int)reg[ dst ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x14depr) { /* FD_SBPF_OP_SUB_IMM deprecated SIMD-0174 */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(long)( (int)reg[ dst ] - (int)FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x15) /* FD_SBPF_OP_JEQ_IMM */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]==FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x17) { /* FD_SBPF_OP_SUB64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = FD_VM_SIMM - reg[ dst ];
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x17depr) /* FD_SBPF_OP_SUB64_IMM deprecated SIMD-0174 */
-    reg[ FD_VM_DST ] -= FD_VM_SIMM;
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x14,     *_d = (ulong)(uint)( (int)FD_VM_IMM - (int)*_d )     ); /* FD_SBPF_OP_SUB_IMM        */
+  FD_VM_INTERP_ALU( 0x14depr, *_d = (ulong)(long)( (int)*_d - (int)FD_VM_IMM )     ); /* FD_SBPF_OP_SUB_IMM (depr) */
+  FD_VM_INTERP_JMP( 0x15,     FD_VM_REG_DST==FD_VM_SIMM                            ); /* FD_SBPF_OP_JEQ_IMM        */
+  FD_VM_INTERP_ALU( 0x17,     *_d = FD_VM_SIMM - *_d                               ); /* FD_SBPF_OP_SUB64_IMM      */
+  FD_VM_INTERP_ALU( 0x17depr, *_d -= FD_VM_SIMM                                    ); /* FD_SBPF_OP_SUB64_IMM(depr)*/
 
   FD_VM_INTERP_INSTR_BEGIN(0x18) { /* FD_SBPF_OP_LDQ */
-    ulong dst = FD_VM_DST;
-    ulong lo  = (ulong)FD_VM_IMM;
+    ulong * _d = &FD_VM_REG_DST;
+    ulong   lo = (ulong)FD_VM_IMM;
     pc++;
     FD_VM_INTERP_LDQ_EXTRA;
-    reg[ dst ] = lo | (text[ pc ] & 0xFFFFFFFF00000000UL);
+    *_d = lo | (text[ pc ] & 0xFFFFFFFF00000000UL);
   } FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x1c) { /* FD_SBPF_OP_SUB_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(uint)( (int)reg[ dst ] - (int)reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x1cdepr) { /* FD_SBPF_OP_SUB_REG deprecated SIMD-0174 */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(long)( (int)reg[ dst ] - (int)reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x1d) /* FD_SBPF_OP_JEQ_REG */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]==reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x1f) /* FD_SBPF_OP_SUB64_REG */
-    reg[ FD_VM_DST ] -= reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x1c,     *_d = (ulong)(uint)( (int)*_d - (int)FD_VM_REG_SRC ) ); /* FD_SBPF_OP_SUB_REG        */
+  FD_VM_INTERP_ALU( 0x1cdepr, *_d = (ulong)(long)( (int)*_d - (int)FD_VM_REG_SRC ) ); /* FD_SBPF_OP_SUB_REG (depr) */
+  FD_VM_INTERP_JMP( 0x1d,     FD_VM_REG_DST==FD_VM_REG_SRC                         ); /* FD_SBPF_OP_JEQ_REG        */
+  FD_VM_INTERP_ALU( 0x1f,     *_d -= FD_VM_REG_SRC                                 ); /* FD_SBPF_OP_SUB64_REG      */
 
   /* 0x20 - 0x2f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x24) { /* FD_SBPF_OP_MUL_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(long)( (int)reg[ dst ] * (int)FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x25) /* FD_SBPF_OP_JGT_IMM */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]>FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_ST_IMM( 0x27, sizeof(uchar), fd_vm_mem_st_1, (uchar)FD_VM_IMM );  /* FD_SBPF_OP_STB  */
-  FD_VM_INTERP_LD    ( 0x2c, sizeof(uchar), fd_vm_mem_ld_1 );                    /* FD_SBPF_OP_LDXB */
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x2d) /* FD_SBPF_OP_JGT_REG */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]>reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_ST_REG( 0x2f, sizeof(uchar), fd_vm_mem_st_1, uchar );             /* FD_SBPF_OP_STXB */
-
-  FD_VM_INTERP_INSTR_BEGIN(0x27depr) { /* FD_SBPF_OP_MUL64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (long)reg[ dst ] * (long)FD_VM_SIMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x2cdepr) { /* FD_SBPF_OP_MUL_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(long)( (int)reg[ dst ] * (int)reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x2fdepr) /* FD_SBPF_OP_MUL64_REG */
-    reg[ FD_VM_DST ] *= reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU   ( 0x24,     *_d = (ulong)(long)( (int)*_d * (int)FD_VM_IMM )     ); /* FD_SBPF_OP_MUL_IMM   */
+  FD_VM_INTERP_JMP   ( 0x25,     FD_VM_REG_DST>FD_VM_SIMM                             ); /* FD_SBPF_OP_JGT_IMM   */
+  FD_VM_INTERP_ST_IMM( 0x27,     sizeof(uchar), fd_vm_mem_st_1, (uchar)FD_VM_IMM      ); /* FD_SBPF_OP_STB       */
+  FD_VM_INTERP_LD    ( 0x2c,     sizeof(uchar), fd_vm_mem_ld_1                        ); /* FD_SBPF_OP_LDXB      */
+  FD_VM_INTERP_JMP   ( 0x2d,     FD_VM_REG_DST>FD_VM_REG_SRC                          ); /* FD_SBPF_OP_JGT_REG   */
+  FD_VM_INTERP_ST_REG( 0x2f,     sizeof(uchar), fd_vm_mem_st_1, uchar                 ); /* FD_SBPF_OP_STXB      */
+  FD_VM_INTERP_ALU   ( 0x27depr, *_d = (ulong)( (long)*_d * (long)FD_VM_SIMM )        ); /* FD_SBPF_OP_MUL64_IMM */
+  FD_VM_INTERP_ALU   ( 0x2cdepr, *_d = (ulong)(long)( (int)*_d * (int)FD_VM_REG_SRC ) ); /* FD_SBPF_OP_MUL_REG   */
+  FD_VM_INTERP_ALU   ( 0x2fdepr, *_d *= FD_VM_REG_SRC                                 ); /* FD_SBPF_OP_MUL64_REG */
 
   /* 0x30 - 0x3f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x34) { /* FD_SBPF_OP_DIV_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)((uint)reg[ dst ] / FD_VM_IMM);
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU   ( 0x34,     *_d = (ulong)((uint)*_d / FD_VM_IMM)                             ); /* FD_SBPF_OP_DIV_IMM     */
+  FD_VM_INTERP_JMP   ( 0x35,     FD_VM_REG_DST>=FD_VM_SIMM                                        ); /* FD_SBPF_OP_JGE_IMM     */
+  FD_VM_INTERP_ALU   ( 0x36,     *_d = (ulong)(( (uint128)*_d * (uint128)(ulong)FD_VM_IMM ) >> 64)); /* FD_SBPF_OP_UHMUL64_IMM */
+  FD_VM_INTERP_ST_IMM( 0x37,     sizeof(ushort), fd_vm_mem_st_2, (ushort)FD_VM_IMM                ); /* FD_SBPF_OP_STH         */
+  FD_VM_INTERP_LD    ( 0x3c,     sizeof(ushort), fd_vm_mem_ld_2                                   ); /* FD_SBPF_OP_LDXH        */
+  FD_VM_INTERP_JMP   ( 0x3d,     FD_VM_REG_DST>=FD_VM_REG_SRC                                     ); /* FD_SBPF_OP_JGE_REG     */
+  FD_VM_INTERP_ST_REG( 0x3f,     sizeof(ushort), fd_vm_mem_st_2, ushort                           ); /* FD_SBPF_OP_STXH        */
+  FD_VM_INTERP_ALU   ( 0x3e,     *_d = (ulong)(( (uint128)*_d * (uint128)FD_VM_REG_SRC ) >> 64)   ); /* FD_SBPF_OP_UHMUL64_REG */
+  FD_VM_INTERP_ALU   ( 0x37depr, *_d /= FD_VM_SIMM                                                ); /* FD_SBPF_OP_DIV64_IMM   */
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x35) /* FD_SBPF_OP_JGE_IMM */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]>=FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x36) { /* FD_SBPF_OP_UHMUL64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(( (uint128)reg[ dst ] * (uint128)(ulong)FD_VM_IMM ) >> 64 );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_ST_IMM( 0x37, sizeof(ushort), fd_vm_mem_st_2, (ushort)FD_VM_IMM ); /* FD_SBPF_OP_STH  */
-  FD_VM_INTERP_LD    ( 0x3c, sizeof(ushort), fd_vm_mem_ld_2 );                    /* FD_SBPF_OP_LDXH */
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x3d) /* FD_SBPF_OP_JGE_REG */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]>=reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_ST_REG( 0x3f, sizeof(ushort), fd_vm_mem_st_2, ushort );            /* FD_SBPF_OP_STXH */
-
-  FD_VM_INTERP_INSTR_BEGIN(0x3e) { /* FD_SBPF_OP_UHMUL64_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(( (uint128)reg[ dst ] * (uint128)reg[ FD_VM_SRC ] ) >> 64 );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x37depr) { /* FD_SBPF_OP_DIV64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = reg[ dst ] / FD_VM_SIMM;
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x3cdepr) { /* FD_SBPF_OP_DIV_REG */
-    uint rsrc = (uint)reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)((uint)reg[ dst ] / rsrc);
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x3fdepr) { /* FD_SBPF_OP_DIV64_REG */
-    ulong rsrc = reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    reg[ FD_VM_DST ] /= rsrc;
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x3cdepr, uint  rsrc = (uint)FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe; *_d = (ulong)((uint)*_d / rsrc) ); /* FD_SBPF_OP_DIV_REG   */
+  FD_VM_INTERP_ALU( 0x3fdepr, ulong rsrc =       FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe; *_d /= rsrc                     ); /* FD_SBPF_OP_DIV64_REG */
 
   /* 0x40 - 0x4f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x44) { /* FD_SBPF_OP_OR_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] | FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x45) /* FD_SBPF_OP_JSET_IMM */
-    pc += fd_ulong_if( !!(reg[ FD_VM_DST ] & FD_VM_SIMM), FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x46) { /* FD_SBPF_OP_UDIV32_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] / FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x47) /* FD_SBPF_OP_OR64_IMM */
-    reg[ FD_VM_DST ] |= FD_VM_SIMM;
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x4c) { /* FD_SBPF_OP_OR_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(uint)( reg[ dst ] | reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x4d) /* FD_SBPF_OP_JSET_REG */
-    pc += fd_ulong_if( !!(reg[ FD_VM_DST ] & reg[ FD_VM_SRC ]), FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x4e) { /* FD_SBPF_OP_UDIV32_REG */
-    uint rsrc = (uint)reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] / rsrc );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x4f) /* FD_SBPF_OP_OR64_REG */
-    reg[ FD_VM_DST ] |= reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x44, *_d = (ulong)( (uint)*_d | FD_VM_IMM )         ); /* FD_SBPF_OP_OR_IMM     */
+  FD_VM_INTERP_JMP( 0x45, !!(FD_VM_REG_DST & FD_VM_SIMM)                 ); /* FD_SBPF_OP_JSET_IMM   */
+  FD_VM_INTERP_ALU( 0x46, *_d = (ulong)( (uint)*_d / FD_VM_IMM )         ); /* FD_SBPF_OP_UDIV32_IMM */
+  FD_VM_INTERP_ALU( 0x47, *_d |= FD_VM_SIMM                              ); /* FD_SBPF_OP_OR64_IMM   */
+  FD_VM_INTERP_ALU( 0x4c, *_d = (ulong)(uint)( *_d | FD_VM_REG_SRC )     ); /* FD_SBPF_OP_OR_REG     */
+  FD_VM_INTERP_JMP( 0x4d, !!(FD_VM_REG_DST & FD_VM_REG_SRC)              ); /* FD_SBPF_OP_JSET_REG   */
+  FD_VM_INTERP_ALU( 0x4e, uint rsrc = (uint)FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe; *_d = (ulong)( (uint)*_d / rsrc ) ); /* FD_SBPF_OP_UDIV32_REG */
+  FD_VM_INTERP_ALU( 0x4f, *_d |= FD_VM_REG_SRC                           ); /* FD_SBPF_OP_OR64_REG   */
 
   /* 0x50 - 0x5f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x54) { /* FD_SBPF_OP_AND_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] & FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x55) /* FD_SBPF_OP_JNE_IMM */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]!=FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x56) { /* FD_SBPF_OP_UDIV64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = reg[ dst ] / (ulong)FD_VM_IMM;
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x57) /* FD_SBPF_OP_AND64_IMM */
-    reg[ FD_VM_DST ] &= FD_VM_SIMM;
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x5c) { /* FD_SBPF_OP_AND_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(uint)( reg[ dst ] & reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x5d) /* FD_SBPF_OP_JNE_REG */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]!=reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x5e) { /* FD_SBPF_OP_UDIV64_REG */
-    ulong rsrc = reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    reg[ FD_VM_DST ] /= rsrc;
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x5f) /* FD_SBPF_OP_AND64_REG */
-    reg[ FD_VM_DST ] &= reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x54, *_d = (ulong)( (uint)*_d & FD_VM_IMM )         ); /* FD_SBPF_OP_AND_IMM    */
+  FD_VM_INTERP_JMP( 0x55, FD_VM_REG_DST!=FD_VM_SIMM                      ); /* FD_SBPF_OP_JNE_IMM    */
+  FD_VM_INTERP_ALU( 0x56, *_d /= (ulong)FD_VM_IMM                        ); /* FD_SBPF_OP_UDIV64_IMM */
+  FD_VM_INTERP_ALU( 0x57, *_d &= FD_VM_SIMM                              ); /* FD_SBPF_OP_AND64_IMM  */
+  FD_VM_INTERP_ALU( 0x5c, *_d = (ulong)(uint)( *_d & FD_VM_REG_SRC )     ); /* FD_SBPF_OP_AND_REG    */
+  FD_VM_INTERP_JMP( 0x5d, FD_VM_REG_DST!=FD_VM_REG_SRC                   ); /* FD_SBPF_OP_JNE_REG    */
+  FD_VM_INTERP_ALU( 0x5e, ulong rsrc = FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe; *_d /= rsrc ); /* FD_SBPF_OP_UDIV64_REG */
+  FD_VM_INTERP_ALU( 0x5f, *_d &= FD_VM_REG_SRC                           ); /* FD_SBPF_OP_AND64_REG  */
 
   /* 0x60 - 0x6f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x64) { /* FD_SBPF_OP_LSH_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHL( (uint)reg[ dst ], FD_VM_IMM ) );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x65) /* FD_SBPF_OP_JSGT_IMM */
-    pc += fd_ulong_if( (long)reg[ FD_VM_DST ]>(long)FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x66) { /* FD_SBPF_OP_UREM32_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] % FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x67) { /* FD_SBPF_OP_LSH64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHL( reg[ dst ], FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x6c) { /* FD_SBPF_OP_LSH_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHL( (uint)reg[ dst ], reg[ FD_VM_SRC ] ) );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x6d) /* FD_SBPF_OP_JSGT_REG */
-    pc += fd_ulong_if( (long)reg[ FD_VM_DST ]>(long)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x6e) { /* FD_SBPF_OP_UREM32_REG */
-    uint rsrc = (uint)reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] % rsrc );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x6f) { /* FD_SBPF_OP_LSH64_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHL( reg[ dst ], reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x64, *_d = (ulong)FD_RUST_UINT_WRAPPING_SHL ( (uint)*_d, FD_VM_IMM     ) ); /* FD_SBPF_OP_LSH_IMM    */
+  FD_VM_INTERP_JMP( 0x65, (long)FD_VM_REG_DST>(long)FD_VM_SIMM                                ); /* FD_SBPF_OP_JSGT_IMM   */
+  FD_VM_INTERP_ALU( 0x66, *_d = (ulong)( (uint)*_d % FD_VM_IMM )                              ); /* FD_SBPF_OP_UREM32_IMM */
+  FD_VM_INTERP_ALU( 0x67, *_d =        FD_RUST_ULONG_WRAPPING_SHL(       *_d, FD_VM_IMM     ) ); /* FD_SBPF_OP_LSH64_IMM  */
+  FD_VM_INTERP_ALU( 0x6c, *_d = (ulong)FD_RUST_UINT_WRAPPING_SHL ( (uint)*_d, FD_VM_REG_SRC ) ); /* FD_SBPF_OP_LSH_REG    */
+  FD_VM_INTERP_JMP( 0x6d, (long)FD_VM_REG_DST>(long)FD_VM_REG_SRC                             ); /* FD_SBPF_OP_JSGT_REG   */
+  FD_VM_INTERP_ALU( 0x6e, uint rsrc = (uint)FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe; *_d = (ulong)( (uint)*_d % rsrc ) ); /* FD_SBPF_OP_UREM32_REG */
+  FD_VM_INTERP_ALU( 0x6f, *_d =        FD_RUST_ULONG_WRAPPING_SHL(       *_d, FD_VM_REG_SRC ) ); /* FD_SBPF_OP_LSH64_REG  */
 
   /* 0x70 - 0x7f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x74) { /* FD_SBPF_OP_RSH_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHR( (uint)reg[ dst ], FD_VM_IMM ) );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x75) /* FD_SBPF_OP_JSGE_IMM */
-    pc += fd_ulong_if( (long)reg[ FD_VM_DST ]>=(long)FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x76) { /* FD_SBPF_OP_UREM64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = reg[ dst ] % (ulong)FD_VM_IMM;
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x77) { /* FD_SBPF_OP_RSH64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHR( reg[ dst ], FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x7c) { /* FD_SBPF_OP_RSH_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( FD_RUST_UINT_WRAPPING_SHR( (uint)reg[ dst ], (uint)reg[ FD_VM_SRC ] ) );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x7d) /* FD_SBPF_OP_JSGE_REG */
-    pc += fd_ulong_if( (long)reg[ FD_VM_DST ]>=(long)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x7e) { /* FD_SBPF_OP_UREM64_REG */
-    ulong rsrc = reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    reg[ FD_VM_DST ] %= rsrc;
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x7f) { /* FD_SBPF_OP_RSH64_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = FD_RUST_ULONG_WRAPPING_SHR( reg[ dst ], reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x74, *_d = (ulong)FD_RUST_UINT_WRAPPING_SHR ( (uint)*_d,       FD_VM_IMM     ) ); /* FD_SBPF_OP_RSH_IMM    */
+  FD_VM_INTERP_JMP( 0x75, (long)FD_VM_REG_DST>=(long)FD_VM_SIMM                                     ); /* FD_SBPF_OP_JSGE_IMM   */
+  FD_VM_INTERP_ALU( 0x76, *_d %= (ulong)FD_VM_IMM                                                   ); /* FD_SBPF_OP_UREM64_IMM */
+  FD_VM_INTERP_ALU( 0x77, *_d =        FD_RUST_ULONG_WRAPPING_SHR(       *_d,       FD_VM_IMM     ) ); /* FD_SBPF_OP_RSH64_IMM  */
+  FD_VM_INTERP_ALU( 0x7c, *_d = (ulong)FD_RUST_UINT_WRAPPING_SHR ( (uint)*_d, (uint)FD_VM_REG_SRC ) ); /* FD_SBPF_OP_RSH_REG    */
+  FD_VM_INTERP_JMP( 0x7d, (long)FD_VM_REG_DST>=(long)FD_VM_REG_SRC                                  ); /* FD_SBPF_OP_JSGE_REG   */
+  FD_VM_INTERP_ALU( 0x7e, ulong rsrc = FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe; *_d %= rsrc ); /* FD_SBPF_OP_UREM64_REG */
+  FD_VM_INTERP_ALU( 0x7f, *_d =        FD_RUST_ULONG_WRAPPING_SHR(       *_d,       FD_VM_REG_SRC ) ); /* FD_SBPF_OP_RSH64_REG  */
 
   /* 0x80-0x8f ********************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x84) { /* FD_SBPF_OP_NEG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( -(uint)reg[ dst ] );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x84, *_d = (ulong)( -(uint)*_d ) ); /* FD_SBPF_OP_NEG */
 
   FD_VM_INTERP_BRANCH_BEGIN(0x85) { /* FD_SBPF_OP_CALL_IMM */
     uint imm = FD_VM_IMM;
@@ -612,27 +423,19 @@ interp_exec:
     }
   } FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x86) { /* FD_SBPF_OP_LMUL32_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] * FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_ST_IMM( 0x87, sizeof(uint), fd_vm_mem_st_4, FD_VM_IMM );           /* FD_SBPF_OP_STW  */
-
-  FD_VM_INTERP_INSTR_BEGIN(0x87depr) { /* FD_SBPF_OP_NEG64 deprecated */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = -reg[ dst ];
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_LD    ( 0x8c, sizeof(uint), fd_vm_mem_ld_4 );                      /* FD_SBPF_OP_LDXW */
+  FD_VM_INTERP_ALU   ( 0x86,     *_d = (ulong)( (uint)*_d * FD_VM_IMM )           ); /* FD_SBPF_OP_LMUL32_IMM */
+  FD_VM_INTERP_ST_IMM( 0x87,     sizeof(uint), fd_vm_mem_st_4, FD_VM_IMM          ); /* FD_SBPF_OP_STW        */
+  FD_VM_INTERP_ALU   ( 0x87depr, *_d = -*_d                                       ); /* FD_SBPF_OP_NEG64      */
+  FD_VM_INTERP_LD    ( 0x8c,     sizeof(uint), fd_vm_mem_ld_4                     ); /* FD_SBPF_OP_LDXW       */
 
   FD_VM_INTERP_BRANCH_BEGIN(0x8d) { /* FD_SBPF_OP_CALL_REG */
-    ulong rsrc = reg[ FD_VM_SRC ];
+    ulong rsrc = FD_VM_REG_SRC;
+    ulong rdst = FD_VM_REG_DST;
     FD_VM_INTERP_STACK_PUSH;
 
     ulong sbpf_ver = vm->sbpf_version;
     ulong vaddr = fd_sbpf_callx_uses_src_reg_enabled( sbpf_ver ) ? rsrc
-                : fd_sbpf_callx_uses_dst_reg_enabled( sbpf_ver ) ? reg[ FD_VM_DST ]
+                : fd_sbpf_callx_uses_dst_reg_enabled( sbpf_ver ) ? rdst
                 : reg[ FD_VM_IMM & 15U ];
 
     ulong region    = vaddr >> 32;
@@ -641,19 +444,12 @@ interp_exec:
     pc = target_pc - 1UL;
   } FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x8e) { /* FD_SBPF_OP_LMUL32_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] * (uint)reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_ST_REG( 0x8f, sizeof(uint), fd_vm_mem_st_4, uint );                /* FD_SBPF_OP_STXW */
+  FD_VM_INTERP_ALU   ( 0x8e,     *_d = (ulong)( (uint)*_d * (uint)FD_VM_REG_SRC ) ); /* FD_SBPF_OP_LMUL32_REG */
+  FD_VM_INTERP_ST_REG( 0x8f,     sizeof(uint), fd_vm_mem_st_4, uint               ); /* FD_SBPF_OP_STXW       */
 
   /* 0x90 - 0x9f ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0x94) { /* FD_SBPF_OP_MOD_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] % FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0x94, *_d = (ulong)( (uint)*_d % FD_VM_IMM ) ); /* FD_SBPF_OP_MOD_IMM */
 
   FD_VM_INTERP_BRANCH_BEGIN(0x95) { /* FD_SBPF_OP_EXIT */
     ulong _fc = vm->frame_cnt;
@@ -669,334 +465,128 @@ interp_exec:
     pc      = sh->pc;
   } FD_VM_INTERP_BRANCH_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x96) /* FD_SBPF_OP_LMUL64_IMM */
-    reg[ FD_VM_DST ] *= FD_VM_SIMM;
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_ST_IMM( 0x97, sizeof(ulong), fd_vm_mem_st_8, FD_VM_SIMM );         /* FD_SBPF_OP_STQ  */
-  FD_VM_INTERP_LD    ( 0x9c, sizeof(ulong), fd_vm_mem_ld_8 );                     /* FD_SBPF_OP_LDXQ */
-
-  FD_VM_INTERP_INSTR_BEGIN(0x9e) /* FD_SBPF_OP_LMUL64_REG */
-    reg[ FD_VM_DST ] *= reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_ST_REG( 0x9f, sizeof(ulong), fd_vm_mem_st_8, ulong );              /* FD_SBPF_OP_STXQ */
-
-  FD_VM_INTERP_INSTR_BEGIN(0x97depr) { /* FD_SBPF_OP_MOD64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = reg[ dst ] % FD_VM_SIMM;
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x9cdepr) { /* FD_SBPF_OP_MOD_REG */
-    uint rsrc = (uint)reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] % rsrc );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0x9fdepr) { /* FD_SBPF_OP_MOD64_REG */
-    ulong rsrc = reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    reg[ FD_VM_DST ] %= rsrc;
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU   ( 0x96,     *_d *= FD_VM_SIMM                                ); /* FD_SBPF_OP_LMUL64_IMM */
+  FD_VM_INTERP_ST_IMM( 0x97,     sizeof(ulong), fd_vm_mem_st_8, FD_VM_SIMM        ); /* FD_SBPF_OP_STQ        */
+  FD_VM_INTERP_LD    ( 0x9c,     sizeof(ulong), fd_vm_mem_ld_8                    ); /* FD_SBPF_OP_LDXQ       */
+  FD_VM_INTERP_ALU   ( 0x9e,     *_d *= FD_VM_REG_SRC                             ); /* FD_SBPF_OP_LMUL64_REG */
+  FD_VM_INTERP_ST_REG( 0x9f,     sizeof(ulong), fd_vm_mem_st_8, ulong             ); /* FD_SBPF_OP_STXQ       */
+  FD_VM_INTERP_ALU   ( 0x97depr, *_d %= FD_VM_SIMM                                ); /* FD_SBPF_OP_MOD64_IMM  */
+  FD_VM_INTERP_ALU   ( 0x9cdepr, uint  rsrc = (uint)FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe; *_d = (ulong)( (uint)*_d % rsrc ) ); /* FD_SBPF_OP_MOD_REG   */
+  FD_VM_INTERP_ALU   ( 0x9fdepr, ulong rsrc =       FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe; *_d %= rsrc                     ); /* FD_SBPF_OP_MOD64_REG */
 
   /* 0xa0 - 0xaf ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0xa4) { /* FD_SBPF_OP_XOR_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( (uint)reg[ dst ] ^ FD_VM_IMM );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xa5) /* FD_SBPF_OP_JLT_IMM */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]<FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xa7) /* FD_SBPF_OP_XOR64_IMM */
-    reg[ FD_VM_DST ] ^= FD_VM_SIMM;
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xac) { /* FD_SBPF_OP_XOR_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(uint)( reg[ dst ] ^ reg[ FD_VM_SRC ] );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xad) /* FD_SBPF_OP_JLT_REG */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]<reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xaf) /* FD_SBPF_OP_XOR64_REG */
-    reg[ FD_VM_DST ] ^= reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xa4, *_d = (ulong)( (uint)*_d ^ FD_VM_IMM )     ); /* FD_SBPF_OP_XOR_IMM   */
+  FD_VM_INTERP_JMP( 0xa5, FD_VM_REG_DST<FD_VM_SIMM                   ); /* FD_SBPF_OP_JLT_IMM   */
+  FD_VM_INTERP_ALU( 0xa7, *_d ^= FD_VM_SIMM                          ); /* FD_SBPF_OP_XOR64_IMM */
+  FD_VM_INTERP_ALU( 0xac, *_d = (ulong)(uint)( *_d ^ FD_VM_REG_SRC ) ); /* FD_SBPF_OP_XOR_REG   */
+  FD_VM_INTERP_JMP( 0xad, FD_VM_REG_DST<FD_VM_REG_SRC                ); /* FD_SBPF_OP_JLT_REG   */
+  FD_VM_INTERP_ALU( 0xaf, *_d ^= FD_VM_REG_SRC                       ); /* FD_SBPF_OP_XOR64_REG */
 
   /* 0xb0 - 0xbf ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0xb4) /* FD_SBPF_OP_MOV_IMM */
-    reg[ FD_VM_DST ] = (ulong)FD_VM_IMM;
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xb5) /* FD_SBPF_OP_JLE_IMM */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]<=FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xb6) { /* FD_SBPF_OP_SHMUL64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(( (int128)(long)reg[ dst ] * (int128)(long)FD_VM_SIMM ) >> 64 );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xb7) /* FD_SBPF_OP_MOV64_IMM */
-    reg[ FD_VM_DST ] = FD_VM_SIMM;
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xbc) /* FD_SBPF_OP_MOV_REG */
-    reg[ FD_VM_DST ] = (ulong)(long)(int)reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xbcdepr) /* FD_SBPF_OP_MOV_REG deprecated SIMD-0174 */
-    reg[ FD_VM_DST ] = (ulong)(uint)reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xbd) /* FD_SBPF_OP_JLE_REG */
-    pc += fd_ulong_if( reg[ FD_VM_DST ]<=reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xbe) { /* FD_SBPF_OP_SHMUL64_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(( (int128)(long)reg[ dst ] * (int128)(long)reg[ FD_VM_SRC ] ) >> 64 );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xbf) /* FD_SBPF_OP_MOV64_REG */
-    reg[ FD_VM_DST ] = reg[ FD_VM_SRC ];
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xb4,     *_d = (ulong)FD_VM_IMM                                                  ); /* FD_SBPF_OP_MOV_IMM        */
+  FD_VM_INTERP_JMP( 0xb5,     FD_VM_REG_DST<=FD_VM_SIMM                                               ); /* FD_SBPF_OP_JLE_IMM        */
+  FD_VM_INTERP_ALU( 0xb6,     *_d = (ulong)(( (int128)(long)*_d * (int128)(long)FD_VM_SIMM    ) >> 64)); /* FD_SBPF_OP_SHMUL64_IMM    */
+  FD_VM_INTERP_ALU( 0xb7,     *_d = FD_VM_SIMM                                                        ); /* FD_SBPF_OP_MOV64_IMM      */
+  FD_VM_INTERP_ALU( 0xbc,     *_d = (ulong)(long)(int)FD_VM_REG_SRC                                   ); /* FD_SBPF_OP_MOV_REG        */
+  FD_VM_INTERP_ALU( 0xbcdepr, *_d = (ulong)(uint)     FD_VM_REG_SRC                                   ); /* FD_SBPF_OP_MOV_REG (depr) */
+  FD_VM_INTERP_JMP( 0xbd,     FD_VM_REG_DST<=FD_VM_REG_SRC                                            ); /* FD_SBPF_OP_JLE_REG        */
+  FD_VM_INTERP_ALU( 0xbe,     *_d = (ulong)(( (int128)(long)*_d * (int128)(long)FD_VM_REG_SRC ) >> 64)); /* FD_SBPF_OP_SHMUL64_REG    */
+  FD_VM_INTERP_ALU( 0xbf,     *_d = FD_VM_REG_SRC                                                     ); /* FD_SBPF_OP_MOV64_REG      */
 
   /* 0xc0 - 0xcf ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0xc4) { /* FD_SBPF_OP_ARSH_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(uint)( FD_RUST_INT_WRAPPING_SHR( (int)reg[ dst ], FD_VM_IMM ) );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xc5) /* FD_SBPF_OP_JSLT_IMM */
-    pc += fd_ulong_if( (long)reg[ FD_VM_DST ]<(long)FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xc6) { /* FD_SBPF_OP_SDIV32_IMM */
-    ulong dst  = FD_VM_DST;
-    int   rdst = (int)reg[ dst ];
-    int   simm = (int)FD_VM_IMM;
-    if( FD_UNLIKELY( (rdst==INT_MIN) & (simm==-1) ) ) goto sigfpeof;
-    reg[ dst ] = (ulong)(uint)( rdst / simm );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xc7) { /* FD_SBPF_OP_ARSH64_IMM */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( FD_RUST_LONG_WRAPPING_SHR( (long)reg[ dst ], FD_VM_IMM ) );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xcc) { /* FD_SBPF_OP_ARSH_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)(uint)( FD_RUST_INT_WRAPPING_SHR( (int)reg[ dst ], (uint)reg[ FD_VM_SRC ] ) );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xcd) /* FD_SBPF_OP_JSLT_REG */
-    pc += fd_ulong_if( (long)reg[ FD_VM_DST ]<(long)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xce) { /* FD_SBPF_OP_SDIV32_REG */
-    int rsrc = (int)reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    ulong dst  = FD_VM_DST;
-    int   rdst = (int)reg[ dst ];
-    if( FD_UNLIKELY( (rdst==INT_MIN) & (rsrc==-1) ) ) goto sigfpeof;
-    reg[ dst ] = (ulong)(uint)( rdst / rsrc );
-  } FD_VM_INTERP_INSTR_END;
-
-  FD_VM_INTERP_INSTR_BEGIN(0xcf) { /* FD_SBPF_OP_ARSH64_REG */
-    ulong dst = FD_VM_DST;
-    reg[ dst ] = (ulong)( FD_RUST_LONG_WRAPPING_SHR( (long)reg[ dst ], reg[ FD_VM_SRC ] ) );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xc4, *_d = (ulong)(uint)FD_RUST_INT_WRAPPING_SHR ( (int) *_d,       FD_VM_IMM     ) ); /* FD_SBPF_OP_ARSH_IMM   */
+  FD_VM_INTERP_JMP( 0xc5, (long)FD_VM_REG_DST<(long)FD_VM_SIMM                                           ); /* FD_SBPF_OP_JSLT_IMM   */
+  FD_VM_INTERP_ALU( 0xc6, int rdst = (int)*_d; int simm = (int)FD_VM_IMM;
+                          if( FD_UNLIKELY( (rdst==INT_MIN) & (simm==-1) ) ) goto sigfpeof;
+                          *_d = (ulong)(uint)( rdst / simm ) );                                             /* FD_SBPF_OP_SDIV32_IMM */
+  FD_VM_INTERP_ALU( 0xc7, *_d = (ulong)      FD_RUST_LONG_WRAPPING_SHR( (long)*_d,       FD_VM_IMM     ) ); /* FD_SBPF_OP_ARSH64_IMM */
+  FD_VM_INTERP_ALU( 0xcc, *_d = (ulong)(uint)FD_RUST_INT_WRAPPING_SHR ( (int) *_d, (uint)FD_VM_REG_SRC ) ); /* FD_SBPF_OP_ARSH_REG   */
+  FD_VM_INTERP_JMP( 0xcd, (long)FD_VM_REG_DST<(long)FD_VM_REG_SRC                                        ); /* FD_SBPF_OP_JSLT_REG   */
+  FD_VM_INTERP_ALU( 0xce, int rsrc = (int)FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
+                          int rdst = (int)*_d; if( FD_UNLIKELY( (rdst==INT_MIN) & (rsrc==-1) ) ) goto sigfpeof;
+                          *_d = (ulong)(uint)( rdst / rsrc ) );                                             /* FD_SBPF_OP_SDIV32_REG */
+  FD_VM_INTERP_ALU( 0xcf, *_d = (ulong)      FD_RUST_LONG_WRAPPING_SHR( (long)*_d,       FD_VM_REG_SRC ) ); /* FD_SBPF_OP_ARSH64_REG */
 
   /* 0xd0 - 0xdf ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0xd4) { /* FD_SBPF_OP_END_LE */
-    ulong dst = FD_VM_DST;
-    switch( FD_VM_IMM ) {
-    case 16U: reg[ dst ] = (ushort)reg[ dst ]; break;
-    case 32U: reg[ dst ] = (uint)  reg[ dst ]; break;
-    case 64U:                                  break;
+  FD_VM_INTERP_ALU( 0xd4, switch( FD_VM_IMM ) {
+    case 16U: *_d = (ushort)*_d; break;
+    case 32U: *_d = (uint)  *_d; break;
+    case 64U:                    break;
     default: goto siginv;
-    }
-  } FD_VM_INTERP_INSTR_END;
+  } ); /* FD_SBPF_OP_END_LE */
 
-  FD_VM_INTERP_BRANCH_BEGIN(0xd5) /* FD_SBPF_OP_JSLE_IMM */
-    pc += fd_ulong_if( (long)reg[ FD_VM_DST ]<=(long)FD_VM_SIMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
+  FD_VM_INTERP_JMP( 0xd5, (long)FD_VM_REG_DST<=(long)FD_VM_SIMM ); /* FD_SBPF_OP_JSLE_IMM */
 
-  FD_VM_INTERP_INSTR_BEGIN(0xd6) { /* FD_SBPF_OP_SDIV64_IMM */
-    ulong dst  = FD_VM_DST;
-    long  rdst = (long)reg[ dst ];
-    long  simm = (long)FD_VM_SIMM;
-    if( FD_UNLIKELY( (rdst==LONG_MIN) & (simm==-1L) ) ) goto sigfpeof;
-    reg[ dst ] = (ulong)( rdst / simm );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xd6, long rdst = (long)*_d; long simm = (long)FD_VM_SIMM;
+                          if( FD_UNLIKELY( (rdst==LONG_MIN) & (simm==-1L) ) ) goto sigfpeof;
+                          *_d = (ulong)( rdst / simm ) ); /* FD_SBPF_OP_SDIV64_IMM */
 
-  FD_VM_INTERP_INSTR_BEGIN(0xdc) { /* FD_SBPF_OP_END_BE */
-    ulong dst  = FD_VM_DST;
-    ulong rdst = reg[ dst ];
-    switch( FD_VM_IMM ) {
-    case 16U: reg[ dst ] = (ulong)fd_ushort_bswap( (ushort)rdst ); break;
-    case 32U: reg[ dst ] = (ulong)fd_uint_bswap  ( (uint)  rdst ); break;
-    case 64U: reg[ dst ] =        fd_ulong_bswap ( (ulong) rdst ); break;
+  FD_VM_INTERP_ALU( 0xdc, ulong rdst = *_d; switch( FD_VM_IMM ) {
+    case 16U: *_d = (ulong)fd_ushort_bswap( (ushort)rdst ); break;
+    case 32U: *_d = (ulong)fd_uint_bswap  ( (uint)  rdst ); break;
+    case 64U: *_d =        fd_ulong_bswap (         rdst ); break;
     default: goto siginv;
-    }
-  } FD_VM_INTERP_INSTR_END;
+  } ); /* FD_SBPF_OP_END_BE */
 
-  FD_VM_INTERP_BRANCH_BEGIN(0xdd) /* FD_SBPF_OP_JSLE_REG */
-    pc += fd_ulong_if( (long)reg[ FD_VM_DST ]<=(long)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
+  FD_VM_INTERP_JMP( 0xdd, (long)FD_VM_REG_DST<=(long)FD_VM_REG_SRC ); /* FD_SBPF_OP_JSLE_REG */
 
-  FD_VM_INTERP_INSTR_BEGIN(0xde) { /* FD_SBPF_OP_SDIV64_REG */
-    long rsrc = (long)reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    ulong dst  = FD_VM_DST;
-    long  rdst = (long)reg[ dst ];
-    if( FD_UNLIKELY( (rdst==LONG_MIN) & (rsrc==-1L) ) ) goto sigfpeof;
-    reg[ dst ] = (ulong)( rdst / rsrc );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xde, long rsrc = (long)FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
+                          long rdst = (long)*_d; if( FD_UNLIKELY( (rdst==LONG_MIN) & (rsrc==-1L) ) ) goto sigfpeof;
+                          *_d = (ulong)( rdst / rsrc ) ); /* FD_SBPF_OP_SDIV64_REG */
 
   /* 0xe0 - 0xef ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0xe6) { /* FD_SBPF_OP_SREM32_IMM */
-    ulong dst  = FD_VM_DST;
-    int   rdst = (int)reg[ dst ];
-    int   simm = (int)FD_VM_IMM;
-    if( FD_UNLIKELY( (rdst==INT_MIN) & (simm==-1) ) ) goto sigfpeof;
-    reg[ dst ] = (ulong)(uint)( rdst % simm );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xe6, int rdst = (int)*_d; int simm = (int)FD_VM_IMM;
+                          if( FD_UNLIKELY( (rdst==INT_MIN) & (simm==-1) ) ) goto sigfpeof;
+                          *_d = (ulong)(uint)( rdst % simm ) ); /* FD_SBPF_OP_SREM32_IMM */
 
-  FD_VM_INTERP_INSTR_BEGIN(0xee) { /* FD_SBPF_OP_SREM32_REG */
-    int rsrc = (int)reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    ulong dst  = FD_VM_DST;
-    int   rdst = (int)reg[ dst ];
-    if( FD_UNLIKELY( (rdst==INT_MIN) & (rsrc==-1) ) ) goto sigfpeof;
-    reg[ dst ] = (ulong)(uint)( rdst % rsrc );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xee, int rsrc = (int)FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
+                          int rdst = (int)*_d; if( FD_UNLIKELY( (rdst==INT_MIN) & (rsrc==-1) ) ) goto sigfpeof;
+                          *_d = (ulong)(uint)( rdst % rsrc ) ); /* FD_SBPF_OP_SREM32_REG */
 
   /* 0xf0 - 0xff ******************************************************/
 
-  FD_VM_INTERP_INSTR_BEGIN(0xf6) { /* FD_SBPF_OP_SREM64_IMM */
-    ulong dst  = FD_VM_DST;
-    long  rdst = (long)reg[ dst ];
-    long  simm = (long)FD_VM_SIMM;
-    if( FD_UNLIKELY( (rdst==LONG_MIN) & (simm==-1L) ) ) goto sigfpeof;
-    reg[ dst ] = (ulong)( rdst % simm );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xf6, long rdst = (long)*_d; long simm = (long)FD_VM_SIMM;
+                          if( FD_UNLIKELY( (rdst==LONG_MIN) & (simm==-1L) ) ) goto sigfpeof;
+                          *_d = (ulong)( rdst % simm ) ); /* FD_SBPF_OP_SREM64_IMM */
 
-  FD_VM_INTERP_INSTR_BEGIN(0xf7) /* FD_SBPF_OP_HOR64 */
-    reg[ FD_VM_DST ] |= (instr & 0xFFFFFFFF00000000UL);
-  FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xf7, *_d |= (instr & 0xFFFFFFFF00000000UL) ); /* FD_SBPF_OP_HOR64 */
 
-  FD_VM_INTERP_INSTR_BEGIN(0xfe) { /* FD_SBPF_OP_SREM64_REG */
-    long rsrc = (long)reg[ FD_VM_SRC ];
-    if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
-    ulong dst  = FD_VM_DST;
-    long  rdst = (long)reg[ dst ];
-    if( FD_UNLIKELY( (rdst==LONG_MIN) & (rsrc==-1L) ) ) goto sigfpeof;
-    reg[ dst ] = (ulong)( rdst % rsrc );
-  } FD_VM_INTERP_INSTR_END;
+  FD_VM_INTERP_ALU( 0xfe, long rsrc = (long)FD_VM_REG_SRC; if( FD_UNLIKELY( !rsrc ) ) goto sigfpe;
+                          long rdst = (long)*_d; if( FD_UNLIKELY( (rdst==LONG_MIN) & (rsrc==-1L) ) ) goto sigfpeof;
+                          *_d = (ulong)( rdst % rsrc ) ); /* FD_SBPF_OP_SREM64_REG */
 
   /* SIMD-0377: JMP32
      https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L480-L501
 
      0x16 - 0xde ******************************************************/
 
-  FD_VM_INTERP_BRANCH_BEGIN(0x16_jmp32) /* FD_SBPF_OP_JEQ32_IMM */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]==FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x1e_jmp32) /* FD_SBPF_OP_JEQ32_REG */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]==(uint)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x26_jmp32) /* FD_SBPF_OP_JGT32_IMM */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]>FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x2e_jmp32) /* FD_SBPF_OP_JGT32_REG */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]>(uint)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x36_jmp32) /* FD_SBPF_OP_JGE32_IMM */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]>=FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x3e_jmp32) /* FD_SBPF_OP_JGE32_REG */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]>=(uint)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x46_jmp32) /* FD_SBPF_OP_JSET32_IMM */
-    pc += fd_ulong_if( !!((uint)reg[ FD_VM_DST ] & FD_VM_IMM), FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x4e_jmp32) /* FD_SBPF_OP_JSET32_REG */
-    pc += fd_ulong_if( !!((uint)reg[ FD_VM_DST ] & (uint)reg[ FD_VM_SRC ]), FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x56_jmp32) /* FD_SBPF_OP_JNE32_IMM */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]!=FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x5e_jmp32) /* FD_SBPF_OP_JNE32_REG */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]!=(uint)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x66_jmp32) /* FD_SBPF_OP_JSGT32_IMM */
-    pc += fd_ulong_if( (int)reg[ FD_VM_DST ]>(int)FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x6e_jmp32) /* FD_SBPF_OP_JSGT32_REG */
-    pc += fd_ulong_if( (int)reg[ FD_VM_DST ]>(int)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x76_jmp32) /* FD_SBPF_OP_JSGE32_IMM */
-    pc += fd_ulong_if( (int)reg[ FD_VM_DST ]>=(int)FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0x7e_jmp32) /* FD_SBPF_OP_JSGE32_REG */
-    pc += fd_ulong_if( (int)reg[ FD_VM_DST ]>=(int)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xa6_jmp32) /* FD_SBPF_OP_JLT32_IMM */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]<FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xae_jmp32) /* FD_SBPF_OP_JLT32_REG */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]<(uint)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xb6_jmp32) /* FD_SBPF_OP_JLE32_IMM */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]<=FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xbe_jmp32) /* FD_SBPF_OP_JLE32_REG */
-    pc += fd_ulong_if( (uint)reg[ FD_VM_DST ]<=(uint)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xc6_jmp32) /* FD_SBPF_OP_JSLT32_IMM */
-    pc += fd_ulong_if( (int)reg[ FD_VM_DST ]<(int)FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xce_jmp32) /* FD_SBPF_OP_JSLT32_REG */
-    pc += fd_ulong_if( (int)reg[ FD_VM_DST ]<(int)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xd6_jmp32) /* FD_SBPF_OP_JSLE32_IMM */
-    pc += fd_ulong_if( (int)reg[ FD_VM_DST ]<=(int)FD_VM_IMM, FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
-
-  FD_VM_INTERP_BRANCH_BEGIN(0xde_jmp32) /* FD_SBPF_OP_JSLE32_REG */
-    pc += fd_ulong_if( (int)reg[ FD_VM_DST ]<=(int)reg[ FD_VM_SRC ], FD_VM_OFFSET, 0UL );
-  FD_VM_INTERP_BRANCH_END;
+  FD_VM_INTERP_JMP( 0x16_jmp32,   (uint)FD_VM_REG_DST==      FD_VM_IMM      ); /* FD_SBPF_OP_JEQ32_IMM  */
+  FD_VM_INTERP_JMP( 0x1e_jmp32,   (uint)FD_VM_REG_DST==(uint)FD_VM_REG_SRC  ); /* FD_SBPF_OP_JEQ32_REG  */
+  FD_VM_INTERP_JMP( 0x26_jmp32,   (uint)FD_VM_REG_DST>       FD_VM_IMM      ); /* FD_SBPF_OP_JGT32_IMM  */
+  FD_VM_INTERP_JMP( 0x2e_jmp32,   (uint)FD_VM_REG_DST> (uint)FD_VM_REG_SRC  ); /* FD_SBPF_OP_JGT32_REG  */
+  FD_VM_INTERP_JMP( 0x36_jmp32,   (uint)FD_VM_REG_DST>=      FD_VM_IMM      ); /* FD_SBPF_OP_JGE32_IMM  */
+  FD_VM_INTERP_JMP( 0x3e_jmp32,   (uint)FD_VM_REG_DST>=(uint)FD_VM_REG_SRC  ); /* FD_SBPF_OP_JGE32_REG  */
+  FD_VM_INTERP_JMP( 0x46_jmp32, !!((uint)FD_VM_REG_DST &      FD_VM_IMM    ) ); /* FD_SBPF_OP_JSET32_IMM */
+  FD_VM_INTERP_JMP( 0x4e_jmp32, !!((uint)FD_VM_REG_DST &(uint)FD_VM_REG_SRC) ); /* FD_SBPF_OP_JSET32_REG */
+  FD_VM_INTERP_JMP( 0x56_jmp32,   (uint)FD_VM_REG_DST!=      FD_VM_IMM      ); /* FD_SBPF_OP_JNE32_IMM  */
+  FD_VM_INTERP_JMP( 0x5e_jmp32,   (uint)FD_VM_REG_DST!=(uint)FD_VM_REG_SRC  ); /* FD_SBPF_OP_JNE32_REG  */
+  FD_VM_INTERP_JMP( 0x66_jmp32,   (int) FD_VM_REG_DST> (int) FD_VM_IMM      ); /* FD_SBPF_OP_JSGT32_IMM */
+  FD_VM_INTERP_JMP( 0x6e_jmp32,   (int) FD_VM_REG_DST> (int) FD_VM_REG_SRC  ); /* FD_SBPF_OP_JSGT32_REG */
+  FD_VM_INTERP_JMP( 0x76_jmp32,   (int) FD_VM_REG_DST>=(int) FD_VM_IMM      ); /* FD_SBPF_OP_JSGE32_IMM */
+  FD_VM_INTERP_JMP( 0x7e_jmp32,   (int) FD_VM_REG_DST>=(int) FD_VM_REG_SRC  ); /* FD_SBPF_OP_JSGE32_REG */
+  FD_VM_INTERP_JMP( 0xa6_jmp32,   (uint)FD_VM_REG_DST<       FD_VM_IMM      ); /* FD_SBPF_OP_JLT32_IMM  */
+  FD_VM_INTERP_JMP( 0xae_jmp32,   (uint)FD_VM_REG_DST< (uint)FD_VM_REG_SRC  ); /* FD_SBPF_OP_JLT32_REG  */
+  FD_VM_INTERP_JMP( 0xb6_jmp32,   (uint)FD_VM_REG_DST<=      FD_VM_IMM      ); /* FD_SBPF_OP_JLE32_IMM  */
+  FD_VM_INTERP_JMP( 0xbe_jmp32,   (uint)FD_VM_REG_DST<=(uint)FD_VM_REG_SRC  ); /* FD_SBPF_OP_JLE32_REG  */
+  FD_VM_INTERP_JMP( 0xc6_jmp32,   (int) FD_VM_REG_DST< (int) FD_VM_IMM      ); /* FD_SBPF_OP_JSLT32_IMM */
+  FD_VM_INTERP_JMP( 0xce_jmp32,   (int) FD_VM_REG_DST< (int) FD_VM_REG_SRC  ); /* FD_SBPF_OP_JSLT32_REG */
+  FD_VM_INTERP_JMP( 0xd6_jmp32,   (int) FD_VM_REG_DST<=(int) FD_VM_IMM      ); /* FD_SBPF_OP_JSLE32_IMM */
+  FD_VM_INTERP_JMP( 0xde_jmp32,   (int) FD_VM_REG_DST<=(int) FD_VM_REG_SRC  ); /* FD_SBPF_OP_JSLE32_REG */
 
 sigtext_or_sigcost:
   if( pc<text_cnt ) goto sigcost; else goto sigtext;
@@ -1024,9 +614,12 @@ interp_halt:
 # undef text_cnt
 # undef reg
 
+# undef FD_VM_INTERP_JMP
+# undef FD_VM_INTERP_ALU
 # undef FD_VM_INTERP_ST_REG
 # undef FD_VM_INTERP_ST_IMM
 # undef FD_VM_INTERP_LD
+# undef FD_VM_FORGET_REGION
 # undef FD_VM_INTERP_STACK_PUSH
 # undef FD_VM_INTERP_FAULT
 # undef FD_VM_INTERP_BRANCH_END
@@ -1037,6 +630,8 @@ interp_halt:
 # undef FD_VM_INTERP_SYSCALL_EXEC
 # undef FD_VM_INTERP_SYSCALL_EXEC_DUMP
 # undef FD_VM_INTERP_INSTR_EXEC
+# undef FD_VM_STR
+# undef FD_VM_STR2
 # undef FD_RUST_LONG_WRAPPING_SHR
 # undef FD_RUST_INT_WRAPPING_SHR
 # undef FD_RUST_UINT_WRAPPING_SHR
@@ -1047,7 +642,11 @@ interp_halt:
 # undef FD_VM_IMM
 # undef FD_VM_OFFSET
 # undef FD_VM_SRC
-# undef FD_VM_DST
+# undef FD_VM_REG_SRC
+# undef FD_VM_REG_DST
+# undef FD_VM_SRC_OFF
+# undef FD_VM_DST_OFF
+# undef FD_VM_REG_AT
 
 # if defined(__clang__)
 # pragma clang diagnostic pop

@@ -184,7 +184,7 @@ fd_vm_instr( ulong opcode, /* Assumed valid */
 FD_FN_CONST static inline ulong fd_vm_instr_opcode( ulong instr ) { return   instr      & 255UL;       } /* In [0,256) */
 FD_FN_CONST static inline ulong fd_vm_instr_dst   ( ulong instr ) { return ((instr>> 8) &  15UL);      } /* In [0,16)  */
 FD_FN_CONST static inline ulong fd_vm_instr_src   ( ulong instr ) { return ((instr>>12) &  15UL);      } /* In [0,16)  */
-FD_FN_CONST static inline ulong fd_vm_instr_offset( ulong instr ) { return (ulong)(long)(short)(ushort)(instr>>16); }
+FD_FN_CONST static inline ulong fd_vm_instr_offset( ulong instr ) { return (ulong)(long)((int)(uint)instr >> 16); }
 FD_FN_CONST static inline uint  fd_vm_instr_imm   ( ulong instr ) { return (uint)(instr>>32);          }
 
 FD_FN_CONST static inline ulong fd_vm_instr_opclass       ( ulong instr ) { return  instr      & 7UL; } /* In [0,8)  */
@@ -234,7 +234,7 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
     fd_vm_input_region_t const * r0 = &vm->input_mem_regions[0];
     if( FD_LIKELY( r0->vaddr_offset + (ulong)r0->region_sz <= (1UL<<32) ) ) {
       vm->region_voff [FD_VM_INPUT_REGION] = (uint)r0->vaddr_offset;
-      vm->region_haddr[FD_VM_INPUT_REGION] = r0->haddr;
+      vm->region_haddr[FD_VM_INPUT_REGION] = r0->haddr - r0->vaddr_offset;
       vm->region_ld_sz[FD_VM_INPUT_REGION] = r0->region_sz;
       int fast_st = r0->is_writable &&
         ( vm->acc_region_metas==NULL || r0->acc_region_meta_idx==ULONG_MAX ||
@@ -415,7 +415,7 @@ fd_vm_find_input_mem_region( fd_vm_t * vm,
 
   if( FD_LIKELY( region->vaddr_offset + (ulong)region->region_sz <= (1UL<<32) ) ) {
     vm->region_voff [FD_VM_INPUT_REGION] = (uint)region->vaddr_offset;
-    vm->region_haddr[FD_VM_INPUT_REGION] = region->haddr;
+    vm->region_haddr[FD_VM_INPUT_REGION] = region->haddr - region->vaddr_offset;
     vm->region_ld_sz[FD_VM_INPUT_REGION] = region->region_sz;
     int fast_st = region->is_writable &&
       ( write || vm->acc_region_metas==NULL || region->acc_region_meta_idx==ULONG_MAX ||
