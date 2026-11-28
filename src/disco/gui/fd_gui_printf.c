@@ -885,6 +885,7 @@ fd_gui_printf_network_metrics( fd_gui_t *                     gui,
     jsonp_ulong( gui->http, NULL, cur->in.rserve  );
     jsonp_ulong( gui->http, NULL, cur->in.metric  );
     jsonp_ulong( gui->http, NULL, cur->in.votor   );
+    jsonp_ulong( gui->http, NULL, cur->in.snapsv  );
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "egress" );
     jsonp_ulong( gui->http, NULL, cur->out.turbine );
@@ -894,6 +895,7 @@ fd_gui_printf_network_metrics( fd_gui_t *                     gui,
     jsonp_ulong( gui->http, NULL, cur->out.rserve  );
     jsonp_ulong( gui->http, NULL, cur->out.metric  );
     jsonp_ulong( gui->http, NULL, cur->out.votor   );
+    jsonp_ulong( gui->http, NULL, cur->out.snapsv  );
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "ingress_ema" );
     for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) jsonp_double( gui->http, NULL, gui->summary.ingress_ema[ i ].value );

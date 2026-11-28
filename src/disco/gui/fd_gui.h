@@ -31,7 +31,7 @@
 /* ---- Network Bandwidth Monitoring ----------------------------------- */
 
 #define FD_GUI_NETWORK_EMA_HALF_LIFE_NS (1000000000L) /* 1 second in nanoseconds */
-#define FD_GUI_NET_PROTO_CNT            (7UL)         /* turbine, gossip, tpu, repair, rserve, metric, votor */
+#define FD_GUI_NET_PROTO_CNT            (8UL)         /* turbine, gossip, tpu, repair, rserve, metric, votor, snapsv */
 #define FD_GUI_NET_RATE_MAX_WINDOW_NS   (300L*1000L*1000L*1000L) /* 5 minutes in nanoseconds */
 
 /* Monotonic deque element for sliding-window max tracking of
@@ -553,6 +553,7 @@ struct fd_gui_network_stats {
     ulong rserve;
     ulong metric;
     ulong votor;
+    ulong snapsv;
   } in, out;
 };
 

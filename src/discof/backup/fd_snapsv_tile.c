@@ -1475,6 +1475,7 @@ handle_write_hdr_comp( fd_snapsv_t *       ctx,
     return;
   }
   conn->res.sent += (uint)res;
+  FD_MCNT_INC( SNAPSV, HTTP_TX_BYTES, (ulong)res );
   if( FD_LIKELY( conn->res.sent < conn->res.len ) ) {
     prep_write_hdr( ctx, conn_idx );
     return;

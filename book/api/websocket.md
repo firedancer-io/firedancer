@@ -1014,7 +1014,8 @@ uses to communicate with the internet.
     "repair",
     "rserve",
     "metrics",
-    "votor"
+    "votor",
+    "snapsv"
 ]
 ```
 
@@ -1032,20 +1033,18 @@ requests from other nodes, responding with any block data they are
 missing
 - metrics: refers to the Firedancer metrics tile, which serves an http
 Prometheus metrics endpoint
-- votor: Alpenglow BLS vote and certificate traffic. New servers append
-this entry to preserve the indices of existing protocols; its counters
-are zero in Tower mode. Older servers may publish only the first six
-array elements.
+- votor: Alpenglow BLS vote and certificate traffic.
+- snapsv: HTTP snapshot server traffic (`snapsv` tiles).
 
 ```json
 {
     "topic": "summary",
     "key": "live_network_metrics",
     "value": {
-        "ingress": [12345432, 5431234, 92345, 43210, 8765, 123, 765432],
-        "egress": [12345432, 5431234, 92345, 43210, 8765, 456, 654321],
-        "ingress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, 12.00, 76543.00],
-        "egress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, 45.00, 65432.00],
+        "ingress": [12345432, 5431234, 92345, 43210, 8765, 123, 765432, 1024],
+        "egress": [12345432, 5431234, 92345, 43210, 8765, 456, 654321, 1048576],
+        "ingress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, 12.00, 76543.00, 102.40],
+        "egress_ema": [1234543.00, 543123.00, 9234.00, 4321.00, 876.00, 45.00, 65432.00, 104857.60],
         "ingress_max_5m": 15000000,
         "egress_max_5m": 14500000
     }
