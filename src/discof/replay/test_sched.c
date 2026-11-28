@@ -5579,6 +5579,44 @@ run_direct_mode_cases( void ) {
 
     delete_sched( sched );
   }
+
+  /* Case 3: Zero-txn block in direct mode where BLOCK_START writes 2 sysvar
+     accounts while fec_eos==0 (regression test for genesis-vat-alpenglow).
+     LTHASH_SUB must dispatch immediately rather than stalling below cap. */
+  {
+    fd_sched_t * sched = new_sched( 4UL );
+    fd_sched_set_bypass_poh_verify( sched, 1 );
+    fd_sched_direct_enable( sched );
+
+    fd_hash_t start_poh[ 1 ];
+    hash_from_seed( start_poh, 0x61728394a5b6c7d8UL );
+    ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, NULL, 0UL, 1, 0 );
+    fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+    fd_pubkey_t sysvars[ 2 ];
+    lthash_test_keys( sysvars, sysvars+1 );
+    static test_lthash_ctx_t ctx[ 1 ];
+    fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
+
+    fd_sched_task_t task[ 1 ];
+    FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) && task->task_type==FD_SCHED_TT_BLOCK_START );
+    fd_sched_block_start_writes( sched, 2UL, fd_type_pun_const( sysvars ), 2UL );
+    lthash_write( ctx, 2UL, fd_type_pun_const( sysvars   ) );
+    lthash_write( ctx, 2UL, fd_type_pun_const( sysvars+1 ) );
+    lthash_drive_task( sched, task, ctx );
+    FD_TEST( !fd_sched_direct_set_active_bank( sched, 2UL, 48000000UL ) );
+
+    /* Drive mid-slot LTHASH_SUB + speculative LTHASH_ADD cleanly to idle. */
+    lthash_drive( sched, ctx, 64UL );
+    FD_TEST( ctx->sub_cnt==2UL && ctx->add_cnt==2UL && !ctx->block_end_cnt );
+    FD_TEST( fd_sched_is_drained( sched ) );
+
+    FD_TEST( try_ingest_lthash_end( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, start_poh ) );
+    lthash_drive( sched, ctx, 64UL );
+    FD_TEST( ctx->block_end_cnt==1UL && fd_sched_is_drained( sched ) );
+
+    delete_sched( sched );
+  }
 }
 
 int

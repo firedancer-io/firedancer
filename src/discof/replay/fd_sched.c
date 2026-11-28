@@ -2357,10 +2357,6 @@ lthash_dispatch_sub( fd_sched_t *       sched,
                      ulong              cap,
                      fd_sched_task_t *  out ) {
   if( FD_UNLIKELY( !block->sub_queued_cnt ) ) return 0;
-  if( sched->direct.enabled && block->sub_queued_cnt<cap &&
-      !(block->fec_eos && (block->sub_queued_cnt>=(uint)FD_BLAKE3_XN_MAX || block->txn_parsed_cnt==block->txn_exec_done_cnt)) ) {
-    return 0;
-  }
   int exec_tile_idx = sched_claim_idle_tile( sched, msg_ready_bitset, 1, threshold );
   if( FD_UNLIKELY( exec_tile_idx<0 ) ) return 0;
 
@@ -3372,10 +3368,7 @@ task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, int may_drain ) {
     }
     block->state_conflict = (uchar)( !txn_idx && !has_ready_real && exec_queued_cnt>0UL );
     if( FD_UNLIKELY( sched->lthash_add_batch->cnt ) ) {
-      int batch_ready_to_flush = !direct_active ||
-                                 sched->lthash_add_batch->cnt>=lthash_cap ||
-                                 (block->fec_eos && block->lthash_drained && block->txn_parsed_cnt==block->txn_exec_done_cnt);
-      if( FD_LIKELY( !txn_idx && !has_ready_real && batch_ready_to_flush ) ) {
+      if( FD_LIKELY( !txn_idx && !has_ready_real ) ) {
         /* Nothing is ready behind the batch, and the batch is either
            full (16 accounts) or at end-of-slot flush. */
         int t = sched_claim_idle_tile( sched, msg_ready_bitset, 1, lthash_reserve );

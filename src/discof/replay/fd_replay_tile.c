@@ -2975,7 +2975,14 @@ try_replay( fd_replay_tile_t *  ctx,
         return charge_busy;
       }
       case FD_SCHED_TT_BLOCK_END: {
-        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
+        ulong bidx = task->block_end->bank_idx;
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bidx );
+        if( FD_LIKELY( ctx->cost_tracker_pinned && ctx->cost_tracker_pinned[ bidx ] ) ) {
+          if( FD_LIKELY( bank->cost_tracker_fork_id!=USHORT_MAX ) ) {
+            fd_cost_tracker_store_unpin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
+          }
+          ctx->cost_tracker_pinned[ bidx ] = 0U;
+        }
         int dead = 0;
         if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) dead = replay_block_finalize( ctx, stem, bank );
         fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
@@ -3448,7 +3455,9 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
                                FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_EVICTED );
     }
     if( ctx->cost_tracker_pinned && ctx->cost_tracker_pinned[ bank_idx ] ) {
-      fd_cost_tracker_store_unpin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
+      if( FD_LIKELY( bank->cost_tracker_fork_id!=USHORT_MAX ) ) {
+        fd_cost_tracker_store_unpin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
+      }
       ctx->cost_tracker_pinned[ bank_idx ] = 0U;
     }
     bank->refcnt--;
@@ -3458,7 +3467,7 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
   return pruned;
 }
 
-#define REPLAY_STEM_BURST (fd_ulong_max( 32UL, FD_EXECRP_SIGVERIFY_SIG_PARA+2UL ))
+#define REPLAY_STEM_BURST (fd_ulong_max( 5UL, FD_EXECRP_SIGVERIFY_SIG_PARA+2UL ))
 
 static int
 drain_direct_exec( fd_replay_tile_t *  ctx,
@@ -3472,8 +3481,8 @@ drain_direct_exec( fd_replay_tile_t *  ctx,
   ulong pub_cnt     = 0UL;
   ulong drained_cnt = 0UL;
   /* Cap REPLAY_SIG_TXN_EXECUTED publishes per after_credit strictly
-     below REPLAY_STEM_BURST (keeping room for slot_states + slot_dead). */
-  while( pub_cnt < (REPLAY_STEM_BURST-4UL) && drained_cnt < 256UL ) {
+     within REPLAY_STEM_BURST (keeping room for slot_states + slot_dead). */
+  while( pub_cnt + 2UL < REPLAY_STEM_BURST && drained_cnt < 256UL ) {
     fd_sched_direct_done_t done[ 1 ];
     int                    sched_dead = FD_SCHED_DEAD_REASON_NONE;
     ulong got = fd_sched_direct_drain_done( ctx->sched, done, 1UL,
