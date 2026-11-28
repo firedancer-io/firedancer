@@ -48,7 +48,7 @@ fd_pchash( uint pc ) {
    and:
      fd_pchash( fd_pchash_inverse( (uint)x ) )==(uint)x */
 
-static inline uint
+FD_FN_CONST static inline __attribute__((always_inline)) uint
 fd_pchash_inverse( uint hash ) {
   uint x = hash;
   x ^= x >> 16;

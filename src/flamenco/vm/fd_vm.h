@@ -79,6 +79,11 @@ typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 
 struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
+  /* Keep reg[] at offset 0 so vm->reg[i] encodes as (%vm,%idx,8) with
+     zero displacement (1 Zen Op-Cache slot instead of 2 for disp32, and
+     no separate &vm->reg[0] base pointer to spill). */
+  ulong reg[ FD_VM_REG_MAX ]; /* registers, indexed [0,FD_VM_REG_CNT); padded to FD_VM_REG_MAX (16) */
+
   /* VM configuration */
 
   /* FIXME: suspect these three should be replaced by some kind of VM
@@ -203,9 +208,6 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   uchar                     is_deprecated;                   /* The vm requires additional checks in certain CPIs if the
                                                                 vm's current instance was initialized by a deprecated program. */
 
-  ulong                     reg   [ FD_VM_REG_MAX         ]; /* registers, indexed [0,FD_VM_REG_CNT).  Note that FD_VM_REG_MAX>FD_VM_REG_CNT.
-                                                                As such, malformed instructions, which can have src/dst reg index in
-                                                                [0,FD_VM_REG_MAX), cannot access info outside reg.  Aligned 8. */
   fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
 
   ulong magic;    /* ==FD_VM_MAGIC */

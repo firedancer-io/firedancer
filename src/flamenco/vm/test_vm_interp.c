@@ -474,6 +474,130 @@ test_validate_opcode_classes( fd_sbpf_syscalls_t *  syscalls,
 }
 
 static void
+assert_trace_notrace_eq( char const *          name,
+                         ulong                 sbpf_version,
+                         ulong                 cu_limit,
+                         ulong const *         text,
+                         ulong                 text_cnt,
+                         ulong const *         calldests,
+                         int                   expected_err,
+                         ulong                 expected_r0,
+                         fd_sbpf_syscalls_t *  syscalls,
+                         fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha1[1]; fd_sha256_t * sha1 = fd_sha256_join( fd_sha256_new( _sha1 ) );
+  fd_sha256_t _sha2[1]; fd_sha256_t * sha2 = fd_sha256_join( fd_sha256_new( _sha2 ) );
+  fd_vm_t     _vm1 [1]; fd_vm_t     * vm1  = fd_vm_join    ( fd_vm_new    ( _vm1  ) );
+  fd_vm_t     _vm2 [1]; fd_vm_t     * vm2  = fd_vm_join    ( fd_vm_new    ( _vm2  ) );
+
+  static uchar trace_mem[ 65536 ] __attribute__((aligned(8)));
+  fd_vm_trace_t * trace = fd_vm_trace_join( fd_vm_trace_new( trace_mem, 256UL ) );
+  FD_TEST( trace );
+
+  ulong init_reg[ FD_VM_REG_CNT ] = { 0, 0x11UL, 0x22UL, 0x33UL, 0x44UL, 0x55UL, 0, 0, 0, 0, 0 };
+
+  FD_TEST( fd_vm_init( vm1, instr_ctx, FD_VM_HEAP_DEFAULT, cu_limit,
+                       (uchar const *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+                       0UL, calldests, sbpf_version, syscalls, NULL, sha1,
+                       NULL, 0U, NULL, 0, 0, init_reg ) );
+  int err1 = fd_vm_exec( vm1 );
+  test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+
+  FD_TEST( fd_vm_init( vm2, instr_ctx, FD_VM_HEAP_DEFAULT, cu_limit,
+                       (uchar const *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+                       0UL, calldests, sbpf_version, syscalls, trace, sha2,
+                       NULL, 0U, NULL, 0, 0, init_reg ) );
+  int err2 = fd_vm_exec( vm2 );
+  test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+
+  if( FD_UNLIKELY( err1 != expected_err || err1 != err2 ) ) {
+    FD_LOG_ERR(( "%s: err1=%i err2=%i expected=%i", name, err1, err2, expected_err ));
+  }
+  FD_TEST( vm1->pc == vm2->pc );
+  FD_TEST( vm1->ic == vm2->ic );
+  FD_TEST( vm1->cu == vm2->cu );
+  for( ulong r=0UL; r<FD_VM_REG_CNT; r++ ) {
+    FD_TEST( vm1->reg[r] == vm2->reg[r] );
+  }
+  if( expected_err == FD_VM_SUCCESS ) {
+    FD_TEST( vm1->reg[0] == expected_r0 );
+  }
+  FD_TEST( fd_vm_trace_event_sz( trace ) > 0UL );
+  fd_vm_trace_delete( fd_vm_trace_leave( trace ) );
+}
+
+static void
+test_trace_notrace_parity( fd_sbpf_syscalls_t *  syscalls,
+                           fd_exec_instr_ctx_t * instr_ctx ) {
+  /* 1. Multi-LDDW basic block + untaken/taken branches + negative SIMM/OFFSET + high src_reg (r8..r10) */
+  ulong prog_lddw_branch[] = {
+    fd_vm_instr( FD_SBPF_OP_LDDW,      8UL,  0UL,   0, 0x9abcdef0U ), /* ic=1, pc=0..1 */
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM,  0UL,  0UL,   0, 0x12345678U ),
+    fd_vm_instr( FD_SBPF_OP_LDDW,      9UL,  0UL,   0, 0x00000010U ), /* ic=2, pc=2..3 */
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM,  0UL,  0UL,   0, 0x00000000U ),
+    fd_vm_instr( FD_SBPF_OP_STXDW,    10UL,  8UL, -16, 0U          ), /* src=r8 (high nibble) */
+    fd_vm_instr( FD_SBPF_OP_LDXDW,     2UL, 10UL, -16, 0U          ), /* src=r10, neg offset */
+    fd_vm_instr( FD_SBPF_OP_JEQ_IMM,   9UL,  0UL,   2, 0x99U       ), /* untaken branch */
+    fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 2UL,  0UL,   0, (uint)-10   ), /* negative SIMM */
+    fd_vm_instr( FD_SBPF_OP_JEQ_IMM,   9UL,  0UL,   1, 0x10U       ), /* taken branch -> skips next */
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 2UL,  0UL,   0, 0U          ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_REG, 0UL,  2UL,   0, 0U          ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL,  0UL,   0, 0U          ),
+  };
+  ulong exp_val = 0x123456789abcdef0UL - 10UL;
+  assert_trace_notrace_eq( "parity-lddw-branch-v0", FD_SBPF_V0, 100UL, prog_lddw_branch,
+                           sizeof(prog_lddw_branch)/sizeof(ulong), NULL, FD_VM_SUCCESS, exp_val, syscalls, instr_ctx );
+  assert_trace_notrace_eq( "parity-lddw-branch-v3", FD_SBPF_V3, 100UL, prog_lddw_branch,
+                           sizeof(prog_lddw_branch)/sizeof(ulong), NULL, FD_VM_SUCCESS, exp_val, syscalls, instr_ctx );
+
+  /* 2. Local CALL_IMM (fd_pchash_inverse) + shadow stack r6..r10 save/restore + syscall */
+  uint acc_hash = fd_murmur3_32( "accumulator", 11UL, 0U );
+  (void)fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall );
+  ulong prog_call[] = {
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 6UL, 0UL, 0, 777U            ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 1UL, 0UL, 0, 10U             ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 2UL, 0UL, 0, 20U             ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 3UL, 0UL, 0, 30U             ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 4UL, 0UL, 0, 40U             ),
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 5UL, 0UL, 0, 50U             ),
+    fd_vm_instr( FD_SBPF_OP_CALL_IMM,  0UL, 0UL, 0, fd_pchash( 9U ) ), /* local call -> pc=9 */
+    fd_vm_instr( FD_SBPF_OP_ADD64_REG, 0UL, 6UL, 0, 0U              ), /* r6 must be restored to 777 */
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL, 0, 0U              ),
+    /* pc=9: helper clobbers r6, calls accumulator_syscall, returns */
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 6UL, 0UL, 0, 999U            ),
+    fd_vm_instr( FD_SBPF_OP_CALL_IMM,  0UL, 0UL, 0, acc_hash        ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL, 0, 0U              ),
+  };
+  uchar calldests_mem[ 128 ] __attribute__((aligned(16)));
+  FD_TEST( fd_sbpf_calldests_footprint( sizeof(prog_call)/sizeof(ulong) ) <= sizeof(calldests_mem) );
+  ulong * calldests = fd_sbpf_calldests_join( fd_sbpf_calldests_new( calldests_mem, sizeof(prog_call)/sizeof(ulong) ) );
+  FD_TEST( calldests );
+  fd_sbpf_calldests_insert( calldests, 9UL );
+  assert_trace_notrace_eq( "parity-call-pchash", FD_SBPF_V0, 100UL, prog_call,
+                           sizeof(prog_call)/sizeof(ulong), calldests,
+                           FD_VM_SUCCESS, 150UL + 777UL, syscalls, instr_ctx );
+  fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( calldests ) );
+
+  /* 3. Exact CU exhaustion and fault IC/CU accounting after multi-word LDDWs */
+  assert_trace_notrace_eq( "parity-lddw-sigcost", FD_SBPF_V0, 5UL, prog_lddw_branch,
+                           sizeof(prog_lddw_branch)/sizeof(ulong), NULL,
+                           FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS, 0UL, syscalls, instr_ctx );
+
+  ulong prog_lddw_div0[] = {
+    fd_vm_instr( FD_SBPF_OP_LDDW,      1UL, 0UL, 0, 100U ),
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM,  0UL, 0UL, 0,   0U ),
+    fd_vm_instr( FD_SBPF_OP_LDDW,      2UL, 0UL, 0,   0U ),
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM,  0UL, 0UL, 0,   0U ),
+    fd_vm_instr( FD_SBPF_OP_DIV64_REG, 1UL, 2UL, 0,   0U ), /* sigfpe at pc=4, ic=3 */
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL, 0,   0U ),
+  };
+  assert_trace_notrace_eq( "parity-lddw-sigfpe", FD_SBPF_V0, 20UL, prog_lddw_div0,
+                           sizeof(prog_lddw_div0)/sizeof(ulong), NULL,
+                           FD_VM_ERR_EBPF_DIVIDE_BY_ZERO, 0UL, syscalls, instr_ctx );
+
+  FD_LOG_NOTICE(( "%-20s PASS", "trace-notrace-eq" ));
+}
+
+static void
 generate_random_alu_instrs( fd_rng_t * rng,
                             ulong *    text,
                             ulong      text_cnt ) {
@@ -2209,6 +2333,7 @@ main( int     argc,
   test_lazy_heap_zeroing( syscalls, instr_ctx );
   test_geometric_region_growth( syscalls, instr_ctx );
   test_validate_opcode_classes( syscalls, instr_ctx );
+  test_trace_notrace_parity( syscalls, instr_ctx );
 
   ulong   text_cnt = 1024UL*1024UL;
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
