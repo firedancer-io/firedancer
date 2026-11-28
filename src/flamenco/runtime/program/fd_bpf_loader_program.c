@@ -105,22 +105,13 @@ deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
                 fd_bpf_deploy_scratch_t * scratch ) {
   int deploy_mode = 1;
 
-  uchar syscalls_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
-  if( FD_UNLIKELY( !syscalls ) ) {
-    //TODO: full log including err
-    fd_log_collector_msg_literal( instr_ctx, "Failed to register syscalls" );
-    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
-  }
-
   /* https://github.com/anza-xyz/agave/blob/v5.0.0-alpha.1/runtime/src/bank.rs#L2066-L2076 */
-  int   single_env  = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, single_program_runtime_environment );
+  int   single_env      = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, single_program_runtime_environment );
   ulong deploy_env_slot = instr_ctx->bank->f.slot + (single_env ? 0UL : 1UL);
 
-  fd_vm_syscall_register_slot( syscalls,
-                               deploy_env_slot,
-                               &instr_ctx->bank->f.features,
-                               1 );
+  fd_sbpf_syscalls_t const * syscalls = fd_vm_syscalls_query_slot( deploy_env_slot,
+                                                                   &instr_ctx->bank->f.features,
+                                                                   1 );
 
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
@@ -155,38 +146,12 @@ deploy_program( fd_exec_instr_ctx_t *     instr_ctx,
   }
 
   /* Validate the program */
-  fd_vm_t _vm[ 1UL ];
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
-
-  vm = fd_vm_init(
-    /* vm                                     */ vm,
-    /* instr_ctx                              */ instr_ctx,
-    /* heap_max                               */ instr_ctx->txn_out->details.compute_budget.heap_size,
-    /* entry_cu                               */ instr_ctx->txn_out->details.compute_budget.compute_meter,
-    /* rodata                                 */ prog->rodata,
-    /* rodata_sz                              */ prog->rodata_sz,
-    /* text                                   */ prog->text,
-    /* text_cnt                               */ prog->info.text_cnt,
-    /* text_off                               */ prog->info.text_off, /* FIXME: What if text_off is not multiple of 8 */
-    /* text_sz                                */ prog->info.text_sz,
-    /* entry_pc                               */ prog->entry_pc,
-    /* calldests                              */ prog->calldests,
-    /* sbpf_version                           */ elf_info->sbpf_version,
-    /* syscalls                               */ syscalls,
-    /* trace                                  */ NULL,
-    /* sha                                    */ NULL,
-    /* mem_regions                            */ NULL,
-    /* mem_regions_cnt                        */ 0,
-    /* mem_region_accs                        */ NULL,
-    /* is_deprecated                          */ 0,
-    /* dump_syscall_to_pb                     */ 0,
-    /* reg                                    */ (ulong[ FD_VM_REG_CNT ]){ 0 } );
-  if ( FD_UNLIKELY( vm == NULL ) ) {
-    FD_LOG_WARNING(( "NULL vm" ));
-    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
-  }
-
-  int validate_result = fd_vm_validate( vm );
+  int validate_result = fd_vm_validate_prog( prog->rodata,
+                                             prog->rodata_sz,
+                                             prog->text,
+                                             prog->info.text_cnt,
+                                             prog->info.text_sz,
+                                             elf_info->sbpf_version );
   if( FD_UNLIKELY( validate_result!=FD_VM_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }

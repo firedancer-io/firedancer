@@ -470,6 +470,15 @@ test_validate_opcode_classes( fd_sbpf_syscalls_t *  syscalls,
   FD_TEST( test_vm_validate( FD_SBPF_V0, sh64,   2UL, syscalls, instr_ctx )==FD_VM_SH_OVERFLOW );
   FD_TEST( test_vm_validate( FD_SBPF_V0, inv_op, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_OPCODE );
 
+  /* Direct fd_vm_validate_prog checks (without an fd_vm_t frame) */
+  ulong ok_prog[]  = { fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0UL, 0UL, 0, 7U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong r10_bump[] = { fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 10UL, 0UL, 0, (uint)-64 ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( fd_vm_validate_prog( (uchar const *)ok_prog,  sizeof(ok_prog),  ok_prog,  2UL, sizeof(ok_prog),  FD_SBPF_V3 )==FD_VM_SUCCESS );
+  FD_TEST( fd_vm_validate_prog( (uchar const *)ok_prog,  sizeof(ok_prog),  ok_prog,  0UL, 0UL,              FD_SBPF_V3 )==FD_VM_ERR_EMPTY );
+  FD_TEST( fd_vm_validate_prog( (uchar const *)ok_prog,  sizeof(ok_prog),  ok_prog,  2UL, 15UL,             FD_SBPF_V0 )==FD_VM_ERR_BAD_TEXT );
+  FD_TEST( fd_vm_validate_prog( (uchar const *)r10_bump, sizeof(r10_bump), r10_bump, 2UL, sizeof(r10_bump), FD_SBPF_V1 )==FD_VM_SUCCESS );
+  FD_TEST( fd_vm_validate_prog( (uchar const *)r10_bump, sizeof(r10_bump), r10_bump, 2UL, sizeof(r10_bump), FD_SBPF_V0 )==FD_VM_ERR_INVALID_DST_REG );
+
   FD_LOG_NOTICE(( "%-20s PASS", "validate-opclasses" ));
 }
 

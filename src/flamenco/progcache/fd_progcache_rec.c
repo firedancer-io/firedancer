@@ -1,7 +1,7 @@
 #include "fd_progcache.h"
 #include "fd_progcache_clock.h"
 #include "../../util/racesan/fd_racesan_target.h"
-#include "../vm/fd_vm.h" /* fd_vm_syscall_register_slot, fd_vm_validate */
+#include "../vm/fd_vm.h" /* fd_vm_syscalls_query_slot, fd_vm_validate_prog */
 
 /* A free record is always write-locked: fd_progcache_rec_release leaves it so
    and rec_init_inflight hands it to the acquirer read-locked, so a stale
@@ -214,10 +214,7 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
 
   /* Loader requires syscall table */
 
-  fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
-  int syscalls_err = fd_vm_syscall_register_slot( syscalls, load_slot, features, /* is_deploy */ 0 );
-  if( FD_UNLIKELY( syscalls_err!=FD_VM_SUCCESS ) ) FD_LOG_CRIT(( "fd_vm_syscall_register_slot failed" ));
+  fd_sbpf_syscalls_t const * syscalls = fd_vm_syscalls_query_slot( load_slot, features, /* is_deploy */ 0 );
 
   /* Run ELF loader.
 
@@ -240,34 +237,12 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
 
   /* Run bytecode validator */
 
-  fd_vm_t _vm[1];
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
-  if( FD_UNLIKELY( !vm ) ) FD_LOG_CRIT(( "fd_vm_new failed" ));
-  vm = fd_vm_init( vm,
-                   NULL, /* OK since unused in `fd_vm_validate()` */
-                   0UL,
-                   0UL,
-                   prog->rodata,
-                   prog->rodata_sz,
-                   prog->text,
-                   prog->info.text_cnt,
-                   prog->info.text_off,
-                   prog->info.text_sz,
-                   prog->entry_pc,
-                   prog->calldests,
-                   elf_info->sbpf_version,
-                   syscalls,
-                   NULL,
-                   NULL,
-                   NULL,
-                   0U,
-                   NULL,
-                   0,
-                   0,
-                   (ulong[ FD_VM_REG_CNT ]){ 0 } );
-  if( FD_UNLIKELY( !vm ) ) FD_LOG_CRIT(( "fd_vm_init failed" ));
-
-  if( FD_UNLIKELY( fd_vm_validate( vm )!=FD_VM_SUCCESS ) ) return NULL;
+  if( FD_UNLIKELY( fd_vm_validate_prog( prog->rodata,
+                                        prog->rodata_sz,
+                                        prog->text,
+                                        prog->info.text_cnt,
+                                        prog->info.text_sz,
+                                        elf_info->sbpf_version )!=FD_VM_SUCCESS ) ) return NULL;
 
   return rec;
 }

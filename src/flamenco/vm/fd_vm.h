@@ -344,6 +344,14 @@ fd_vm_delete( void * shmem );
    FIXME: DOCUMENT BETTER */
 
 FD_FN_PURE int
+fd_vm_validate_prog( uchar const * rodata,
+                     ulong         rodata_sz,
+                     ulong const * text,
+                     ulong         text_cnt,
+                     ulong         text_sz,
+                     ulong         sbpf_version );
+
+FD_FN_PURE int
 fd_vm_validate( fd_vm_t const * vm );
 
 /* fd_vm_is_check_align_enabled returns 1 if the vm should check alignment

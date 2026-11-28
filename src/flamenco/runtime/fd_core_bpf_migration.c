@@ -375,10 +375,7 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
     runtime_stack->bpf_migration->progcache_validate.rodata );
   if( FD_UNLIKELY( !prog ) ) return 1;
 
-  fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
-  if( FD_UNLIKELY( !syscalls ) ) return 1;
-  if( FD_UNLIKELY( fd_vm_syscall_register_slot( syscalls, slot, features, /* is_deploy */ 1 )!=FD_VM_SUCCESS ) ) return 1;
+  fd_sbpf_syscalls_t const * syscalls = fd_vm_syscalls_query_slot( slot, features, /* is_deploy */ 1 );
 
   /* fd_sbpf_program_load checks */
   if( FD_UNLIKELY( fd_sbpf_program_load(
@@ -391,33 +388,12 @@ fd_directly_invoke_loader_v3_deploy_checks( fd_bank_t const *    bank,
     sizeof(runtime_stack->bpf_migration->progcache_validate.programdata) ) ) ) return 1;
 
   /* fd_vm_validate checks */
-  fd_vm_t _vm[1];
-  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
-  if( FD_UNLIKELY( !vm ) ) return 1;
-  vm = fd_vm_init( vm,
-                   NULL,
-                   0UL,
-                   0UL,
-                   prog->rodata,
-                   prog->rodata_sz,
-                   prog->text,
-                   prog->info.text_cnt,
-                   prog->info.text_off,
-                   prog->info.text_sz,
-                   prog->entry_pc,
-                   prog->calldests,
-                   elf_info->sbpf_version,
-                   syscalls,
-                   NULL,
-                   NULL,
-                   NULL,
-                   0U,
-                   NULL,
-                   0,
-                   0,
-                   (ulong[ FD_VM_REG_CNT ]){ 0 } );
-  if( FD_UNLIKELY( !vm ) ) return 1;
-  if( FD_UNLIKELY( fd_vm_validate( vm )!=FD_VM_SUCCESS ) ) return 1;
+  if( FD_UNLIKELY( fd_vm_validate_prog( prog->rodata,
+                                        prog->rodata_sz,
+                                        prog->text,
+                                        prog->info.text_cnt,
+                                        prog->info.text_sz,
+                                        elf_info->sbpf_version )!=FD_VM_SUCCESS ) ) return 1;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
