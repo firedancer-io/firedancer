@@ -404,6 +404,12 @@ backtest_topo( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   setup_topo_footer_cache( topo, "banks" );
   setup_topo_execrp_result( topo, "execrp_replay", execrp_tile_cnt );
+  setup_topo_replay_sched( topo, "replay",
+      config->tiles.replay.max_transaction_lookahead_buffer_size,
+      config->firedancer.runtime.max_live_slots,
+      config->limits.max_shreds_per_block,
+      config->limits.max_txn_per_slot,
+      execrp_tile_cnt );
   if( FD_LIKELY( !disable_snap_loader ) ) {
     FOR(snapin_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }

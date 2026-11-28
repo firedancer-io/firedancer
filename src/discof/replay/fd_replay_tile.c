@@ -162,7 +162,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),                 fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_accdb_align(),                    fd_accdb_footprint( tile->replay.max_live_slots, 0 ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_reception_stats_t),       sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
+  if( !tile->replay.has_sched_obj ) {
+    l = FD_LAYOUT_APPEND( l, fd_sched_align(),                  fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
+  }
   l = FD_LAYOUT_APPEND( l, alignof(fd_pubkey_t),                FD_SCHED_LTHASH_START_WRITES_MAX*sizeof(fd_pubkey_t) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),             fd_vote_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),              fd_capture_ctx_footprint() );
@@ -172,6 +174,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_txn_timing_t),     FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                      tile->replay.max_live_slots*sizeof(ulong) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_footer_end_t),     tile->replay.max_live_slots*sizeof(fd_replay_footer_end_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(uchar),                      tile->replay.max_live_slots*sizeof(uchar) );
 
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -711,6 +714,11 @@ replay_block_start( fd_replay_tile_t * ctx,
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
   FD_CHECK_CRIT( !is_epoch_boundary || FD_FEATURE_ACTIVE_BANK( bank, alpenglow ), "alpenglow feature is not active" );
+
+  if( FD_LIKELY( ctx->cost_tracker_pinned && fd_sched_direct_is_enabled( ctx->sched ) ) ) {
+    fd_cost_tracker_store_pin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
+    ctx->cost_tracker_pinned[ bank_idx ] = 1U;
+  }
 
   if( FD_LIKELY( !lthash_inband ) ) {
     fd_sched_block_start_writes( ctx->sched, bank_idx, fd_type_pun_const( ctx->lthash_rec->keys ), ctx->lthash_rec->cnt );
@@ -2826,12 +2834,13 @@ dispatch_task( fd_replay_tile_t *  ctx,
       FD_TEST( task->txn_sigverify->cnt && task->txn_sigverify->cnt<=FD_EXECRP_SIGVERIFY_SIG_PARA );
       exec_msg->bank_idx = task->txn_sigverify->bank_idx;
       exec_msg->cnt      = task->txn_sigverify->cnt;
+      int zero_copy = fd_sched_direct_is_enabled( ctx->sched );
       for( ulong i=0UL; i<task->txn_sigverify->cnt; i++ ) {
         ulong txn_idx = task->txn_sigverify->txn_idx[ i ];
         exec_msg->txn_idx[ i ] = txn_idx;
-        fd_txn_p_copy( exec_msg->txn+i, fd_sched_get_txn( ctx->sched, txn_idx ) );
+        if( !zero_copy ) fd_txn_p_copy( exec_msg->txn+i, fd_sched_get_txn( ctx->sched, txn_idx ) );
       }
-      ulong exec_msg_sz = offsetof( fd_execrp_txn_sigverify_msg_t, txn )+task->txn_sigverify->cnt*sizeof(fd_txn_p_t);
+      ulong exec_msg_sz = offsetof( fd_execrp_txn_sigverify_msg_t, txn )+(zero_copy ? 0UL : task->txn_sigverify->cnt*sizeof(fd_txn_p_t));
       fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, exec_msg_sz, 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, exec_msg_sz, exec_out->chunk0, exec_out->wmark );
       break;
@@ -2934,52 +2943,71 @@ try_replay( fd_replay_tile_t *  ctx,
      footer certs verify under it. */
   if( FD_UNLIKELY( !ctx->shred_version ) ) return 0;
 
-  int charge_busy = 0;
-  fd_sched_task_t task[ 1 ];
-  if( FD_UNLIKELY( !fd_sched_task_next_ready( ctx->sched, task ) ) ) {
-    return charge_busy; /* Nothing to execute or do. */
-  }
+  int   charge_busy = 0;
+  int   direct_en   = fd_sched_direct_is_enabled( ctx->sched );
+  ulong max_iters   = direct_en ? fd_ulong_max( 1UL, ctx->exec_cnt ) : 1UL;
 
-  charge_busy = 1;
+  for( ulong iter=0UL; iter<max_iters; iter++ ) {
+    fd_sched_task_t task[ 1 ];
+    if( FD_UNLIKELY( !fd_sched_task_next_ready( ctx->sched, task ) ) ) {
+      break; /* Nothing to execute or do. */
+    }
 
-  switch( task->task_type ) {
-    case FD_SCHED_TT_BLOCK_START: {
-      replay_block_start( ctx, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot, task->block_start->lthash_inband );
-      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_start->bank_idx );
-      fd_replay_footer_end_t * end = ctx->footer_end + bank->idx;
-      end->leader_credits = 0UL;
-      end->cert_next      = 0UL;
-      end->finalized      = 0;
-      int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
-      if( FD_UNLIKELY( res ) ) mark_bank_dead( ctx, stem, task->block_start->bank_idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
-      break;
-    }
-    case FD_SCHED_TT_BLOCK_END: {
-      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
-      int dead = 0;
-      if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) dead = replay_block_finalize( ctx, stem, bank );
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
-      if( FD_UNLIKELY( dead ) ) fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
-      break;
-    }
-    case FD_SCHED_TT_TXN_EXEC:
-    case FD_SCHED_TT_TXN_SIGVERIFY:
-    case FD_SCHED_TT_POH_HASH:
-    case FD_SCHED_TT_LTHASH_SUB:
-    case FD_SCHED_TT_LTHASH_ADD:
-    case FD_SCHED_TT_CERT_VERIFY: {
-      dispatch_task( ctx, stem, task );
-      break;
-    }
-    case FD_SCHED_TT_MARK_DEAD: {
-      int dr = sched_block_dead_reason_to_event( ctx, task->mark_dead->bank_idx );
-      int ar = dr==FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD ? FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED
-                                                                 : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
-      mark_bank_dead( ctx, stem, task->mark_dead->bank_idx, dr, ar, NULL );
-      break;
-    }
-    default: {
-      FD_LOG_CRIT(( "unexpected task type %lu", task->task_type ));
+    charge_busy = 1;
+
+    switch( task->task_type ) {
+      case FD_SCHED_TT_BLOCK_START: {
+        replay_block_start( ctx, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot, task->block_start->lthash_inband );
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_start->bank_idx );
+        fd_replay_footer_end_t * end = ctx->footer_end + bank->idx;
+        end->leader_credits = 0UL;
+        end->cert_next      = 0UL;
+        end->finalized      = 0;
+        int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+        if( FD_UNLIKELY( res ) ) {
+          mark_bank_dead( ctx, stem, task->block_start->bank_idx, sched_dead_reason_to_event( res ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
+        } else if( FD_LIKELY( direct_en ) ) {
+          ulong max_cu = fd_cost_tracker_store_peek( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id )->block_cost_limit;
+          if( fd_sched_direct_set_active_bank( ctx->sched, bank->idx, max_cu ) ) {
+            if( !bank->first_transaction_scheduled_nanos ) bank->first_transaction_scheduled_nanos = fd_clock_tile_now( ctx->clock );
+          }
+        }
+        return charge_busy;
+      }
+      case FD_SCHED_TT_BLOCK_END: {
+        ulong bidx = task->block_end->bank_idx;
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bidx );
+        if( FD_LIKELY( ctx->cost_tracker_pinned && ctx->cost_tracker_pinned[ bidx ] ) ) {
+          if( FD_LIKELY( bank->cost_tracker_fork_id!=USHORT_MAX ) ) {
+            fd_cost_tracker_store_unpin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
+          }
+          ctx->cost_tracker_pinned[ bidx ] = 0U;
+        }
+        int dead = 0;
+        if( FD_LIKELY( bank->state==FD_BANK_STATE_REPLAYABLE ) ) dead = replay_block_finalize( ctx, stem, bank );
+        fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
+        if( FD_UNLIKELY( dead ) ) fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
+        return charge_busy;
+      }
+      case FD_SCHED_TT_TXN_EXEC:
+      case FD_SCHED_TT_TXN_SIGVERIFY:
+      case FD_SCHED_TT_POH_HASH:
+      case FD_SCHED_TT_LTHASH_SUB:
+      case FD_SCHED_TT_LTHASH_ADD:
+      case FD_SCHED_TT_CERT_VERIFY: {
+        dispatch_task( ctx, stem, task );
+        break;
+      }
+      case FD_SCHED_TT_MARK_DEAD: {
+        int dr = sched_block_dead_reason_to_event( ctx, task->mark_dead->bank_idx );
+        int ar = dr==FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD ? FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_PRUNED
+                                                                   : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
+        mark_bank_dead( ctx, stem, task->mark_dead->bank_idx, dr, ar, NULL );
+        return charge_busy;
+      }
+      default: {
+        FD_LOG_CRIT(( "unexpected task type %lu", task->task_type ));
+      }
     }
   }
 
@@ -3426,11 +3454,116 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
                                FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_NOT_DEAD,
                                FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_EVICTED );
     }
+    if( ctx->cost_tracker_pinned && ctx->cost_tracker_pinned[ bank_idx ] ) {
+      if( FD_LIKELY( bank->cost_tracker_fork_id!=USHORT_MAX ) ) {
+        fd_cost_tracker_store_unpin( fd_bank_cost_tracker( bank ), bank->cost_tracker_fork_id );
+      }
+      ctx->cost_tracker_pinned[ bank_idx ] = 0U;
+    }
     bank->refcnt--;
     FD_LOG_DEBUG(( "bank (idx=%lu) refcnt decremented to %lu for sched", bank->idx, bank->refcnt ));
     pruned = 1;
   }
   return pruned;
+}
+
+#define REPLAY_STEM_BURST (fd_ulong_max( 5UL, FD_EXECRP_SIGVERIFY_SIG_PARA+2UL ))
+
+static int
+drain_direct_exec( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem,
+                   ulong *             opt_pub_cnt ) {
+  if( FD_UNLIKELY( !fd_sched_direct_is_enabled( ctx->sched ) ) ) {
+    *opt_pub_cnt = 0UL;
+    return 0;
+  }
+
+  ulong pub_cnt     = 0UL;
+  ulong drained_cnt = 0UL;
+  /* Cap REPLAY_SIG_TXN_EXECUTED publishes per after_credit strictly
+     within REPLAY_STEM_BURST (keeping room for slot_states + slot_dead). */
+  while( pub_cnt + 2UL < REPLAY_STEM_BURST && drained_cnt < 256UL ) {
+    fd_sched_direct_done_t done[ 1 ];
+    int                    sched_dead = FD_SCHED_DEAD_REASON_NONE;
+    ulong got = fd_sched_direct_drain_done( ctx->sched, done, 1UL,
+                                            ctx->execrp_result,
+                                            sizeof(fd_execrp_result_t),
+                                            offsetof(fd_execrp_result_t, alt_writable),
+                                            &sched_dead );
+    if( FD_LIKELY( !got ) ) break;
+    drained_cnt++;
+
+    fd_bank_t * bank    = fd_banks_bank_query( ctx->banks, done->bank_idx );
+    FD_TEST( bank );
+    ulong       txn_idx = done->txn_idx;
+
+    if( FD_UNLIKELY( done->is_sigverify ) ) {
+      if( FD_UNLIKELY( !done->is_committable && bank->state!=FD_BANK_STATE_DEAD ) ) {
+        mark_bank_dead( ctx, stem, bank->idx, FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_SIGVERIFY_FAILED, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
+        fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
+        pub_cnt++;
+      }
+      fd_sched_txn_info_t const * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
+      if( FD_LIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
+        publish_txn_executed( ctx, stem, bank->idx, txn_idx );
+        pub_cnt++;
+      }
+      if( FD_UNLIKELY( !done->is_committable ) ) break;
+      continue;
+    }
+    if( FD_UNLIKELY( !bank->first_transaction_scheduled_nanos ) ) {
+      bank->first_transaction_scheduled_nanos = fd_clock_tile_now( ctx->clock );
+    }
+
+    if( FD_UNLIKELY( !ctx->identity_vote_rooted ) ) {
+      fd_txn_p_t *  txn_p               = fd_sched_get_txn( ctx->sched, txn_idx );
+      fd_pubkey_t * identity_pubkey_out = NULL;
+      if( fd_vote_tracker_query_sig( ctx->vote_tracker, fd_type_pun_const( txn_p->payload+TXN( txn_p )->signature_off ), &identity_pubkey_out ) &&
+          fd_pubkey_eq( identity_pubkey_out, ctx->identity_pubkey ) ) {
+        bank->f.identity_vote_idx = ctx->identity_idx;
+      }
+    }
+
+    if( FD_UNLIKELY( !done->is_committable && bank->state!=FD_BANK_STATE_DEAD ) ) {
+      int dead_reason;
+      switch( done->txn_err ) {
+        case FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_BLOCK_COST_LIMIT:
+          dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_BLOCK_COST_LIMIT;
+          break;
+        case FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT:
+          dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ACCOUNT_COST_LIMIT;
+          break;
+        case FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_VOTE_COST_LIMIT:
+          dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_VOTE_COST_LIMIT;
+          break;
+        case FD_RUNTIME_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT:
+        case FD_RUNTIME_TXN_ERR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT:
+          dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_ACCOUNT_DATA_LIMIT;
+          break;
+        case FD_RUNTIME_TXN_ERR_ACCOUNT_LOADED_TWICE:
+          dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_DUPLICATE_ACCOUNT;
+          break;
+        default:
+          dead_reason = FD_EVENT_BLOCK_COMPLETED_DEAD_REASON_TXN_FAILED_TO_LOAD;
+      }
+      mark_bank_dead( ctx, stem, bank->idx, dead_reason, FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
+      fd_sched_block_abandon( ctx->sched, bank->idx, FD_SCHED_ABANDON_INVALID );
+      pub_cnt++;
+    } else if( FD_UNLIKELY( sched_dead && bank->state!=FD_BANK_STATE_DEAD ) ) {
+      mark_bank_dead( ctx, stem, bank->idx, sched_dead_reason_to_event( sched_dead ), FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED, NULL );
+      pub_cnt++;
+    }
+
+    fd_sched_txn_info_t const * txn_info = fd_sched_get_txn_info( ctx->sched, txn_idx );
+    if( FD_UNLIKELY( (txn_info->flags&FD_SCHED_TXN_REPLAY_DONE)==FD_SCHED_TXN_REPLAY_DONE ) ) {
+      publish_txn_executed( ctx, stem, bank->idx, txn_idx );
+      pub_cnt++;
+    }
+    if( FD_UNLIKELY( !done->is_committable || sched_dead ) ) break;
+  }
+
+  *opt_pub_cnt = pub_cnt;
+  return drained_cnt > 0UL;
 }
 
 static int
@@ -3496,6 +3629,17 @@ after_credit( fd_replay_tile_t *  ctx,
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
+  }
+
+  ulong direct_pub_cnt = 0UL;
+  if( FD_UNLIKELY( drain_direct_exec( ctx, stem, &direct_pub_cnt ) ) ) {
+    *charge_busy = 1;
+    /* Keep progressing into try_replay on the same iteration unless
+       drain_direct_exec pushed a pruned refcnt or published frags. */
+    if( FD_UNLIKELY( try_prune_sched( ctx ) || direct_pub_cnt ) ) {
+      *opt_poll_in = 0;
+      return;
+    }
   }
 
   if( FD_UNLIKELY( try_notify_consensus_root( ctx, stem ) ) ) {
@@ -3929,6 +4073,13 @@ process_rotor_fec( fd_replay_tile_t       * ctx,
                                                                : FD_EVENT_BLOCK_COMPLETED_ABANDONED_REASON_NOT_ABANDONED;
     mark_bank_dead( ctx, stem, sched_fec->bank_idx, dr, ar, NULL );
     return;
+  }
+
+  if( FD_UNLIKELY( !bank->first_transaction_scheduled_nanos &&
+                   fd_sched_direct_is_enabled( ctx->sched ) &&
+                   fd_sched_direct_active_bank_idx( ctx->sched )==bank->idx &&
+                   fd_sched_block_has_parsed_txns( ctx->sched, bank->idx ) ) ) {
+    bank->first_transaction_scheduled_nanos = fd_clock_tile_now( ctx->clock );
   }
 
   fd_histf_sample( ctx->metrics.store_query_work, (ulong)( fd_tickcount() - work ) );
@@ -4537,7 +4688,8 @@ unprivileged_init( fd_topo_t const *      topo,
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),                 fd_txncache_footprint( tile->replay.max_live_slots ) );
   void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),                    fd_accdb_footprint( tile->replay.max_live_slots, 0 ) );
   void * recp_stats_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reception_stats_t),       sizeof(fd_reception_stats_t)*tile->replay.max_live_slots );
-  void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) );
+  void * sched_mem          = !tile->replay.has_sched_obj ?
+                              FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),                    fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots, tile->replay.max_shreds_per_block, tile->replay.max_txn_per_slot ) ) : NULL;
   void * lthash_rec_keys    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_pubkey_t),                FD_SCHED_LTHASH_START_WRITES_MAX*sizeof(fd_pubkey_t) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),             fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),              fd_capture_ctx_footprint() );
@@ -4547,6 +4699,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * timing_rec_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_txn_timing_t),     FD_REPLAY_TXN_TIMING_SLOTS*tile->replay.max_txn_per_slot*sizeof(fd_replay_txn_timing_t) );
   void * timing_of_bank_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                      tile->replay.max_live_slots*sizeof(ulong) );
   void * footer_end_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_footer_end_t),     tile->replay.max_live_slots*sizeof(fd_replay_footer_end_t) );
+  void * ct_pinned_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                      tile->replay.max_live_slots*sizeof(uchar) );
   void * block_dump_ctx     = NULL;
   if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
@@ -4707,8 +4860,17 @@ unprivileged_init( fd_topo_t const *      topo,
   memset( ctx->reception_stats, 0, sizeof(fd_reception_stats_t)*ctx->reception_stats_cnt );
 
   ctx->leader_stats.slot = ULONG_MAX;
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
+  if( FD_LIKELY( tile->replay.has_sched_obj ) ) {
+    ulong sched_obj_id = fd_pod_query_ulong( topo->props, "replay_sched", ULONG_MAX );
+    FD_TEST( sched_obj_id!=ULONG_MAX );
+    ctx->sched = fd_sched_join( fd_topo_obj_laddr( topo, sched_obj_id ) );
+  } else {
+    ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->max_shreds_per_block, ctx->max_txn_per_slot, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
+  }
   FD_TEST( ctx->sched );
+  if( FD_LIKELY( tile->replay.has_sched_obj && !ctx->capture_ctx && !ctx->dump_proto_ctx && !tile->replay.report_runtime_diffs ) ) {
+    fd_sched_direct_enable( ctx->sched );
+  }
 
   ctx->lthash_rec->cnt  = 0UL;
   ctx->lthash_rec->max  = FD_SCHED_LTHASH_START_WRITES_MAX;
@@ -4722,6 +4884,8 @@ unprivileged_init( fd_topo_t const *      topo,
 
 
   ctx->footer_end            = footer_end_mem;
+  ctx->cost_tracker_pinned   = ct_pinned_mem;
+  fd_memset( ctx->cost_tracker_pinned, 0, tile->replay.max_live_slots*sizeof(uchar) );
   ctx->rewards_in_flight_cnt = 0UL;
 
   ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, ctx->vote_tracker_seed ) );
@@ -4996,7 +5160,7 @@ during_housekeeping( fd_replay_tile_t * ctx ) {
    slot dead plus one txn_executed per transaction.  Every
    after_credit path that publishes returns nonzero, which skips the
    input poll, except REPLAY_SIG_SLOT_STATES, which adds one to each. */
-#define STEM_BURST (fd_ulong_max( 5UL, FD_EXECRP_SIGVERIFY_SIG_PARA+2UL ))
+#define STEM_BURST REPLAY_STEM_BURST
 
 /* Housekeeping interval in ticks, tuned independently of output-link
    depths. */

@@ -240,6 +240,7 @@ struct fd_replay_tile {
   ulong cert_payload_sz[ FD_SCHED_MAX_EXEC_TILE_CNT ];
 
   fd_replay_footer_end_t * footer_end;            /* Indexed by bank idx. */
+  uchar *                  cost_tracker_pinned;   /* Indexed by bank idx. */
   ulong                    rewards_in_flight_cnt; /* Reward slices out on exec tiles, over every bank. */
 
   ulong                vote_tracker_seed;

@@ -734,6 +734,23 @@ fd_rdisp_lane_writable_cnt( fd_rdisp_t * disp, ulong staging_lane );
 ulong
 fd_rdisp_lane_ready_acct_cnt( fd_rdisp_t * disp, ulong staging_lane );
 
+/* fd_rdisp_get_next_ready_real pops and returns the next ready real
+   transaction of schedule_block, or 0UL if none (including when the
+   highest-priority ready item is an LtHash pseudo-transaction).
+   fd_rdisp_get_next_ready_ptxn pops and returns the next ready LtHash
+   pseudo-transaction of schedule_block, or 0UL if none. */
+int
+fd_rdisp_has_ready_real( fd_rdisp_t const *   disp,
+                         FD_RDISP_BLOCK_TAG_T schedule_block );
+
+ulong
+fd_rdisp_get_next_ready_real( fd_rdisp_t           * disp,
+                              FD_RDISP_BLOCK_TAG_T   schedule_block );
+
+ulong
+fd_rdisp_get_next_ready_ptxn( fd_rdisp_t           * disp,
+                              FD_RDISP_BLOCK_TAG_T   schedule_block );
+
 /* fd_rdisp_verify does some light verification and internal consistency
    checks of some internal data structures.  Aborts with an error
    message if anything fails verification.  disp is a pointer to a valid

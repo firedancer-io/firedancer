@@ -19,6 +19,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_node_info;
 extern fd_topo_obj_callbacks_t fd_obj_cb_wait_info;
 extern fd_topo_obj_callbacks_t fd_obj_cb_execrp_result;
+extern fd_topo_obj_callbacks_t fd_obj_cb_replay_sched;
 extern fd_topo_obj_callbacks_t fd_obj_cb_leader_txn_timing;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
@@ -46,6 +47,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_node_info,
   &fd_obj_cb_wait_info,
   &fd_obj_cb_execrp_result,
+  &fd_obj_cb_replay_sched,
   &fd_obj_cb_leader_txn_timing,
   &fd_obj_cb_tile,
   &fd_obj_cb_store,

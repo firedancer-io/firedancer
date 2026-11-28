@@ -11,6 +11,7 @@
 #include "../../discof/backup/fd_backup_shmem.h"
 
 #include "../../discof/admin/fd_adminctl.h"
+#include "../../discof/replay/fd_sched.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -304,6 +305,36 @@ fd_topo_obj_callbacks_t fd_obj_cb_backup = {
   .footprint = backup_footprint_cb,
   .align     = backup_align_cb,
   .new       = backup_new_cb,
+};
+
+static ulong
+replay_sched_footprint( fd_topo_t const *     topo,
+                        fd_topo_obj_t const * obj ) {
+  return fd_sched_footprint( VAL("sched_depth"), VAL("max_live_slots"), VAL("max_shreds_per_block"), VAL("max_txn_per_slot") );
+}
+
+static ulong
+replay_sched_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                    fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_sched_align();
+}
+
+static void
+replay_sched_new( fd_topo_t const *     topo,
+                  fd_topo_obj_t const * obj ) {
+  ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
+  if( !seed ) FD_TEST( fd_rng_secure( &seed, sizeof(ulong) ) );
+  fd_rng_t _rng[ 1 ];
+  fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)seed, 0UL ) );
+  FD_TEST( fd_sched_new( fd_topo_obj_laddr( topo, obj->id ), rng, VAL("sched_depth"), VAL("max_live_slots"), VAL("max_shreds_per_block"), VAL("max_txn_per_slot"), VAL("execrp_tile_cnt") ) );
+  fd_rng_delete( fd_rng_leave( rng ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_replay_sched = {
+  .name      = "replay_sched",
+  .footprint = replay_sched_footprint,
+  .align     = replay_sched_align,
+  .new       = replay_sched_new,
 };
 
 #undef VAL

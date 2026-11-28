@@ -152,6 +152,34 @@ setup_topo_execrp_result( fd_topo_t *  topo,
 }
 
 fd_topo_obj_t *
+setup_topo_replay_sched( fd_topo_t *  topo,
+                         char const * wksp_name,
+                         ulong        sched_depth,
+                         ulong        max_live_slots,
+                         ulong        max_shreds_per_block,
+                         ulong        max_txn_per_slot,
+                         ulong        execrp_tile_cnt ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "replay_sched", wksp_name );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, sched_depth,          "obj.%lu.sched_depth",          obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,       "obj.%lu.max_live_slots",       obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_shreds_per_block, "obj.%lu.max_shreds_per_block", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_txn_per_slot,     "obj.%lu.max_txn_per_slot",     obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, execrp_tile_cnt,      "obj.%lu.execrp_tile_cnt",      obj->id ) );
+  ulong seed = 0UL;
+  FD_TEST( fd_rng_secure( &seed, sizeof(ulong) ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, seed, "obj.%lu.seed", obj->id ) );
+  ulong replay_tile_idx = fd_topo_find_tile( topo, "replay", 0UL );
+  FD_TEST( replay_tile_idx!=ULONG_MAX );
+  topo->tiles[ replay_tile_idx ].replay.has_sched_obj = 1;
+  fd_topob_tile_uses( topo, &topo->tiles[ replay_tile_idx ], obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
+  FD_TEST( fd_pod_insertf_ulong( topo->props, obj->id, "replay_sched" ) );
+  return obj;
+}
+
+fd_topo_obj_t *
 setup_topo_fec_sets( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        sz ) {
@@ -1091,6 +1119,12 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   setup_topo_footer_cache( topo, "banks" );
   setup_topo_execrp_result( topo, "execrp_replay", execrp_tile_cnt );
+  setup_topo_replay_sched( topo, "replay",
+      config->tiles.replay.max_transaction_lookahead_buffer_size,
+      config->firedancer.runtime.max_live_slots,
+      config->limits.max_shreds_per_block,
+      config->limits.max_txn_per_slot,
+      execrp_tile_cnt );
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   if( snapmk_enabled ) {
@@ -1756,6 +1790,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_TEST( tile->replay.accdb_obj_id !=ULONG_MAX );
     tile->replay.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
     FD_TEST( tile->replay.txncache_obj_id !=ULONG_MAX );
+    tile->replay.has_sched_obj = fd_pod_query_ulong( config->topo.props, "replay_sched", ULONG_MAX )!=ULONG_MAX;
 
     fd_cstr_ncpy( tile->replay.identity_key_path, identity_key_path, sizeof(tile->replay.identity_key_path) );
     fd_cstr_ncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );

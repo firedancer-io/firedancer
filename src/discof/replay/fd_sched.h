@@ -403,6 +403,13 @@ fd_sched_new( void *     mem,
 fd_sched_t *
 fd_sched_join( void * mem );
 
+/* fd_sched_join_worker joins a shared replay_sched region from an
+   execrp worker tile without mutating replay-owned pointers in shared
+   memory (safe across multi-process workspaces mapped at distinct
+   virtual addresses). */
+fd_sched_t *
+fd_sched_join_worker( void * mem );
+
 /* Add the data in the FEC set to the scheduler.  If is_last_fec is 1,
    then this is the last FEC set in the block.  Transactions may span
    FEC set boundaries.  The scheduler is responsible for incrementally
@@ -705,6 +712,107 @@ fd_sched_leave( fd_sched_t * sched );
 
 void *
 fd_sched_delete( void * mem );
+
+/* Direct shared-memory worker execution interface between replay (SP)
+   and execrp tiles (trylocked SC completion + SPMC ready ring). */
+
+struct fd_sched_direct_txn {
+  ulong bank_idx;
+  ulong slot;
+  ulong txn_idx;
+  ulong index_in_slot;
+  ulong max_compute_units;
+  int   want_alts;
+};
+typedef struct fd_sched_direct_txn fd_sched_direct_txn_t;
+
+struct fd_sched_direct_done {
+  ulong txn_idx;
+  ulong exec_tile_idx;
+  ulong bank_idx;
+  ulong alt_writable_cnt;
+  int   txn_err;
+  int   is_committable;
+  int   is_sigverify;
+};
+typedef struct fd_sched_direct_done fd_sched_direct_done_t;
+
+void
+fd_sched_direct_enable( fd_sched_t * sched );
+
+int
+fd_sched_direct_is_enabled( fd_sched_t const * sched );
+
+ulong
+fd_sched_direct_active_bank_idx( fd_sched_t const * sched );
+
+int
+fd_sched_block_has_parsed_txns( fd_sched_t const * sched,
+                                ulong              bank_idx );
+
+/* Activate direct execution for bank_idx once BLOCK_START is done.
+   Returns 1 if bank_idx already has parsed transactions, 0 otherwise. */
+int
+fd_sched_direct_set_active_bank( fd_sched_t * sched,
+                                 ulong        bank_idx,
+                                 ulong        max_compute_units );
+
+/* Worker side (execrp tile): try to claim exec_tile_idx and pop one
+   ready TXN_EXEC task into *out.  Returns 1 if claimed, 0 otherwise. */
+int
+fd_sched_direct_try_pop( fd_sched_t *            sched,
+                         ulong                   exec_tile_idx,
+                         fd_sched_direct_txn_t * out );
+
+/* Worker side (execrp tile): try to claim exec_tile_idx for one queued
+   signature verification when no TXN_EXEC is assigned to exec_tile_idx.
+   Returns 1 with *out_txn_idx and *out_bank_idx populated, 0 otherwise. */
+int
+fd_sched_direct_try_pop_sigverify( fd_sched_t * sched,
+                                   ulong        exec_tile_idx,
+                                   ulong *      out_txn_idx,
+                                   ulong *      out_bank_idx );
+
+void
+fd_sched_direct_complete_sigverify( fd_sched_t * sched,
+                                    ulong        exec_tile_idx,
+                                    ulong        bank_idx,
+                                    ulong        txn_idx,
+                                    int          sv_err );
+
+/* Worker side (execrp tile): record completion of the TXN_EXEC just
+   executed on exec_tile_idx.  exec_flags carries FD_SCHED_TXN_IS_*
+   bits.  On the fast path (is_committable && !alt_writable_cnt &&
+   continue_ok), unlocks dependent transactions in rdisp via flat-
+   combined trylock and attempts to pop the next ready TXN_EXEC into
+   *next_out (keeping exec_tile_idx busy and returning 1).  Otherwise
+   releases exec_tile_idx and returns 0. */
+int
+fd_sched_direct_complete_and_next( fd_sched_t *            sched,
+                                   ulong                   exec_tile_idx,
+                                   ulong                   bank_idx,
+                                   ulong                   txn_idx,
+                                   int                     is_committable,
+                                   ulong                   exec_flags,
+                                   int                     txn_err,
+                                   ulong                   alt_writable_cnt,
+                                   int                     continue_ok,
+                                   fd_sched_direct_txn_t * next_out );
+
+/* Replay side: drain up to max_cnt completed direct TXN_EXEC records
+   into out_done[], retiring their scheduler state.  alt_addrs_base
+   points to execrp_result[0] (stride alt_addrs_stride, offset
+   alt_addrs_off) for reading late writable ALTs when alt_writable_cnt>0.
+   *out_dead_reason is set to any dead_reason raised on late ALT reg.
+   Returns number of records drained. */
+ulong
+fd_sched_direct_drain_done( fd_sched_t *             sched,
+                            fd_sched_direct_done_t * out_done,
+                            ulong                    max_cnt,
+                            void const *             alt_addrs_base,
+                            ulong                    alt_addrs_stride,
+                            ulong                    alt_addrs_off,
+                            int *                    out_dead_reason );
 
 FD_PROTOTYPES_END
 

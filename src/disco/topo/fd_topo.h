@@ -509,6 +509,7 @@ struct fd_topo_tile {
     struct {
       ulong accdb_obj_id;
       ulong txncache_obj_id;
+      int   has_sched_obj;
 
       char  identity_key_path[ PATH_MAX ];
       char  vote_account_path[ PATH_MAX ];

@@ -14,6 +14,7 @@
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/program/fd_system_program.h"
 #include "../../flamenco/stakes/fd_vote_stakes.h"
+#include "../../flamenco/alpenglow/fd_block_marker_serde.h"
 #include "../../choreo/votor/fd_vote_serde.h"
 #include "../../util/tmpl/fd_unit_test.c"
 #include <unistd.h>
@@ -1273,6 +1274,136 @@ FD_UNIT_TEST( execrp_want_alts_two_tables ) {
   fd_pubkey_t const * alt_writable = env->execrp->result->alt_writable;
   FD_TEST( fd_pubkey_eq( &alt_writable[ 0 ], &addrs[ 0 ][ 0 ] ) );
   FD_TEST( fd_pubkey_eq( &alt_writable[ 1 ], &addrs[ 1 ][ 1 ] ) );
+
+  test_env_destroy( env );
+}
+
+FD_UNIT_TEST( execrp_direct_exec_and_sigverify ) {
+  test_env_t * env  = test_env_create();
+  fd_bank_t *  bank = fd_svm_mini_bank( env->mini, env->bank_idx );
+
+  /* Fund a real Ed25519 keypair and build 2 conflicting signed txns on it. */
+  uchar private_key[ 32 ];
+  fd_memset( private_key, 0x55, sizeof(private_key) );
+  fd_sha512_t sha_mem[ 1 ];
+  fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( sha_mem ) );
+  fd_pubkey_t fee_payer;
+  fd_ed25519_public_from_private( fee_payer.uc, private_key, sha );
+  fd_sha512_delete( fd_sha512_leave( sha ) );
+
+  ulong const start_lamports = 1000000000UL;
+  test_fund_account( env, &fee_payer, start_lamports );
+
+  fd_pubkey_t extra0 = { .ul = { 0xD101UL } };
+  fd_pubkey_t extra1 = { .ul = { 0xD102UL } };
+  fd_txn_p_t txn0[ 1 ], txn1[ 1 ];
+  test_build_signed_txn( txn0, bank, private_key, extra0 );
+  test_build_signed_txn( txn1, bank, private_key, extra1 );
+
+  /* Allocate and attach a shared fd_sched_t in direct mode. */
+  fd_rng_t rng[ 1 ];
+  fd_rng_join( fd_rng_new( rng, 0U, 0UL ) );
+  ulong sched_fp  = fd_sched_footprint( FD_SCHED_MIN_DEPTH, MAX_LIVE_SLOTS, FD_SHRED_BLK_MAX, MAX_TXN_PER_SLOT );
+  void * sched_mem = fd_wksp_alloc_laddr( env->mini->wksp, fd_sched_align(), sched_fp, TOPO_TAG );
+  FD_TEST( sched_mem );
+  fd_sched_t * sched = fd_sched_join( fd_sched_new( sched_mem, rng, FD_SCHED_MIN_DEPTH, MAX_LIVE_SLOTS, FD_SHRED_BLK_MAX, MAX_TXN_PER_SLOT, 1UL ) );
+  FD_TEST( sched );
+  fd_sched_set_bypass_poh_verify( sched, 1 );
+  fd_sched_direct_enable( sched );
+
+  ulong const parent_bank_idx = env->bank_idx ? 0UL : 1UL;
+  ulong const parent_slot     = bank->f.slot - 1UL;
+  fd_sched_block_add_done( sched, parent_bank_idx, ULONG_MAX, parent_slot );
+
+  env->execrp->sched     = fd_sched_join_worker( sched );
+  env->execrp->direct_ok = 1;
+
+  /* Ingest Alpenglow block header + one 2-txn microblock. */
+  uchar hdr_buf[ FD_BLOCK_MARKER_SER_MAX ] __attribute__((aligned(64)));
+  fd_block_marker_t marker[ 1 ] = {{ .kind = FD_BLOCK_MARKER_KIND_HEADER, .header = { .parent_slot = parent_slot } }};
+  ulong hdr_sz = fd_block_marker_ser( marker, hdr_buf );
+  fd_store_fec_t fec_hdr_meta[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( fec_hdr_meta, 0, sizeof(fd_store_fec_t) );
+  fec_hdr_meta->data_sz       = (uint)hdr_sz;
+  fec_hdr_meta->shred_sz[ 0 ] = (ushort)hdr_sz;
+  fd_sched_fec_t fec_hdr[ 1 ] = {{
+    .bank_idx          = env->bank_idx,
+    .parent_bank_idx   = parent_bank_idx,
+    .slot              = bank->f.slot,
+    .parent_slot       = parent_slot,
+    .fec               = fec_hdr_meta,
+    .data              = hdr_buf,
+    .shred_cnt         = 1U,
+    .is_last_in_batch  = 1U,
+    .is_first_in_block = 1U,
+  }};
+  FD_TEST( fd_sched_fec_ingest( sched, fec_hdr ) );
+  fd_hash_t start_poh[ 1 ] = {{{ 0 }}};
+  fd_sched_set_poh_params( sched, env->bank_idx, 0UL, 1UL, start_poh );
+
+  uchar batch_buf[ 4096 ];
+  ulong batch_sz = 0UL;
+  FD_STORE( ulong, batch_buf, 1UL );
+  batch_sz += sizeof(ulong);
+  fd_microblock_hdr_t mhdr = { .hash_cnt = 1UL, .txn_cnt = 2UL };
+  fd_memcpy( batch_buf+batch_sz, &mhdr, sizeof(mhdr) );
+  batch_sz += sizeof(mhdr);
+  fd_memcpy( batch_buf+batch_sz, txn0->payload, txn0->payload_sz );
+  batch_sz += txn0->payload_sz;
+  fd_memcpy( batch_buf+batch_sz, txn1->payload, txn1->payload_sz );
+  batch_sz += txn1->payload_sz;
+
+  fd_store_fec_t fec_entry_meta[ 1 ] __attribute__((aligned(alignof(fd_store_fec_t))));
+  fd_memset( fec_entry_meta, 0, sizeof(fd_store_fec_t) );
+  fec_entry_meta->data_sz       = (uint)batch_sz;
+  fec_entry_meta->shred_sz[ 0 ] = (ushort)batch_sz;
+  fd_sched_fec_t fec_entry[ 1 ] = {{
+    .bank_idx         = env->bank_idx,
+    .parent_bank_idx  = parent_bank_idx,
+    .slot             = bank->f.slot,
+    .parent_slot      = parent_slot,
+    .fec              = fec_entry_meta,
+    .data             = batch_buf,
+    .shred_cnt        = 1U,
+    .is_last_in_batch = 1U,
+  }};
+  FD_TEST( fd_sched_fec_ingest( sched, fec_entry ) );
+
+  fd_sched_task_t task[ 1 ];
+  FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) && task->task_type==FD_SCHED_TT_BLOCK_START );
+  FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL ) );
+  FD_TEST( fd_sched_direct_set_active_bank( sched, env->bank_idx, 48000000UL ) );
+
+  /* First after_credit executes BOTH conflicting txns back-to-back via
+     local continuation without publishing any mcache messages. */
+  fd_stem_context_t stem[ 1 ];
+  test_stem( env->execrp, stem );
+  ulong const seq_before = stem->seqs[ env->execrp->execrp_replay_out->idx ];
+  int opt_poll_in = 1, charge_busy = 0;
+  after_credit( env->execrp, stem, &opt_poll_in, &charge_busy );
+  FD_TEST( charge_busy==1 && opt_poll_in==0 );
+  FD_TEST( stem->seqs[ env->execrp->execrp_replay_out->idx ]==seq_before );
+  FD_TEST( test_read_lamports( env, &fee_payer )==start_lamports - 10000UL );
+
+  /* Second after_credit pops and verifies BOTH Ed25519 signatures via the
+     lock-free SPMC sigverify ring. */
+  opt_poll_in = 1; charge_busy = 0;
+  after_credit( env->execrp, stem, &opt_poll_in, &charge_busy );
+  FD_TEST( charge_busy==1 && opt_poll_in==0 );
+  FD_TEST( env->execrp->metrics.sigverify_cnt==2UL );
+  FD_TEST( stem->seqs[ env->execrp->execrp_replay_out->idx ]==seq_before );
+
+  fd_sched_direct_done_t done[ 8 ];
+  int dead_reason = FD_SCHED_DEAD_REASON_NONE;
+  ulong drained = fd_sched_direct_drain_done( sched, done, 8UL, NULL, 0UL, 0UL, &dead_reason );
+  FD_TEST( drained==4UL && dead_reason==FD_SCHED_DEAD_REASON_NONE );
+  ulong exec_ok = 0UL, sv_ok = 0UL;
+  for( ulong i=0UL; i<drained; i++ ) {
+    FD_TEST( done[ i ].is_committable && done[ i ].txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+    if( done[ i ].is_sigverify ) sv_ok++;
+    else                         exec_ok++;
+  }
+  FD_TEST( exec_ok==2UL && sv_ok==2UL );
 
   test_env_destroy( env );
 }

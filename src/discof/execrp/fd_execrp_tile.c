@@ -4,6 +4,7 @@
 
 #include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
+#include "../../discof/replay/fd_sched.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -71,6 +72,8 @@ struct fd_execrp_tile {
   int   want_alts;
 
   fd_execrp_result_t * result;
+  fd_sched_t *         sched;
+  int                  direct_ok;
 
   fd_log_collector_t log_collector;
 
@@ -237,13 +240,155 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
 }
 
+static void
+execrp_run_direct_txn( fd_execrp_tile_t *            ctx,
+                       fd_sched_direct_txn_t const * dtxn,
+                       ulong *                       out_alt_writable_cnt,
+                       int *                         out_is_committable,
+                       ulong *                       out_exec_flags,
+                       int *                         out_txn_err ) {
+  long disp_ticks = fd_tickcount();
+  ctx->bank       = fd_banks_bank_query( ctx->banks, dtxn->bank_idx );
+  FD_TEST( ctx->bank );
+  fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, dtxn->txn_idx );
+  FD_TEST( txn_p );
+  ctx->txn_in.txn           = txn_p;
+  ctx->want_alts            = dtxn->want_alts;
+  ctx->txn_in.index_in_slot = dtxn->index_in_slot;
+
+  fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+
+  ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
+  ctx->metrics.txn_version[ fd_execle_version_from_txn( TXN( txn_p ) ) ]++;
+
+  if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
+    fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+  } else {
+    fd_runtime_cancel_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+  }
+
+  long const txn_end_ticks = fd_tickcount();
+
+  uint compute_units_consumed = 0U;
+  if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
+    fd_usage_cost_details_t const * cost = &ctx->txn_out.details.txn_cost.transaction;
+    compute_units_consumed = cost->signature_cost + cost->write_lock_cost + cost->data_bytes_cost + cost->programs_execution_cost + cost->loaded_accounts_data_size_cost;
+  }
+
+  ulong alt_writable_cnt = 0UL;
+  fd_txn_t const * txn = TXN( txn_p );
+  if( FD_UNLIKELY( ctx->want_alts && txn->transaction_version==FD_TXN_V0 ) ) {
+    ulong acct_addr_cnt     = txn->acct_addr_cnt;
+    ulong adtl_writable_cnt = txn->addr_table_adtl_writable_cnt;
+    if( FD_LIKELY( ctx->txn_out.accounts.cnt>=acct_addr_cnt+adtl_writable_cnt ) ) {
+      FD_TEST( adtl_writable_cnt<=FD_TXN_ACCT_ADDR_MAX-1UL );
+      fd_memcpy( ctx->result->alt_writable, &ctx->txn_out.accounts.keys[ acct_addr_cnt ], adtl_writable_cnt*sizeof(fd_pubkey_t) );
+      alt_writable_cnt = adtl_writable_cnt;
+    }
+  }
+  ctx->want_alts = 0;
+
+  if( FD_UNLIKELY( !ctx->txn_out.err.is_committable ) ) {
+    uchar * signature = (uchar *)txn_p->payload + txn->signature_off;
+    FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
+    FD_LOG_WARNING(( "block marked dead (slot=%lu) because of invalid transaction (signature=%s) (txn_err=%d)", dtxn->slot, signature_b58, ctx->txn_out.err.txn_err ));
+  }
+
+  fd_sched_txn_info_t * info   = fd_sched_get_txn_info( ctx->sched, dtxn->txn_idx );
+  info->tick_exec_disp         = disp_ticks;
+  info->tick_load_start        = ctx->txn_out.details.load_start_ticks;
+  info->tick_check_start       = ctx->txn_out.details.check_start_ticks;
+  info->tick_exec_start        = ctx->txn_out.details.exec_start_ticks;
+  info->tick_commit_start      = ctx->txn_out.details.commit_start_ticks;
+  info->tick_commit_end        = fd_long_if( ctx->txn_out.details.commit_start_ticks==LONG_MAX, LONG_MAX, txn_end_ticks );
+  info->tick_exec_done         = txn_end_ticks;
+  info->exec_tile_idx          = ctx->tile_idx;
+  info->bank_seq               = ctx->bank->bank_seq;
+  info->compute_units_consumed = compute_units_consumed;
+  info->max_compute_units      = dtxn->max_compute_units;
+  info->transaction_fee        = ctx->txn_out.details.execution_fee;
+  info->priority_fee           = ctx->txn_out.details.priority_fee;
+  info->tips                   = ctx->txn_out.details.tips;
+
+  ulong load_start_ticks_dt  = fd_ulong_if( ctx->txn_out.details.check_start_ticks==LONG_MAX  || ctx->txn_out.details.load_start_ticks==LONG_MAX,   0UL, (ulong)( ctx->txn_out.details.check_start_ticks  - ctx->txn_out.details.load_start_ticks ) );
+  ulong check_start_ticks_dt = fd_ulong_if( ctx->txn_out.details.exec_start_ticks==LONG_MAX   || ctx->txn_out.details.check_start_ticks==LONG_MAX,  0UL, (ulong)( ctx->txn_out.details.exec_start_ticks   - ctx->txn_out.details.check_start_ticks ) );
+  ulong exec_start_ticks_dt  = fd_ulong_if( ctx->txn_out.details.commit_start_ticks==LONG_MAX || ctx->txn_out.details.exec_start_ticks==LONG_MAX,   0UL, (ulong)( ctx->txn_out.details.commit_start_ticks - ctx->txn_out.details.exec_start_ticks ) );
+  ulong commit_ticks_dt      = fd_ulong_if( txn_end_ticks==LONG_MAX                           || ctx->txn_out.details.commit_start_ticks==LONG_MAX, 0UL, (ulong)( txn_end_ticks                           - ctx->txn_out.details.commit_start_ticks ) );
+
+  ctx->metrics.txn_load_cum_ticks   += load_start_ticks_dt;
+  ctx->metrics.txn_check_cum_ticks  += check_start_ticks_dt;
+  ctx->metrics.txn_exec_cum_ticks   += exec_start_ticks_dt;
+  ctx->metrics.txn_commit_cum_ticks += commit_ticks_dt;
+
+  ulong flags  = fd_ulong_if( ctx->txn_out.err.is_committable, FD_SCHED_TXN_IS_COMMITTABLE, 0UL );
+  flags       |= fd_ulong_if( ctx->txn_out.err.is_fees_only,   FD_SCHED_TXN_IS_FEES_ONLY,   0UL );
+  flags       |= fd_ulong_if( ctx->txn_out.err.is_noop,        FD_SCHED_TXN_IS_NOOP,        0UL );
+
+  *out_alt_writable_cnt = alt_writable_cnt;
+  *out_is_committable   = ctx->txn_out.err.is_committable;
+  *out_exec_flags       = flags;
+  *out_txn_err          = ctx->txn_out.err.txn_err;
+}
+
 static inline void
 after_credit( fd_execrp_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  (void)stem; (void)opt_poll_in; (void)charge_busy;
+  (void)stem;
   fd_startup_gate_idle( ctx->startup_gate );
+  if( FD_LIKELY( ctx->direct_ok && fd_sched_direct_is_enabled( ctx->sched ) ) ) {
+    fd_sched_direct_txn_t dtxn[ 1 ];
+    if( FD_LIKELY( fd_sched_direct_try_pop( ctx->sched, ctx->tile_idx, dtxn ) ) ) {
+      fd_startup_gate_busy( ctx->startup_gate );
+      FD_MGAUGE_SET( EXECRP, IS_PROCESSING, 1UL );
+      ulong burst = 0UL;
+      for(;;) {
+        ulong alt_writable_cnt = 0UL;
+        int   is_committable   = 0;
+        ulong exec_flags       = 0UL;
+        int   txn_err          = 0;
+        execrp_run_direct_txn( ctx, dtxn, &alt_writable_cnt, &is_committable, &exec_flags, &txn_err );
+        burst++;
+        if( !fd_sched_direct_complete_and_next( ctx->sched, ctx->tile_idx, dtxn->bank_idx, dtxn->txn_idx,
+                                                is_committable, exec_flags, txn_err, alt_writable_cnt,
+                                                burst<64UL, dtxn ) ) {
+          break;
+        }
+      }
+      FD_MGAUGE_SET( EXECRP, IS_PROCESSING, 0UL );
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+      return;
+    }
+
+    ulong sv_txn_idx  = 0UL;
+    ulong sv_bank_idx = 0UL;
+    if( FD_UNLIKELY( fd_sched_direct_try_pop_sigverify( ctx->sched, ctx->tile_idx, &sv_txn_idx, &sv_bank_idx ) ) ) {
+      fd_startup_gate_busy( ctx->startup_gate );
+      FD_MGAUGE_SET( EXECRP, IS_PROCESSING, 1UL );
+      ulong sv_burst = 0UL;
+      for(;;) {
+        long               t0      = fd_tickcount();
+        fd_txn_p_t const * txn_p   = fd_sched_get_txn( ctx->sched, sv_txn_idx );
+        ulong              sig_cnt = (ulong)TXN( txn_p )->signature_cnt;
+        ctx->metrics.sigverify_cnt += sig_cnt;
+        int                sv_err  = fd_executor_txn_verify( ctx->verifier, &txn_p, 1UL )!=FD_RUNTIME_EXECUTE_SUCCESS;
+        long               t1      = fd_tickcount();
+        fd_sched_txn_info_t * info = fd_sched_get_txn_info( ctx->sched, sv_txn_idx );
+        info->sigverify_exec_tile_idx = ctx->tile_idx;
+        info->tick_sigverify_disp     = t0;
+        info->tick_sigverify_done     = t1;
+        fd_sched_direct_complete_sigverify( ctx->sched, ctx->tile_idx, sv_bank_idx, sv_txn_idx, sv_err );
+        sv_burst++;
+        if( sv_burst>=8UL || sv_err ) break;
+        if( !fd_sched_direct_try_pop_sigverify( ctx->sched, ctx->tile_idx, &sv_txn_idx, &sv_bank_idx ) ) break;
+      }
+      FD_MGAUGE_SET( EXECRP, IS_PROCESSING, 0UL );
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+    }
+  }
 }
 
 static inline int
@@ -322,9 +467,10 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 
         fd_txn_p_t const * txns[ FD_EXECRP_SIGVERIFY_SIG_PARA ];
         fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
-        ulong sig_cnt = 0UL;
+        ulong sig_cnt   = 0UL;
+        int   zero_copy = (ctx->sched!=NULL && sz==offsetof( fd_execrp_txn_sigverify_msg_t, txn ));
         for( ulong i=0UL; i<msg->cnt; i++ ) {
-          txns[ i ] = msg->txn+i;
+          txns[ i ] = zero_copy ? fd_sched_get_txn( ctx->sched, msg->txn_idx[ i ] ) : (msg->txn+i);
           sig_cnt += TXN( txns[ i ] )->signature_cnt;
           out_msg->txn_sigverify->txn_idx[ i ] = msg->txn_idx[ i ];
         }
@@ -493,6 +639,10 @@ unprivileged_init( fd_topo_t const *      topo,
   FD_TEST( result_obj_id!=ULONG_MAX );
   ctx->result = (fd_execrp_result_t *)fd_topo_obj_laddr( topo, result_obj_id )+tile->kind_id;
 
+  ulong sched_obj_id = fd_pod_query_ulong( topo->props, "replay_sched", ULONG_MAX );
+  ctx->sched = sched_obj_id!=ULONG_MAX ? fd_sched_join_worker( fd_topo_obj_laddr( topo, sched_obj_id ) ) : NULL;
+  FD_TEST( sched_obj_id==ULONG_MAX || ctx->sched );
+
   FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ), pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
   FD_TEST( (ctx->bpf_frames = fd_bpf_frames_join( _bpf_frames, fd_topo_obj_laddr( topo, tile->execrp.bpf_frames_obj_id ) )) );
 
@@ -601,6 +751,8 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( ctx->dump_proto_ctx && ctx->dump_proto_ctx->dump_txn_to_pb ) ) {
     ctx->txn_dump_ctx = fd_txn_dump_context_join( fd_txn_dump_context_new( _txn_dump_ctx ) );
   }
+
+  ctx->direct_ok = ctx->sched!=NULL && !ctx->capture_ctx && !ctx->dump_proto_ctx && !tile->execrp.report_runtime_diffs;
 
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->sysvar_bank_seq          = 0UL;
