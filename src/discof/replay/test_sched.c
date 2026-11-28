@@ -1877,12 +1877,15 @@ lthash_task_value( test_lthash_ctx_t *     ctx,
   ulong bank_idx = task->lthash->bank_idx;
   FD_TEST( bank_idx<TEST_LTHASH_BANK_MAX );
   FD_TEST( task->lthash->cnt && task->lthash->cnt<=FD_SCHED_LTHASH_BATCH_MAX );
+  int save_spec = is_add && task->lthash->speculative && task->lthash->cnt>1UL;
+  FD_TEST( !save_spec || task->lthash->cnt<=FD_SCHED_LTHASH_SPEC_BATCH_MAX );
   fd_lthash_zero( v );
   for( ulong i=0UL; i<task->lthash->cnt; i++ ) {
     fd_acct_addr_t const * acct = task->lthash->accts+i;
     test_lthash_acct_t *   a    = lthash_acct( ctx, acct );
     fd_lthash_value_t h[ 1 ];
     fake_hash( h, acct, is_add, is_add ? a->write_cnt[ bank_idx ] : 0UL );
+    if( save_spec ) v[ 1UL+i ] = *h;
     fd_lthash_add( v, h );
   }
 }
@@ -1983,7 +1986,7 @@ lthash_drive_task( fd_sched_t *        sched,
     }
     case FD_SCHED_TT_LTHASH_SUB:
     case FD_SCHED_TT_LTHASH_ADD: {
-      fd_lthash_value_t v[ 1 ];
+      fd_lthash_value_t v[ 1UL+FD_SCHED_LTHASH_SPEC_BATCH_MAX ];
       lthash_task_value( ctx, task, v );
       lthash_complete( sched, task, ctx, v );
       break;
@@ -5450,7 +5453,8 @@ run_direct_mode_cases( void ) {
     /* Drive replay poll: LTHASH_SUB runs, then speculative LTHASH_ADD is
        dispatched for {A, B, C}.  Hold the speculative LTHASH_ADD for A in
        flight while FEC 2 arrives and rewrites A! */
-    fd_sched_task_t held_add[ 1 ];
+    fd_sched_task_t   held_add[ 1 ];
+    fd_lthash_value_t held_val[ 1UL+FD_SCHED_LTHASH_SPEC_BATCH_MAX ];
     int got_spec_add = 0;
     for( ulong step=0UL; step<32UL; step++ ) {
       if( !fd_sched_task_next_ready( sched, task ) ) break;
@@ -5459,23 +5463,20 @@ run_direct_mode_cases( void ) {
       FD_TEST( task->task_type!=FD_SCHED_TT_TXN_EXEC );
       FD_TEST( task->task_type!=FD_SCHED_TT_TXN_SIGVERIFY );
       FD_TEST( task->task_type!=FD_SCHED_TT_POH_HASH );
-      if( task->task_type==FD_SCHED_TT_LTHASH_ADD &&
-          memcmp( task->lthash->accts[ 0 ].b, acct[ 0 ].uc, sizeof(fd_acct_addr_t) )==0 ) {
+      if( task->task_type==FD_SCHED_TT_LTHASH_ADD ) {
         *held_add = *task;
+        lthash_task_value( ctx, held_add, held_val );
         got_spec_add = 1;
         break;
       }
       lthash_drive_task( sched, task, ctx );
     }
-    FD_TEST( got_spec_add && held_add->lthash->cnt==1UL );
-
-    fd_lthash_value_t sum[ 1 ];
-    fake_hash( sum, &held_add->lthash->accts[ 0 ], 1, lthash_acct( ctx, &held_add->lthash->accts[ 0 ] )->write_cnt[ 2UL ] );
+    FD_TEST( got_spec_add && held_add->lthash->cnt==3UL );
 
     /* Ingest FEC 2 (which rewrites A and closes the block) BEFORE held_add
-       completes, so A's speculative entry is invalidated mid-flight and T4
-       stays blocked in rdisp behind the in-flight speculative read of A
-       until held_add finishes. */
+       completes, so A's speculative entry is invalidated mid-flight while B's
+       entry still applies, and T4 stays blocked in rdisp behind the in-flight
+       speculative read of A until held_add finishes. */
     ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded2, sz2, 0, 1 );
 
     fd_sched_direct_txn_t d4[ 1 ];
@@ -5483,9 +5484,9 @@ run_direct_mode_cases( void ) {
       FD_TEST( !fd_sched_direct_try_pop( worker, t, d4 ) );
     }
 
-    /* Completing held_add discards A's stale speculative hash and unlocks
-       T4 for direct execution. */
-    FD_TEST( !fd_sched_task_done( sched, FD_SCHED_TT_LTHASH_ADD, ULONG_MAX, held_add->lthash->exec_idx, sum ) );
+    /* Completing held_add discards A's stale speculative hash, applies B's
+       valid speculative hash, and unlocks T4 for direct execution. */
+    lthash_complete( sched, held_add, ctx, held_val );
 
     int popped_t4 = 0;
     for( ulong t=0UL; t<TEST_EXEC_CNT; t++ ) {
@@ -5619,6 +5620,97 @@ run_direct_mode_cases( void ) {
     FD_TEST( try_ingest_lthash_end( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, start_poh ) );
     lthash_drive( sched, ctx, 64UL );
     FD_TEST( ctx->block_end_cnt==1UL && fd_sched_is_drained( sched ) );
+
+    delete_sched( sched );
+  }
+
+  /* Case 4: Batched speculative LTHASH_ADD in direct mode, including
+     partial in-flight invalidation and undo of applied batch entries. */
+  {
+    fd_sched_t * sched = new_sched( 4UL );
+    fd_sched_set_bypass_poh_verify( sched, 1 );
+    fd_sched_direct_enable( sched );
+
+    ulong const n_accts = 40UL;
+    fd_pubkey_t accts[ 40 ];
+    for( ulong i=0UL; i<n_accts; i++ ) {
+      fd_memset( accts[ i ].uc, 0, sizeof(fd_pubkey_t) );
+      accts[ i ].ul[ 0 ] = 0x9000UL + i;
+      accts[ i ].ul[ 1 ] = ~i;
+    }
+
+    fd_hash_t start_poh[ 1 ];
+    hash_from_seed( start_poh, 0x8192a3b4c5d6e7f0UL );
+    ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, NULL, 0UL, 1, 0 );
+    fd_sched_set_poh_params( sched, 2UL, TEST_ROOT_TICK_HEIGHT, TEST_ROOT_TICK_HEIGHT+1UL, start_poh );
+
+    static test_lthash_ctx_t ctx[ 1 ];
+    fd_memset( ctx, 0, sizeof(test_lthash_ctx_t) );
+
+    fd_sched_task_t task[ 1 ];
+    FD_TEST( 1UL==fd_sched_task_next_ready( sched, task ) && task->task_type==FD_SCHED_TT_BLOCK_START );
+    fd_sched_block_start_writes( sched, 2UL, fd_type_pun_const( accts ), n_accts );
+    for( ulong i=0UL; i<n_accts; i++ ) lthash_write( ctx, 2UL, fd_type_pun_const( accts+i ) );
+    lthash_drive_task( sched, task, ctx );
+    FD_TEST( !fd_sched_direct_set_active_bank( sched, 2UL, 48000000UL ) );
+
+    /* Hold the first speculative LTHASH_ADD batch on its tile, let the
+       second batch apply, then rewrite 3 accounts across both batches! */
+    fd_sched_task_t   held[ 1 ];
+    fd_lthash_value_t held_val[ 1UL+FD_SCHED_LTHASH_SPEC_BATCH_MAX ];
+    FD_TEST( lthash_drive_hold( sched, ctx, 64UL, FD_SCHED_TT_LTHASH_ADD, held, held_val ) );
+    FD_TEST( held->lthash->speculative && held->lthash->cnt==FD_SCHED_LTHASH_SPEC_BATCH_MAX );
+    lthash_drive( sched, ctx, 64UL );
+    /* 40 accounts batched into 32 (held) + 8 (applied) = 2 spec tasks instead of 40! */
+    FD_TEST( ctx->spec_task_cnt==1UL && ctx->add_cnt==8UL );
+
+    /* Second FEC set rewrites held->accts[0], held->accts[5], and one applied account! */
+    fd_pubkey_t rw0, rw1, rw_applied;
+    fd_memcpy( rw0.uc, held->lthash->accts[ 0 ].b, 32UL );
+    fd_memcpy( rw1.uc, held->lthash->accts[ 5 ].b, 32UL );
+    /* Find an account from accts[] not in held->lthash->accts[0..31]. */
+    rw_applied = accts[ 0 ];
+    for( ulong i=0UL; i<n_accts; i++ ) {
+      int in_held = 0;
+      for( ulong j=0UL; j<held->lthash->cnt; j++ ) {
+        if( !memcmp( accts[ i ].uc, held->lthash->accts[ j ].b, 32UL ) ) { in_held = 1; break; }
+      }
+      if( !in_held ) { rw_applied = accts[ i ]; break; }
+    }
+    fd_pubkey_t extra[ 2 ] = { rw1, rw_applied };
+    uchar t2[ FD_TXN_MTU ];
+    ulong t2_sz = build_legacy_test_txn( t2, &rw0, extra, 2UL, 0x11 );
+    uchar const * txns2[ 1 ] = { t2 };
+    uchar encoded2[ 4096 ];
+    ulong sz2 = encode_lthash_batch( encoded2, txns2, &t2_sz, 1UL );
+    ingest_lthash_fec( sched, 2UL, 1UL, TEST_ROOT_SLOT+1UL, TEST_ROOT_SLOT, encoded2, sz2, 0, 1 );
+
+    /* Complete the held 32-account speculative batch: 2 entries are stale
+       (dropped), 30 entries still apply cleanly! */
+    lthash_complete( sched, held, ctx, held_val );
+
+    /* Stage sigverify via task_next_ready, execute t2 via direct SPMC, and finish the block. */
+    (void)fd_sched_task_next_ready( sched, task );
+    ulong sv_txn = 0UL, sv_bank = 0UL;
+    FD_TEST( fd_sched_direct_try_pop_sigverify( sched, 1UL, &sv_txn, &sv_bank ) );
+    fd_sched_direct_complete_sigverify( sched, 1UL, sv_bank, sv_txn, 0 );
+    (void)fd_sched_task_next_ready( sched, task );
+    fd_sched_direct_txn_t dtxn[ 1 ];
+    FD_TEST( fd_sched_direct_try_pop( sched, 0UL, dtxn ) );
+    lthash_write( ctx, 2UL, fd_type_pun_const( &rw0 ) );
+    lthash_write( ctx, 2UL, fd_type_pun_const( &rw1 ) );
+    lthash_write( ctx, 2UL, fd_type_pun_const( &rw_applied ) );
+    FD_TEST( !fd_sched_direct_complete_and_next( sched, 0UL, dtxn->bank_idx, dtxn->txn_idx, 1, FD_SCHED_TXN_IS_COMMITTABLE, 0, 0UL, 1, dtxn ) );
+    fd_sched_direct_done_t done[ 4 ];
+    int dead = 0;
+    FD_TEST( fd_sched_direct_drain_done( sched, done, 4UL, NULL, 0UL, 0UL, &dead )==2UL && !dead );
+
+    lthash_drive( sched, ctx, 64UL );
+    FD_TEST( ctx->block_end_cnt==1UL && fd_sched_is_drained( sched ) );
+
+    fd_lthash_value_t expected[ 1 ];
+    lthash_expected_delta( expected, ctx, 2UL, accts, n_accts );
+    FD_TEST( fd_lthash_eq( ctx->delta, expected ) );
 
     delete_sched( sched );
   }

@@ -3469,7 +3469,7 @@ try_prune_sched( fd_replay_tile_t * ctx ) {
   return pruned;
 }
 
-#define REPLAY_STEM_BURST (fd_ulong_max( 5UL, FD_EXECRP_SIGVERIFY_SIG_PARA+2UL ))
+#define REPLAY_STEM_BURST (fd_ulong_max( 8UL, FD_EXECRP_SIGVERIFY_SIG_PARA+2UL ))
 
 static int
 drain_direct_exec( fd_replay_tile_t *  ctx,
@@ -3483,8 +3483,8 @@ drain_direct_exec( fd_replay_tile_t *  ctx,
   ulong pub_cnt     = 0UL;
   ulong drained_cnt = 0UL;
   /* Cap REPLAY_SIG_TXN_EXECUTED publishes per after_credit strictly
-     within REPLAY_STEM_BURST (keeping room for slot_states + slot_dead). */
-  while( pub_cnt + 2UL < REPLAY_STEM_BURST && drained_cnt < 256UL ) {
+     within REPLAY_STEM_BURST (keeping room for slot_states + try_replay). */
+  while( pub_cnt + 3UL < REPLAY_STEM_BURST && drained_cnt < 256UL ) {
     fd_sched_direct_done_t done[ 1 ];
     int                    sched_dead = FD_SCHED_DEAD_REASON_NONE;
     ulong got = fd_sched_direct_drain_done( ctx->sched, done, 1UL,
@@ -3637,8 +3637,8 @@ after_credit( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( drain_direct_exec( ctx, stem, &direct_pub_cnt ) ) ) {
     *charge_busy = 1;
     /* Keep progressing into try_replay on the same iteration unless
-       drain_direct_exec pushed a pruned refcnt or published frags. */
-    if( FD_UNLIKELY( try_prune_sched( ctx ) || direct_pub_cnt ) ) {
+       drain_direct_exec pushed a pruned refcnt. */
+    if( FD_UNLIKELY( try_prune_sched( ctx ) ) ) {
       *opt_poll_in = 0;
       return;
     }

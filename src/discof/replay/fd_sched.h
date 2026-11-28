@@ -65,7 +65,9 @@ typedef struct fd_sched fd_sched_t;
 /* Out-of-band LtHash batch size, at most FD_EXECRP_LTHASH_BATCH_MAX.
    This seems to be a sweet spot in scheduling overhead vs task
    granularity. */
-#define FD_SCHED_LTHASH_BATCH_MAX (32UL)
+#define FD_SCHED_LTHASH_BATCH_MAX           (32UL)
+#define FD_SCHED_LTHASH_SPEC_BATCH_MAX      (32UL)
+#define FD_SCHED_LTHASH_SPEC_BATCH_BUSY_MAX (16UL)
 
 /* While a transaction of the block is in flight, a batch carries at
    most this many accounts, so that the tile it takes is free again

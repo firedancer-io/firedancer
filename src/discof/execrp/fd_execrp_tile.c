@@ -558,6 +558,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         out_msg->lthash->cnt = msg->cnt;
         fd_lthash_value_t * sum = &ctx->result->lthash;
         fd_lthash_zero( sum );
+        int   save_spec     = (kind==FD_EXECRP_TT_LTHASH_ADD) && !!msg->speculative && (msg->cnt<=FD_EXECRP_LTHASH_SPEC_BATCH_MAX);
         ulong data_sz       = 0UL;
         long  acquire_ticks = 0L;
         for( ulong i=0UL; i<msg->cnt; i+=FD_BLAKE3_XN_MAX ) {
@@ -572,6 +573,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
           ulong               data_len  [ FD_BLAKE3_XN_MAX ];
           fd_lthash_value_t   hash      [ FD_BLAKE3_XN_MAX ];
           fd_lthash_value_t * hash_out  [ FD_BLAKE3_XN_MAX ];
+          fd_lthash_value_t * dst = save_spec ? (ctx->result->lthash_spec + i) : hash;
           for( ulong j=0UL; j<acc_cnt; j++ ) pubkey[ j ] = msg->acct[ i+j ].b;
           long tick_acquire = fd_tickcount();
           fd_accdb_acquire( ctx->accdb, fork_id, acc_cnt, pubkey, writable, acc );
@@ -582,12 +584,12 @@ returnable_frag( fd_execrp_tile_t *  ctx,
             executable[ j ] = acc[ j ].executable;
             data      [ j ] = acc[ j ].data;
             data_len  [ j ] = acc[ j ].data_len;
-            hash_out  [ j ] = hash+j;
+            hash_out  [ j ] = dst+j;
             data_sz += acc[ j ].data_len;
           }
           fd_hashes_account_lthash_xn( acc_cnt, pubkey, owner, lamports, executable, data, data_len, hash_out );
           fd_accdb_release( ctx->accdb, acc_cnt, acc );
-          for( ulong j=0UL; j<acc_cnt; j++ ) fd_lthash_add( sum, hash+j );
+          for( ulong j=0UL; j<acc_cnt; j++ ) fd_lthash_add( sum, dst+j );
         }
         out_msg->lthash->slot          = bank->f.slot;
         out_msg->lthash->speculative   = msg->speculative;

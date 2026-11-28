@@ -1686,17 +1686,14 @@ lthash_entry_new_write_observed( fd_sched_t *           sched,
    speculation entry so the addition can be undone later if needed.
    Caller is responsible for ensuring a speculation entry is free. */
 static void
-lthash_add_created( fd_sched_t *       sched,
-                    fd_sched_block_t * block,
-                    ulong              ptxn_idx,
-                    int                speculative ) {
+lthash_add_created_acct( fd_sched_t *           sched,
+                         fd_sched_block_t *     block,
+                         ulong                  ptxn_idx,
+                         fd_acct_addr_t const * acct,
+                         int                    speculative ) {
   FD_TEST( ptxn_idx & FD_RDISP_LTHASH_PSEUDO_TXN );
   block->add_created_cnt++;
   sched->metrics->lthash_add_created_cnt++;
-  fd_acct_addr_t acct[ 1 ];
-  sched_rdisp_lock( sched );
-  fd_rdisp_pseudo_txn_to_addr( sched->rdisp, ptxn_idx, acct );
-  sched_rdisp_unlock( sched );
   fd_sched_lthash_entry_t * e = lthash_lane_query( sched, block->staging_lane, acct );
   if( FD_LIKELY( !e ) ) {
     /* The account may have no entry yet, which happens when the block
@@ -1719,6 +1716,18 @@ lthash_add_created( fd_sched_t *       sched,
     FD_TEST( sched->lthash_spec_free_cnt );
     e->spec_idx = sched->lthash_spec_free[ --sched->lthash_spec_free_cnt ];
   }
+}
+
+static void
+lthash_add_created( fd_sched_t *       sched,
+                    fd_sched_block_t * block,
+                    ulong              ptxn_idx,
+                    int                speculative ) {
+  fd_acct_addr_t acct[ 1 ];
+  sched_rdisp_lock( sched );
+  fd_rdisp_pseudo_txn_to_addr( sched->rdisp, ptxn_idx, acct );
+  sched_rdisp_unlock( sched );
+  lthash_add_created_acct( sched, block, ptxn_idx, acct, speculative );
 }
 
 /* The block was just staged and claims its lane's map.  A lane the
@@ -2407,6 +2416,7 @@ lthash_speculate( fd_sched_t *       sched,
                   ulong              msg_ready_bitset,
                   int                eff_reserve,
                   fd_sched_task_t *  out ) {
+  FD_STATIC_ASSERT( FD_SCHED_LTHASH_SPEC_BATCH_MAX<=FD_SCHED_LTHASH_BATCH_MAX, spec_batch_bound );
   /* Any unsurfaced pseudo transaction is a speculation, since with
      fec_eos clear there has been no drain. */
   uint spec_pending = block->add_created_cnt-block->add_surfaced_cnt;
@@ -2419,38 +2429,76 @@ lthash_speculate( fd_sched_t *       sched,
   ulong direct_busy = sched->direct.enabled ? __atomic_load_n( &sched->direct.busy_bitset, __ATOMIC_ACQUIRE ) : 0UL;
   if( fd_ulong_popcnt( msg_ready_bitset & ~direct_busy )<=eff_reserve ) return -1;
 
-  fd_acct_addr_t acct[ 1 ];
+  ulong          ptxns[ FD_SCHED_LTHASH_SPEC_BATCH_MAX ];
+  fd_acct_addr_t accts[ FD_SCHED_LTHASH_SPEC_BATCH_MAX ];
+  ulong          got        = 0UL;
+  int            walled_off = 0;
+
   sched_rdisp_lock( sched );
-  ulong ptxn_idx = fd_rdisp_add_ready_pseudo_txn( sched->rdisp, bank_idx );
-  ulong idx      = 0UL;
-  if( FD_LIKELY( ptxn_idx ) ) {
-    fd_rdisp_pseudo_txn_to_addr( sched->rdisp, ptxn_idx, acct );
-    idx = sched->direct.enabled ? fd_rdisp_get_next_ready_ptxn( sched->rdisp, bank_idx )
-                                : fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
+  ulong batch_max = block->txn_exec_in_flight_cnt>0U ? FD_SCHED_LTHASH_SPEC_BATCH_BUSY_MAX : FD_SCHED_LTHASH_SPEC_BATCH_MAX;
+  if( sched->direct.enabled && block->txn_exec_in_flight_cnt>0U &&
+      block->add_owed_cnt>=batch_max &&
+      sched->lthash_spec_free_cnt>=batch_max &&
+      fd_rdisp_lane_ready_acct_cnt( sched->rdisp, block->staging_lane )<batch_max ) {
+    sched_rdisp_unlock( sched );
+    return -1;
+  }
+  ulong cap = sched->direct.enabled
+            ? fd_ulong_min( batch_max, fd_ulong_min( (ulong)block->add_owed_cnt, sched->lthash_spec_free_cnt ) )
+            : 1UL;
+  while( got<cap ) {
+    ulong ptxn_idx = fd_rdisp_add_ready_pseudo_txn( sched->rdisp, bank_idx );
+    if( FD_UNLIKELY( !ptxn_idx ) ) break;
+    fd_rdisp_pseudo_txn_to_addr( sched->rdisp, ptxn_idx, accts+got );
+    ulong idx = sched->direct.enabled ? fd_rdisp_get_next_ready_ptxn( sched->rdisp, bank_idx )
+                                      : fd_rdisp_get_next_ready     ( sched->rdisp, bank_idx );
+    if( FD_UNLIKELY( !idx ) ) {
+      FD_TEST( got==0UL );
+      ptxns[ 0 ] = ptxn_idx;
+      walled_off = 1;
+      break;
+    }
+    if( FD_UNLIKELY( idx!=ptxn_idx ) ) FD_LOG_CRIT(( "invariant violation: fd_rdisp_get_next_ready returned 0x%lx instead of pseudo transaction 0x%lx of block %lu:%lu", idx, ptxn_idx, block->slot, bank_idx ));
+    ptxns[ got++ ] = ptxn_idx;
   }
   sched_rdisp_unlock( sched );
-  if( FD_UNLIKELY( !ptxn_idx ) ) {
+
+  if( FD_UNLIKELY( !got && !walled_off ) ) {
     if( sched->direct.enabled ) return -1;
     FD_LOG_CRIT(( "invariant violation: block %lu:%lu owes %u additions and has a ready account but fd_rdisp_add_ready_pseudo_txn returned none", block->slot, bank_idx, block->add_owed_cnt ));
   }
-  sched->metrics->lthash_spec_cnt++;
-  block->add_owed_cnt--;
-  lthash_add_created( sched, block, ptxn_idx, 1 );
+  if( FD_UNLIKELY( walled_off ) ) {
+    sched->metrics->lthash_spec_cnt++;
+    block->add_owed_cnt--;
+    lthash_add_created_acct( sched, block, ptxns[ 0 ], accts, 1 );
+    return 0;
+  }
 
-  if( FD_LIKELY( idx==ptxn_idx ) ) {
-    int exec_tile_idx = sched_claim_idle_tile( sched, msg_ready_bitset, 1, eff_reserve );
-    if( FD_LIKELY( exec_tile_idx>=0 ) ) {
-      fd_sched_lthash_entry_t * e = lthash_surface_addr( sched, block, bank_idx, idx, acct );
-      FD_TEST( e );
-      lthash_dispatch_one_add( sched, block, bank_idx, e, idx, exec_tile_idx, out );
-      return 1;
+  sched->metrics->lthash_spec_cnt += got;
+  block->add_owed_cnt             -= (uint)got;
+  for( ulong i=0UL; i<got; i++ ) {
+    lthash_add_created_acct( sched, block, ptxns[ i ], accts+i, 1 );
+  }
+
+  int exec_tile_idx = sched_claim_idle_tile( sched, msg_ready_bitset, 1, eff_reserve );
+  if( FD_UNLIKELY( exec_tile_idx<0 ) ) {
+    for( ulong i=0UL; i<got; i++ ) {
+      fd_sched_lthash_entry_t * e = lthash_surface_addr( sched, block, bank_idx, ptxns[ i ], accts+i );
+      if( FD_LIKELY( e ) ) lthash_spec_give_up( sched, block, bank_idx, e, ptxns[ i ] );
     }
-    fd_sched_lthash_entry_t * e = lthash_surface_addr( sched, block, bank_idx, idx, acct );
-    if( FD_LIKELY( e ) ) lthash_spec_give_up( sched, block, bank_idx, e, idx );
     return -1;
   }
-  if( FD_UNLIKELY( idx ) ) FD_LOG_CRIT(( "invariant violation: fd_rdisp_get_next_ready returned 0x%lx instead of pseudo transaction 0x%lx of block %lu:%lu", idx, ptxn_idx, block->slot, bank_idx ));
-  return 0;
+
+  fd_sched_lthash_batch_t * rec = sched->lthash_inflight+exec_tile_idx;
+  lthash_batch_init( block, rec, bank_idx, FD_SCHED_TT_LTHASH_ADD );
+  rec->speculative = 1;
+  for( ulong i=0UL; i<got; i++ ) {
+    fd_sched_lthash_entry_t * e = lthash_surface_addr( sched, block, bank_idx, ptxns[ i ], accts+i );
+    FD_TEST( e );
+    lthash_batch_append( sched, rec, e, ptxns[ i ] );
+  }
+  lthash_dispatch( sched, block, rec, exec_tile_idx, out );
+  return 1;
 }
 
 
@@ -3856,22 +3904,40 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
         FD_TEST( e->bank_idx==(uint)bank_idx );
         stale_cnt += (ulong)(rec->ptxn_idx[ i ]!=e->ptxn_idx);
       }
+      fd_lthash_value_t const * sum         = fd_type_pun_const( data );
+      fd_lthash_value_t const * spec_hashes = rec->cnt==1UL ? sum : (sum+1);
+      fd_lthash_value_t *       delta       = block_lthash_delta( sched, block );
       if( FD_UNLIKELY( stale_cnt ) ) {
-        if( FD_UNLIKELY( rec->cnt>1UL ) ) {
+        if( FD_UNLIKELY( !rec->speculative && rec->cnt>1UL ) ) {
           sched->print_buf_sz = 0UL;
           print_all( sched, block );
           FD_LOG_NOTICE(( "%s", sched->print_buf ));
           FD_LOG_CRIT(( "invariant violation: %lu of %lu batched additions of block %lu:%lu were rewritten on the tile", stale_cnt, rec->cnt, block->slot, bank_idx ));
         }
-        sched->metrics->lthash_add_dispatched_stale_cnt++;
+        FD_TEST( !rec->speculative || rec->cnt<=FD_SCHED_LTHASH_SPEC_BATCH_MAX );
+        for( ulong i=0UL; i<rec->cnt; i++ ) {
+          fd_sched_lthash_entry_t * e = sched->lthash_lane[ rec->lane ].entry_pool+rec->entry_idx[ i ];
+          if( rec->ptxn_idx[ i ]!=e->ptxn_idx ) {
+            sched->metrics->lthash_add_dispatched_stale_cnt++;
+          } else {
+            FD_TEST( e->add_state==FD_SCHED_LTHASH_ADD_DISPATCHED && e->spec_idx!=UINT_MAX );
+            fd_lthash_add( delta, spec_hashes+i );
+            fd_memcpy( sched->lthash_spec_pool+e->spec_idx, spec_hashes+i, sizeof(fd_lthash_value_t) );
+            e->add_state = (uchar)FD_SCHED_LTHASH_ADD_DONE;
+            e->ptxn_idx  = 0U;
+            block->add_applied_cnt++;
+            sched->metrics->lthash_add_applied_cnt++;
+            sched->metrics->lthash_spec_applied_cnt++;
+          }
+        }
       } else {
-        fd_lthash_add( block_lthash_delta( sched, block ), fd_type_pun_const( data ) );
+        FD_TEST( !rec->speculative || rec->cnt<=FD_SCHED_LTHASH_SPEC_BATCH_MAX );
+        fd_lthash_add( delta, sum );
         for( ulong i=0UL; i<rec->cnt; i++ ) {
           fd_sched_lthash_entry_t * e = sched->lthash_lane[ rec->lane ].entry_pool+rec->entry_idx[ i ];
           FD_TEST( e->add_state==FD_SCHED_LTHASH_ADD_DISPATCHED );
           if( FD_UNLIKELY( e->spec_idx!=UINT_MAX ) ) {
-            FD_TEST( rec->cnt==1UL );
-            fd_memcpy( sched->lthash_spec_pool+e->spec_idx, data, sizeof(fd_lthash_value_t) );
+            fd_memcpy( sched->lthash_spec_pool+e->spec_idx, spec_hashes+i, sizeof(fd_lthash_value_t) );
             sched->metrics->lthash_spec_applied_cnt++;
           }
           e->add_state = (uchar)FD_SCHED_LTHASH_ADD_DONE;

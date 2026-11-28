@@ -268,15 +268,20 @@ typedef struct fd_execrp_task_done_msg fd_execrp_task_done_msg_t;
    done message, and the task type in the sig says which member is
    valid. */
 
+#define FD_EXECRP_LTHASH_SPEC_BATCH_MAX (32UL)
+
 struct fd_execrp_result {
   union {
-    fd_lthash_value_t lthash;                                   /* LTHASH_SUB, LTHASH_ADD, REWARDS. */
-    fd_pubkey_t       alt_writable[ FD_TXN_ACCT_ADDR_MAX-1UL ]; /* TXN_EXEC.  alt_writable_cnt of these are valid. */
+    struct {
+      fd_lthash_value_t lthash;                                         /* LTHASH_SUB, LTHASH_ADD, REWARDS (sum over batch). */
+      fd_lthash_value_t lthash_spec[ FD_EXECRP_LTHASH_SPEC_BATCH_MAX ]; /* Per-account hashes for speculative LTHASH_ADD. */
+    };
+    fd_pubkey_t alt_writable[ FD_TXN_ACCT_ADDR_MAX-1UL ];               /* TXN_EXEC.  alt_writable_cnt of these are valid. */
   };
 };
 typedef struct fd_execrp_result fd_execrp_result_t;
 
-FD_STATIC_ASSERT( sizeof(fd_execrp_result_t)==sizeof(fd_lthash_value_t), execrp_result_sz );
+FD_STATIC_ASSERT( sizeof(fd_execrp_result_t)==(1UL+FD_EXECRP_LTHASH_SPEC_BATCH_MAX)*sizeof(fd_lthash_value_t), execrp_result_sz );
 
 FD_PROTOTYPES_BEGIN
 
