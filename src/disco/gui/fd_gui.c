@@ -240,6 +240,7 @@ fd_gui_new( void *                   shmem,
   gui->summary.sock_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "sock"   );
   gui->summary.mlx5_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "mlx5"   );
   gui->summary.iavf_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "iavf"   );
+  gui->summary.vhost_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "vhost"  );
   gui->summary.net_tile_cnt    = fd_topo_tile_name_cnt( gui->topo, "net"    );
   gui->summary.quic_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "quic"   );
   gui->summary.verify_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "verify" );
@@ -801,9 +802,10 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
   cur->out.tpu     = 0UL;
   cur->out.votor   = 0UL;
   cur->in.votor    = 0UL;
-  fd_gui_network_stats_snap_egress( topo, "net",  cur );
-  fd_gui_network_stats_snap_egress( topo, "mlx5", cur );
-  fd_gui_network_stats_snap_egress( topo, "iavf", cur );
+  fd_gui_network_stats_snap_egress( topo, "net",   cur );
+  fd_gui_network_stats_snap_egress( topo, "mlx5",  cur );
+  fd_gui_network_stats_snap_egress( topo, "iavf",  cur );
+  fd_gui_network_stats_snap_egress( topo, "vhost", cur );
 
   ulong votor_tile_idx = fd_topo_find_tile( topo, "votor", 0UL );
   if( FD_UNLIKELY( votor_tile_idx!=ULONG_MAX ) ) {
@@ -1423,6 +1425,13 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
     volatile ulong * iavf_metrics = fd_metrics_tile( iavf->metrics );
     stats->net_in_rx_bytes  += iavf_metrics[ MIDX( COUNTER, IAVF, PKT_RX_BYTES ) ];
     stats->net_out_tx_bytes += iavf_metrics[ MIDX( COUNTER, IAVF, PKT_TX_COMPLETED_BYTES ) ];
+  }
+
+  for( ulong i=0UL; i<gui->summary.vhost_tile_cnt; i++ ) {
+    fd_topo_tile_t const * vhost = &topo->tiles[ fd_topo_find_tile( topo, "vhost", i ) ];
+    volatile ulong * vhost_metrics = fd_metrics_tile( vhost->metrics );
+    stats->net_in_rx_bytes  += vhost_metrics[ MIDX( COUNTER, VHOST, PKT_RX_BYTES ) ];
+    stats->net_out_tx_bytes += vhost_metrics[ MIDX( COUNTER, VHOST, PKT_TX_COMPLETED_BYTES ) ];
   }
 
   for( ulong i=0UL; i<gui->summary.quic_tile_cnt; i++ ) {
