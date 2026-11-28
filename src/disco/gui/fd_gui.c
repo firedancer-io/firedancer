@@ -790,6 +790,7 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
   ulong gossip_tile_cnt = fd_topo_tile_name_cnt( topo, "gossip" );
   ulong shred_tile_cnt  = fd_topo_tile_name_cnt( topo, "shred" );
   ulong quic_tile_cnt   = fd_topo_tile_name_cnt( topo, "quic" );
+  ulong snapsv_tile_cnt = fd_topo_tile_name_cnt( topo, "snapsv" );
 
   cur->in.gossip   = fd_gui_metrics_gossip_total_ingress_bytes( topo, gossvf_tile_cnt );
   cur->out.gossip  = fd_gui_metrics_gossip_total_egress_bytes( topo, gossip_tile_cnt );
@@ -865,6 +866,9 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
     cur->in.metric  = 0UL;
     cur->out.metric = 0UL;
   }
+
+  cur->in.snapsv  = fd_gui_metrics_sum_tiles_counter( topo, "snapsv", snapsv_tile_cnt, MIDX( COUNTER, SNAPSV, HTTP_RX_BYTES ) );
+  cur->out.snapsv = fd_gui_metrics_sum_tiles_counter( topo, "snapsv", snapsv_tile_cnt, MIDX( COUNTER, SNAPSV, HTTP_TX_BYTES ) );
 }
 
 static void
@@ -889,6 +893,7 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
   d_in[ 4 ] = fd_ulong_sat_sub( cur->in.rserve,  prev->in.rserve  );
   d_in[ 5 ] = fd_ulong_sat_sub( cur->in.metric,  prev->in.metric  );
   d_in[ 6 ] = fd_ulong_sat_sub( cur->in.votor,   prev->in.votor   );
+  d_in[ 7 ] = fd_ulong_sat_sub( cur->in.snapsv,  prev->in.snapsv  );
 
   ulong d_out[ FD_GUI_NET_PROTO_CNT ];
   d_out[ 0 ] = fd_ulong_sat_sub( cur->out.turbine, prev->out.turbine );
@@ -898,6 +903,7 @@ fd_gui_network_rate_max_update( fd_gui_t * gui,
   d_out[ 4 ] = fd_ulong_sat_sub( cur->out.rserve,  prev->out.rserve  );
   d_out[ 5 ] = fd_ulong_sat_sub( cur->out.metric,  prev->out.metric  );
   d_out[ 6 ] = fd_ulong_sat_sub( cur->out.votor,   prev->out.votor   );
+  d_out[ 7 ] = fd_ulong_sat_sub( cur->out.snapsv,  prev->out.snapsv  );
 
   /* Compute per-protocol instantaneous bytes/sec rate and feed the EMA. */
   long dt_ns = now - gui->summary.net_rate_prev_ts;
