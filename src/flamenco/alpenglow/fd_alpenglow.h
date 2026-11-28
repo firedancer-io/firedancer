@@ -86,6 +86,22 @@ fd_alpenglow_footer_certs( fd_block_footer_t const *      footer,
                            uint                           tag   [ static FD_ALPENGLOW_FOOTER_CERT_MAX ],
                            ulong                          quorum[ static FD_ALPENGLOW_FOOTER_CERT_MAX ] );
 
+#define FD_ALPENGLOW_FOOTER_CERT_FAST_FINAL   (0)
+#define FD_ALPENGLOW_FOOTER_CERT_FINAL        (1)
+#define FD_ALPENGLOW_FOOTER_CERT_NOTAR        (2)
+#define FD_ALPENGLOW_FOOTER_CERT_SKIP_REWARD  (3)
+#define FD_ALPENGLOW_FOOTER_CERT_NOTAR_REWARD (4)
+#define FD_ALPENGLOW_FOOTER_CERT_CNT          (5)
+
+/* fd_alpenglow_footer_cert_kind returns the FD_ALPENGLOW_FOOTER_CERT_*
+   kind of the cert that fd_alpenglow_footer_certs lists with this vote
+   tag and quorum numerator, or FD_ALPENGLOW_FOOTER_CERT_CNT for a pair
+   it never lists. */
+
+int
+fd_alpenglow_footer_cert_kind( uint  vote_tag,
+                               ulong quorum_numer );
+
 #define FD_ALPENGLOW_CERT_PAYLOAD_MAX (43UL)
 
 ulong
@@ -94,12 +110,27 @@ fd_alpenglow_cert_payload( fd_block_footer_cert_t const * cert,
                            ushort                         shred_version,
                            uchar                          payload[ static FD_ALPENGLOW_CERT_PAYLOAD_MAX ] );
 
+/* fd_alpenglow_cert_stats describes the signers of a cert against the
+   validator set of the cert's epoch. */
+
+struct fd_alpenglow_cert_stats {
+  ulong signer_cnt;
+  ulong validator_cnt;
+  ulong signer_stake;
+  ulong total_stake;
+};
+
+typedef struct fd_alpenglow_cert_stats fd_alpenglow_cert_stats_t;
+
 /* fd_alpenglow_cert_verify checks one cert listed by
    fd_alpenglow_footer_certs.  A footer with certs verifies iff each of
    its certs does.  cache may be NULL.  hm (NULL for none) is the
    payload's H(m), skipping its lookup.  hm_out (NULL for none) is set
-   to H(m) when hm is NULL.  Returns 0 if the cert verifies
-   and -1 otherwise, including when shred_version is 0. */
+   to H(m) when hm is NULL.  stats_out (NULL for none) is set whether
+   or not the cert verifies, unless the call fails before it knows the
+   cert's validator set, in which case it is left untouched.  Returns 0
+   if the cert verifies and -1 otherwise, including when shred_version
+   is 0. */
 
 int
 fd_alpenglow_cert_verify( fd_bank_t const *              bank,
@@ -109,7 +140,8 @@ fd_alpenglow_cert_verify( fd_bank_t const *              bank,
                           ushort                         shred_version,
                           fd_footer_cache_t *            cache,
                           fd_bls_hash_t const *         hm,
-                          fd_bls_hash_t *               hm_out );
+                          fd_bls_hash_t *               hm_out,
+                          fd_alpenglow_cert_stats_t *   stats_out );
 
 /* This encodes a footer's vote reward work, including the certs' signer
    sets, each indexed by rank in the vote stakes snapshot of its slot's
@@ -161,8 +193,10 @@ fd_alpenglow_rewards_plan( fd_bank_t *                   bank,
    slice's signers unless the plan's use_memo is 0.  The slice's change
    to the accounts' lthash is added to delta and its share of the
    leader's credits to leader_credits, both initialized by the caller.
-   Returns 0 on success and -1 if a cert's epoch has no ranked
-   validators, in which case processing of the bank should fail. */
+   acct_cnt (NULL for none) is set to the number of vote accounts the
+   slice stored.  Returns 0 on success and -1 if a cert's epoch has no
+   ranked validators, in which case processing of the bank should
+   fail. */
 
 int
 fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
@@ -173,7 +207,8 @@ fd_alpenglow_rewards_apply_slice( fd_bank_t *                         bank,
                                   ulong                               slice_idx,
                                   ulong                               slice_cnt,
                                   fd_lthash_value_t *                 delta,
-                                  ulong *                             leader_credits );
+                                  ulong *                             leader_credits,
+                                  ulong *                             acct_cnt );
 
 /* fd_alpenglow_rewards_apply_leader applies the plan to the leader's
    vote account.  The account gets its own signer updates and then the

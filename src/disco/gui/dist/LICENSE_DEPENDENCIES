@@ -88,20 +88,20 @@ SOFTWARE.
 
 ---
 
-Name: three
-Version: 0.184.0
+Name: jotai
+Version: 2.15.1
 License: MIT
 Private: false
-Description: JavaScript 3D library
-Repository: https://github.com/mrdoob/three.js
-Homepage: https://threejs.org/
-Author: mrdoob
+Description: 👻 Primitive and flexible state management for React
+Repository: git+https://github.com/pmndrs/jotai.git
+Homepage: https://github.com/pmndrs/jotai
+Author: Daishi Kato
 License Text:
 ===
 
-The MIT License
+MIT License
 
-Copyright © 2010-2026 three.js authors
+Copyright (c) 2020 Poimandres
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -110,16 +110,16 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 
@@ -979,6 +979,39 @@ Homepage: https://radix-ui.com/primitives
 
 ---
 
+Name: @radix-ui/react-checkbox
+Version: 1.3.3
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+License Text:
+===
+
+MIT License
+
+Copyright (c) 2022 WorkOS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
 Name: @floating-ui/utils
 Version: 0.2.10
 License: MIT
@@ -1313,6 +1346,39 @@ SOFTWARE.
 
 ---
 
+Name: @radix-ui/react-hover-card
+Version: 1.1.15
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+License Text:
+===
+
+MIT License
+
+Copyright (c) 2022 WorkOS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
 Name: @radix-ui/number
 Version: 1.1.1
 License: MIT
@@ -1357,6 +1423,39 @@ SOFTWARE.
 
 Name: @radix-ui/react-progress
 Version: 1.1.7
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+License Text:
+===
+
+MIT License
+
+Copyright (c) 2022 WorkOS
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Name: @radix-ui/react-radio-group
+Version: 1.3.8
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -1929,38 +2028,25 @@ SOFTWARE.
 
 ---
 
-Name: jotai
-Version: 2.15.1
+Name: clsx
+Version: 2.1.1
 License: MIT
 Private: false
-Description: 👻 Primitive and flexible state management for React
-Repository: git+https://github.com/pmndrs/jotai.git
-Homepage: https://github.com/pmndrs/jotai
-Author: Daishi Kato
+Description: A tiny (239B) utility for constructing className strings conditionally.
+Repository: undefined
+Author: Luke Edwards <luke.edwards05@gmail.com> (https://lukeed.com)
 License Text:
 ===
 
 MIT License
 
-Copyright (c) 2020 Poimandres
+Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 
@@ -2811,21 +2897,55 @@ For more information, please refer to <https://unlicense.org>
 
 ---
 
-Name: byte-size
-Version: 9.0.1
+Name: events
+Version: 3.3.0
 License: MIT
 Private: false
-Description: Convert a bytes or octets value (e.g. 34565346) to a human-readable string ('34.6 MB'). Choose between metric or IEC units.
-Repository: git+https://github.com/75lb/byte-size.git
-Author: Lloyd Brookes <opensource@75lb.com>
-Contributors:
-  Raul Perez <repejota@gmail.com> (http://repejota.com)
+Description: Node's event emitter for all engines.
+Repository: git://github.com/Gozala/events.git
+Author: Irakli Gozalishvili <rfobic@gmail.com> (http://jeditoolkit.com)
 License Text:
 ===
 
-The MIT License (MIT)
+MIT
 
-Copyright (c) 2014-25 Lloyd Brookes <75pound@gmail.com>
+Copyright Joyent, Inc. and other Node contributors.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to permit
+persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+Name: use-debounce
+Version: 10.0.6
+License: MIT
+Private: false
+Description: Debounce hook for react
+Repository: git+ssh://git@github.com/xnimorz/use-debounce.git
+Homepage: https://github.com/xnimorz/use-debounce#readme
+Author: Nik (nik@xnim.me)
+License Text:
+===
+
+MIT License
+
+Copyright (c) 2018 Nikita Mostovoy
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -2847,42 +2967,56 @@ SOFTWARE.
 
 ---
 
-Name: clsx
-Version: 2.1.1
+Name: three
+Version: 0.184.0
 License: MIT
 Private: false
-Description: A tiny (239B) utility for constructing className strings conditionally.
-Repository: undefined
-Author: Luke Edwards <luke.edwards05@gmail.com> (https://lukeed.com)
+Description: JavaScript 3D library
+Repository: https://github.com/mrdoob/three.js
+Homepage: https://threejs.org/
+Author: mrdoob
 License Text:
 ===
 
-MIT License
+The MIT License
 
-Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
+Copyright © 2010-2026 three.js authors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 ---
 
-Name: use-debounce
-Version: 10.0.6
+Name: byte-size
+Version: 9.0.1
 License: MIT
 Private: false
-Description: Debounce hook for react
-Repository: git+ssh://git@github.com/xnimorz/use-debounce.git
-Homepage: https://github.com/xnimorz/use-debounce#readme
-Author: Nik (nik@xnim.me)
+Description: Convert a bytes or octets value (e.g. 34565346) to a human-readable string ('34.6 MB'). Choose between metric or IEC units.
+Repository: git+https://github.com/75lb/byte-size.git
+Author: Lloyd Brookes <opensource@75lb.com>
+Contributors:
+  Raul Perez <repejota@gmail.com> (http://repejota.com)
 License Text:
 ===
 
-MIT License
+The MIT License (MIT)
 
-Copyright (c) 2018 Nikita Mostovoy
+Copyright (c) 2014-25 Lloyd Brookes <75pound@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -3183,41 +3317,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
----
-
-Name: events
-Version: 3.3.0
-License: MIT
-Private: false
-Description: Node's event emitter for all engines.
-Repository: git://github.com/Gozala/events.git
-Author: Irakli Gozalishvili <rfobic@gmail.com> (http://jeditoolkit.com)
-License Text:
-===
-
-MIT
-
-Copyright Joyent, Inc. and other Node contributors.
-
-Permission is hereby granted, free of charge, to any person obtaining a
-copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to permit
-persons to whom the Software is furnished to do so, subject to the
-following conditions:
-
-The above copyright notice and this permission notice shall be included
-in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 

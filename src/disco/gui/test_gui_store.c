@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
 
 /* DBs for the test. */
 #define DB_ENT8  (0UL)  /* entity, 8-byte key  (key + payload)          */
@@ -1019,6 +1022,38 @@ test_private_index_budget( void ) {
   FD_LOG_NOTICE(( "test_private_index_budget: ok" ));
 }
 
+/* The whole file is allocated at creation, and a store the disk can't
+   hold is refused (here via a file size limit) without leaving a file
+   behind. */
+static void
+test_preallocate( void ) {
+  char path[ 128 ]; mk_path( path, sizeof(path) );
+  cleanup( path );
+  ulong size = fd_gui_store_min_size( DB_CNT, descs )+4UL*FD_GUI_STORE_REGION_SZ;
+  fd_gui_store_t * db = db_open( path, size );
+  struct stat st;
+  FD_TEST( !stat( path, &st ) );
+  FD_TEST( (ulong)st.st_size==fd_gui_store_file_sz( db ) && (ulong)st.st_blocks*512UL>=fd_gui_store_file_sz( db ) );
+  FD_TEST( fd_gui_store_file_sz( db )>=fd_gui_store_free_region_cnt( db )*FD_GUI_STORE_REGION_SZ );
+  db_close( db );
+  cleanup( path );
+
+  struct rlimit old;
+  FD_TEST( !getrlimit( RLIMIT_FSIZE, &old ) );
+  struct rlimit lim = old;
+  lim.rlim_cur = (rlim_t)( size/2UL );
+  FD_TEST( !setrlimit( RLIMIT_FSIZE, &lim ) );
+  void (*old_handler)( int ) = signal( SIGXFSZ, SIG_IGN );
+  ulong fp = fd_gui_store_footprint( size, DB_CNT, descs );
+  void * mem = aligned_alloc( fd_gui_store_align(), fd_ulong_align_up( fp, fd_gui_store_align() ) );
+  FD_TEST( mem );
+  FD_TEST( !fd_gui_store_new( mem, path, size, DB_CNT, TEST_SEED, descs ) );
+  FD_TEST( access( path, F_OK )==-1 && errno==ENOENT );
+  free( mem );
+  signal( SIGXFSZ, old_handler );
+  FD_TEST( !setrlimit( RLIMIT_FSIZE, &old ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1043,6 +1078,7 @@ main( int     argc,
   test_protected_bases( 2UL );
   test_per_ring_bases();
   test_private_index_budget();
+  test_preallocate();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

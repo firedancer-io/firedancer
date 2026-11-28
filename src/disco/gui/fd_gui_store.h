@@ -25,8 +25,9 @@
    a superblock page followed by a pool of uniform REGION_SZ regions;
    regions are claimed/released on demand from a shared LIFO free list
    (so a given ring has composite regions that are generally
-   discontiguous) and the file is allocated up to the highest claimed
-   region with fallocate as needed, never exceeding size_bytes.  Region
+   discontiguous).  The whole file is fallocated when the store is
+   created (creation fails if the disk can't hold it), so writers
+   never wait on or fail for disk space.  Region
    ownership and the free list are in-memory; only the superblock
    persists.
 
@@ -36,7 +37,7 @@
      | magic,size,ring[MAX_RINGS] |   0    |   1    |   2    |    | cnt-1  |
      +----------------------------+--------+--------+--------+-  -+--------+
      |<-- data_off (page 0..N) -->|<---------- REGION_SZ each ------------>|
-     (allocated to highest claimed region)
+     (all allocated at creation)
 
    ---- rings ----------------------------------------------------------
 
@@ -95,8 +96,10 @@ typedef struct fd_gui_store_private fd_gui_store_t;
    their metadata in the value), so FD_GUI_STORE_MAX_REC_SZ is the whole
    region size.  Callers that know their record types at compile time
    should static-assert sizeof(their largest record) <=
-   FD_GUI_STORE_MAX_REC_SZ. */
-#define FD_GUI_STORE_REGION_SZ  (40UL<<20)
+   FD_GUI_STORE_MAX_REC_SZ.  96 MiB fits the GUI's ~79 MiB timeline
+   day record (including the vote latency tiers) with ~17 MiB of
+   headroom for further day fields. */
+#define FD_GUI_STORE_REGION_SZ  (96UL<<20)
 #define FD_GUI_STORE_MAX_REC_SZ (FD_GUI_STORE_REGION_SZ)
 
 /* Each ring has a protected rolling base of desc->base_regions (>=1)
@@ -177,8 +180,8 @@ fd_gui_store_live_bytes( fd_gui_store_t * db );
 ulong
 fd_gui_store_size( fd_gui_store_t const * db );
 
-/* fd_gui_store_file_sz returns the logical allocated length of the
-   backing file. */
+/* fd_gui_store_file_sz returns the allocated length of the backing
+   file, the full mapped size since creation. */
 
 ulong
 fd_gui_store_file_sz( fd_gui_store_t const * db );

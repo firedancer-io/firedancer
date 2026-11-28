@@ -2,7 +2,7 @@
 #include "fd_gui_store.h"
 
 #include <errno.h>      /* errno                        */
-#include <unistd.h>     /* close, fallocate            */
+#include <unistd.h>     /* close, fallocate, unlink    */
 #include <fcntl.h>      /* open, O_RDWR/O_CREAT/O_TRUNC */
 #include <sys/mman.h>   /* mmap, munmap, PROT_*, MAP_*  */
 
@@ -302,9 +302,12 @@ fd_gui_store_new( void *                      mem,
   ulong map_sz = data_off + region_cnt*region_sz;
   int fd = open( path, O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600 );
   if( FD_UNLIKELY( fd<0 ) ) { FD_LOG_WARNING(( "fd_gui_store_new: open(%s) failed (%d-%s)", path, errno, fd_io_strerror( errno ) )); return NULL; }
-  if( FD_UNLIKELY( fallocate( fd, 0, 0, (off_t)data_off ) ) ) {
-    FD_LOG_WARNING(( "fd_gui_store_new: fallocate(%s, %lu) failed (%d-%s)", path, data_off, errno, fd_io_strerror( errno ) ));
-    close( fd ); return NULL;
+  /* Reserve the whole file up front so a full disk refuses to start
+     instead of stalling writers once regions run out of backing. */
+  if( FD_UNLIKELY( fallocate( fd, 0, 0, (off_t)map_sz ) ) ) {
+    FD_LOG_WARNING(( "fd_gui_store_new: fallocate(%s, %lu) failed (%d-%s); free disk space or lower [tiles.gui.db_size_gib]",
+                     path, map_sz, errno, fd_io_strerror( errno ) ));
+    close( fd ); unlink( path ); return NULL;
   }
   void * mapped = mmap( NULL, map_sz, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0 );
   if( FD_UNLIKELY( mapped==MAP_FAILED ) ) {
@@ -315,7 +318,7 @@ fd_gui_store_new( void *                      mem,
   db->fd        = fd;
   db->mapped    = mapped;
   db->mapped_sz = map_sz;
-  db->file_sz   = data_off;
+  db->file_sz   = map_sz;
   db->super     = (fd_gui_store_super_t *)mapped;
 
   fd_gui_store_super_t * super = db->super;
@@ -490,18 +493,6 @@ fd_gui_store_region_grow( fd_gui_store_t * db, ulong ring_idx ) {
   region_ring[ ordinal % db->region_cnt ] = region_id;
   rt->reg_cnt++;
 
-  ulong region_end = db->super->data_off + ( region_id + 1UL )*db->super->region_sz;
-  if( region_end>db->file_sz ) {
-    ulong grow_sz = region_end - db->file_sz;
-    if( FD_UNLIKELY( fallocate( db->fd, 0, (off_t)db->file_sz, (off_t)grow_sz ) ) ) {
-      /* roll back the claim */
-      rt->reg_cnt--;
-      fd_gui_store_freelist_push( db->freelist, region_id );
-      FD_LOG_WARNING(( "fd_gui_store: fallocate grow to %lu failed (%d-%s)", region_end, errno, fd_io_strerror( errno ) ));
-      return 0;
-    }
-    db->file_sz = region_end;
-  }
   /* Claiming a base region consumes one outstanding entitlement. */
   db->reserved -= rt->reg_cnt<=rt->base;
   db->region_age[ region_id ] = db->next_age++;

@@ -20,7 +20,7 @@ typedef struct fd_gui fd_gui_t;
    time, while queries select by event time.  Events skewed further than
    LAG_MAX are excluded from query responses and counted in
    clamped_fec_event_cnt. */
-#define FD_GUI_FEC_EVENT_LAG_MAX_NS (10L*1000L*1000L*1000L)
+#define FD_GUI_FEC_EVENT_LAG_MAX_NS (1000L*1000L*1000L)
 #define FD_GUI_FEC_BATCH_SPAN_NS    (1000L*1000L*1000L)
 
 #define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (0UL)
@@ -215,6 +215,9 @@ fd_gui_event_closed_slot_wmark( fd_gui_t const * gui );
 void
 fd_gui_event_closed_slot_wmark_advance( fd_gui_t * gui,
                                         ulong      wmark );
+
+/* fd_gui_shred_window_is_empty returns 1 if there are no recorded shred
+   events in [after_ns,before_ns], 0 otherwise. */
 
 int
 fd_gui_shred_window_is_empty( fd_gui_t * gui,

@@ -12,7 +12,7 @@
    or knowingly skipped) before the constant is bumped.  String keys of
    the user's own file are separately forced through the classification
    lists below. */
-FD_STATIC_ASSERT( sizeof(fd_config_t)==24464608UL, update_fd_config_to_json_for_the_layout_change );
+FD_STATIC_ASSERT( sizeof(fd_config_t)==24526064UL, update_fd_config_to_json_for_the_layout_change );
 
 #define REDACTED "[redacted]"
 
@@ -111,6 +111,7 @@ static char const * const jw_redacted_keys[] = {
   "paths.identity_key",
   "paths.vote_account",
   "paths.authorized_voter_paths",
+  "paths.guidbs",
   "paths.snapshots",
   "paths.genesis",
   "paths.accounts",
@@ -120,7 +121,6 @@ static char const * const jw_redacted_keys[] = {
   "paths.vote_stakes",
   "paths.txncache",
   "paths.shredb",
-  "paths.guidb",
   "paths.vote_history",
   "log.path",
   "gossip.host",
@@ -199,6 +199,7 @@ jw_key_redacted( char const * path ) {
 
 static char const * const jw_array_keys[] = {
   "paths.authorized_voter_paths",
+  "paths.guidbs",
   "gossip.entrypoints",
   "snapshots.sources.gossip.allow_list",
   "snapshots.sources.gossip.block_list",
@@ -331,9 +332,9 @@ fd_config_to_json( fd_config_t const * config,
     jw_path( &w, "vote_stakes",             config->paths.vote_stakes );
     jw_path( &w, "txncache",                config->paths.txncache );
     jw_path( &w, "shredb",                  config->paths.shredb );
-    jw_path( &w, "guidb",                   config->paths.guidb );
     jw_path( &w, "vote_history",            config->paths.vote_history );
     jw_path_arr( &w, "authorized_voter_paths", f->paths.authorized_voter_paths_cnt );
+    jw_path_arr( &w, "guidbs",                 f->paths.guidbs_cnt );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "log" );
@@ -376,6 +377,7 @@ fd_config_to_json( fd_config_t const * config,
     jw_ulong( &w, "snapzp_tile_count",          f->layout.snapzp_tile_count );
     jw_ulong( &w, "snapsv_tile_count",          f->layout.snapsv_tile_count );
     jw_ulong( &w, "snapsv_io_worker_count",     f->layout.snapsv_io_worker_count );
+    jw_ulong( &w, "gui_tile_count",             f->layout.gui_tile_count );
   jw_obj_close( &w );
 
   jw_obj_open( &w, "accounts" );

@@ -12,6 +12,7 @@
 #define CONFIGURE_STAGE_COUNT       ( 24UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX ( 16UL)
 #define IP4_PORT_STR_MAX            ( 22UL)
+#define FD_CONFIG_GUI_TILE_MAX      ( 16UL)
 
 struct fd_configf {
   struct {
@@ -34,6 +35,7 @@ struct fd_configf {
     uint snapzp_tile_count;
     uint snapsv_tile_count;
     uint snapsv_io_worker_count;
+    uint gui_tile_count;
   } layout;
 
   struct {
@@ -127,6 +129,8 @@ struct fd_configf {
   struct {
     ulong authorized_voter_paths_cnt;
     char  authorized_voter_paths[ FD_KEYGUARD_AUTH_VOTERS_MAX ][ PATH_MAX ];
+    ulong guidbs_cnt;
+    char  guidbs[ FD_CONFIG_GUI_TILE_MAX ][ PATH_MAX ];
   } paths;
 
   struct {
@@ -241,7 +245,6 @@ struct fd_config {
     char vote_stakes[ PATH_MAX ];
     char txncache[ PATH_MAX ];
     char shredb[ PATH_MAX ];
-    char guidb[ PATH_MAX ];
     char vote_history[ PATH_MAX ];
   } paths;
 

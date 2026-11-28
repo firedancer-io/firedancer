@@ -56,6 +56,21 @@ struct fd_failover_switch_resp {
 typedef struct fd_failover_switch_resp fd_failover_switch_resp_t;
 FD_STATIC_ASSERT( sizeof(fd_failover_switch_resp_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, switch_resp_fits );
 
+/* A command response carries an fd_failover_cmd_resp_t payload.
+   bypassed records which checks a takeover skipped because of its
+   flags, for the GUI and the log.  Empty for everything else. */
+
+#define FD_FAILOVER_BYPASS_HOLDER_LIVE        (1UL) /* --force went ahead though the machine running the identity may be live */
+#define FD_FAILOVER_BYPASS_HOLDER_SEEN        (2UL) /* --force kept the identity though a machine running it authenticated */
+#define FD_FAILOVER_BYPASS_HISTORY_INCOMPLETE (4UL) /* the takeover accepted a vote history that does not cover the coverage floor */
+
+struct fd_failover_cmd_resp {
+  ulong last_vote_slot;
+  ulong bypassed;       /* FD_FAILOVER_BYPASS_* */
+};
+typedef struct fd_failover_cmd_resp fd_failover_cmd_resp_t;
+FD_STATIC_ASSERT( sizeof(fd_failover_cmd_resp_t)<=FD_FAILOVER_BUS_PAYLOAD_MAX, cmd_resp_fits );
+
 /* bus message framing */
 
 struct fd_failover_bus_msg {

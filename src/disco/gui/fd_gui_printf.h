@@ -102,6 +102,13 @@ fd_gui_printf_slot_transactions_request( fd_gui_t *            gui,
                                          fd_gui_slot_t const * slot );
 
 int
+fd_gui_printf_timeline_query_votes( fd_gui_t * gui,
+                                    long       start,
+                                    long       end,
+                                    int        batch, /* vote batches instead of votes */
+                                    ulong      id );
+
+int
 fd_gui_printf_timeline_query_slots( fd_gui_t * gui,
                                     long       start_ns,
                                     long       end_ns,
@@ -112,6 +119,60 @@ fd_gui_printf_timeline_query_events( fd_gui_t * gui,
                                      long       start_ns,
                                      long       end_ns,
                                      ulong      id );
+
+int
+fd_gui_printf_timeline_query_fec_events( fd_gui_t * gui,
+                                         long       start_ns,
+                                         long       end_ns,
+                                         ulong      id );
+
+int
+fd_gui_printf_timeline_query_txn_meta( fd_gui_t * gui,
+                                       long       start_ns,
+                                       long       end_ns,
+                                       ulong      id );
+
+/* fd_gui_printf_timeline_query_revenue stages one row per replay or
+   leader transaction (batch==0) or batch (batch==1) completing in
+   [start_ns,end_ns) that paid anything and has a positive span.
+   Returns -1 for invalid arguments. */
+
+int
+fd_gui_printf_timeline_query_revenue( fd_gui_t * gui,
+                                      long       start_ns,
+                                      long       end_ns,
+                                      int        batch,
+                                      ulong      id );
+
+/* fd_gui_printf_timeline_query_tile_states stages the execrp and replay
+   tile states in [start_ns,end_ns), per transaction (batch==0) or per
+   batch (batch==1).  Returns -1 for invalid arguments. */
+
+int
+fd_gui_printf_timeline_query_tile_states( fd_gui_t * gui,
+                                          long       start_ns,
+                                          long       end_ns,
+                                          int        batch,
+                                          ulong      id );
+
+/* fd_gui_printf_timeline_query_chunked stages the response to a raw
+   timeline query of kind (FD_GUI_CHUNK_KIND_*) for [start_ns,end_ns)
+   as an array of FD_GUI_CHUNK_NS chunks.  If compressed (the
+   connection takes compressed messages) final chunks are served from
+   and added to gui->chunk (see fd_gui_chunk.h), and the staged response
+   is a zstd stream: returns 1, send it with
+   fd_http_server_ws_send_compressed.  Otherwise, and for requests that
+   hit a row limit, the whole range is one uncached plaintext chunk (or
+   the limit error): returns 0, send it with fd_http_server_ws_send.
+   Returns -1 for invalid arguments (nothing staged). */
+
+int
+fd_gui_printf_timeline_query_chunked( fd_gui_t * gui,
+                                      int        compressed,
+                                      int        kind,
+                                      long       start_ns,
+                                      long       end_ns,
+                                      ulong      id );
 
 int
 fd_gui_printf_timeline_query_agg( fd_gui_t *   gui,
@@ -136,17 +197,24 @@ fd_gui_printf_timeline_query_agg_cpu( fd_gui_t *    gui,
                                       ulong         tile_cnt,
                                       ulong         id );
 
+/* fd_gui_printf_timeline_query_agg_tile_states stages per-tile time in
+   each tile state for every tile that records states (the execrp tiles
+   and the replay tile), listed by ordinal in the response.  Returns -1
+   for invalid arguments. */
+
+int
+fd_gui_printf_timeline_query_agg_tile_states( fd_gui_t *   gui,
+                                              char const * granularity,
+                                              ulong        g,
+                                              long         reference,
+                                              ulong        count,
+                                              ulong        id );
+
 int
 fd_gui_printf_timeline_query_shreds( fd_gui_t * gui,
                                      long       start_ns,
                                      long       end_ns,
                                      ulong      id );
-
-int
-fd_gui_printf_timeline_query_fec_events( fd_gui_t * gui,
-                                         long       start_ns,
-                                         long       end_ns,
-                                         ulong      id );
 
 void
 fd_gui_printf_shred_rebroadcast( fd_gui_t * gui, long after, long before );

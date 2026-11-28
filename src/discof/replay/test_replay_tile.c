@@ -796,8 +796,9 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   memset( acct+1, 0x5a, sizeof(fd_acct_addr_t) );
   ulong exec_out_idx = ctx->exec_out[ 0 ].idx;
 
-  /* A request per LtHash kind carries the task's accounts, is
-     published at the used size, and holds a bank ref. */
+  /* A request per LtHash kind carries the task's accounts and speculative
+     flag, is stamped at dispatch, is published at the used size, and
+     holds a bank ref. */
 
   fd_sched_task_t task[ 1 ];
   memset( task, 0, sizeof(task) );
@@ -808,6 +809,7 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   task->lthash->accts    = acct;
   ulong chunk = ctx->exec_out[ 0 ].chunk;
   dispatch_task( ctx, test_stem, task );
+  long tick_after = fd_tickcount();
   FD_TEST( bank->refcnt==1UL );
   fd_frag_meta_t const * meta = test_stem_mcaches[ exec_out_idx ] + fd_mcache_line_idx( 0UL, test_stem_depths[ exec_out_idx ] );
   FD_TEST( meta->seq==0UL );
@@ -817,12 +819,16 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   fd_execrp_lthash_msg_t const * req = fd_chunk_to_laddr_const( wksp, meta->chunk );
   FD_TEST( req->bank_idx==bank->idx );
   FD_TEST( req->cnt==1UL );
+  FD_TEST( req->speculative==0UL );
+  FD_TEST( req->tick_dispatch && req->tick_dispatch<=tick_after );
   FD_TEST( !memcmp( req->acct, acct, sizeof(fd_acct_addr_t) ) );
 
-  task->task_type   = FD_SCHED_TT_LTHASH_ADD;
-  task->lthash->cnt = 2UL;
+  task->task_type           = FD_SCHED_TT_LTHASH_ADD;
+  task->lthash->cnt         = 2UL;
+  task->lthash->speculative = 1;
   chunk = ctx->exec_out[ 0 ].chunk;
   dispatch_task( ctx, test_stem, task );
+  tick_after = fd_tickcount();
   FD_TEST( bank->refcnt==2UL );
   meta = test_stem_mcaches[ exec_out_idx ] + fd_mcache_line_idx( 1UL, test_stem_depths[ exec_out_idx ] );
   FD_TEST( meta->seq==1UL );
@@ -832,6 +838,8 @@ test_lthash_oob_routing( fd_wksp_t * wksp ) {
   req = fd_chunk_to_laddr_const( wksp, meta->chunk );
   FD_TEST( req->bank_idx==bank->idx );
   FD_TEST( req->cnt==2UL );
+  FD_TEST( req->speculative==1UL );
+  FD_TEST( req->tick_dispatch && req->tick_dispatch<=tick_after );
   FD_TEST( !memcmp( req->acct, acct, 2UL*sizeof(fd_acct_addr_t) ) );
 
   /* want_alts is set iff the transaction is ALT_UNRESOLVED.  A
@@ -2376,6 +2384,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
             FD_TEST( msg->bank_idx==b->idx && msg->slice_idx==0UL && msg->slice_cnt==1UL && msg->plan.has_final && !msg->plan.has_reward && msg->plan.use_memo );
             results[ t ].lthash = *slice_delta;
             fd_execrp_task_done_msg_t done[1];
+            fd_memset( done, 0, sizeof(fd_execrp_task_done_msg_t) );
             done->bank_idx                = b->idx;
             done->rewards->err            = (int)bad;
             done->rewards->leader_credits = 7UL;
@@ -2403,8 +2412,9 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
             hm_cnt++;
           }
           fd_execrp_task_done_msg_t done[1];
+          fd_memset( done, 0, sizeof(fd_execrp_task_done_msg_t) );
           done->bank_idx         = b->idx;
-          done->cert_verify->err = !!fd_alpenglow_cert_verify( b, msg->cert, msg->tag, msg->quorum, msg->shred_version, NULL, msg->has_hm ? &msg->hm : NULL, &done->cert_verify->hm );
+          done->cert_verify->err = !!fd_alpenglow_cert_verify( b, msg->cert, msg->tag, msg->quorum, msg->shred_version, NULL, msg->has_hm ? &msg->hm : NULL, &done->cert_verify->hm, NULL );
           done->cert_verify->has_hm = !msg->has_hm && !done->cert_verify->err;
           FD_TEST( done->cert_verify->err==( bad && k==1UL && !slice_mode ) );
           ulong task_done0 = mock_sched_task_done_cnt;
@@ -2463,6 +2473,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
       ulong exec_idx = ctx->exec_out[ t ].idx;
       fd_frag_meta_t const * m = test_stem_mcaches[ exec_idx ] + fd_mcache_line_idx( sibling_seq0[ i ][ t ], test_stem_depths[ exec_idx ] );
       fd_execrp_task_done_msg_t done[1];
+      fd_memset( done, 0, sizeof(fd_execrp_task_done_msg_t) );
       done->bank_idx = b->idx;
       if( t==1UL ) {
         fd_memset( &results[ t ].lthash, 0, sizeof(fd_lthash_value_t) );
@@ -2471,7 +2482,7 @@ test_footer_cert_tasks( fd_wksp_t * wksp ) {
         process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_REWARDS<<32) | t );
       } else {
         fd_execrp_cert_verify_msg_t const * msg = fd_chunk_to_laddr_const( wksp, m->chunk );
-        done->cert_verify->err    = !!fd_alpenglow_cert_verify( b, msg->cert, msg->tag, msg->quorum, msg->shred_version, NULL, msg->has_hm ? &msg->hm : NULL, &done->cert_verify->hm );
+        done->cert_verify->err    = !!fd_alpenglow_cert_verify( b, msg->cert, msg->tag, msg->quorum, msg->shred_version, NULL, msg->has_hm ? &msg->hm : NULL, &done->cert_verify->hm, NULL );
         done->cert_verify->has_hm = !msg->has_hm && !done->cert_verify->err;
         FD_TEST( !done->cert_verify->err );
         process_exec_task_done( ctx, test_stem, done, sizeof(fd_execrp_task_done_msg_t), (FD_EXECRP_TT_CERT_VERIFY<<32) | t );

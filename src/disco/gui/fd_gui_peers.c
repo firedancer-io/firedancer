@@ -592,6 +592,20 @@ fd_gui_peers_voter_best_for_identity( fd_gui_peers_voter_t const * voters,
   return best;
 }
 
+/* fd_gui_peers_contact_info_shown_eq returns 1 if a and b only differ
+   in fields that are not part of the peer JSON (see peers_printf_node
+   in fd_gui_printf.c): outset and version.commit.  The sockets are
+   unchanged, so the sock map does not need updating either. */
+
+FD_FN_PURE static int
+fd_gui_peers_contact_info_shown_eq( fd_gossip_contact_info_t const * a,
+                                    fd_gossip_contact_info_t const * b ) {
+  fd_gossip_contact_info_t a1 = *a;
+  a1.outset         = b->outset;
+  a1.version.commit = b->version.commit;
+  return fd_gossip_contact_info_eq( &a1, b );
+}
+
 void
 fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    fd_gossip_update_message_t const * update,
@@ -628,8 +642,12 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           }
           FD_TEST( found );
 #endif
-          /* update does nothing */
-          if( FD_UNLIKELY( fd_gossip_contact_info_eq( &peer->row.contact_info, update->contact_info->value ) ) ) {
+          /* Nothing the GUI shows changed.  Some clients bump outset
+             (and so re-advertise) every few milliseconds, so outset and
+             version.commit, which are never sent to clients, are stored
+             without a broadcast. */
+          if( FD_UNLIKELY( fd_gui_peers_contact_info_shown_eq( &peer->row.contact_info, update->contact_info->value ) ) ) {
+            peer->row.contact_info      = *update->contact_info->value;
             peer->row.wallclock_nanos   = FD_MILLI_TO_NANOSEC( update->wallclock );
             peer->row.update_time_nanos = now;
             wfs_handle_contact_info_update( peers, (fd_pubkey_t const *)update->origin, now );

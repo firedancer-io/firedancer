@@ -266,6 +266,7 @@ struct fd_failover_tile_ctx {
   ulong cmd_nonce;  /* nonce of the command, 0 none */
   ulong cmd_result; /* cmd outcome once cmd_done */
   int   cmd_done;   /* cmd is done after_credit publishes it */
+  ulong cmd_bypassed; /* FD_FAILOVER_BYPASS_* the running cmd used */
   ulong cmd_step_head; /* steps logged */
   ulong cmd_step_tail; /* steps sent to the admin tile or dropped */
   char  cmd_step[ FD_FAILOVER_STEP_CNT ][ FD_FAILOVER_BUS_STEP_MAX ]; /* the last steps, sent while the command waits */

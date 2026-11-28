@@ -21,6 +21,7 @@ fd_configf_t *
 fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
   CFG_POP_ARRAY( cstr,   paths.authorized_voter_paths                        );
+  CFG_POP_ARRAY( cstr,   paths.guidbs                                        );
 
   CFG_POP      ( cstr,   gossip.host                                         );
 
@@ -36,6 +37,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.snapzp_tile_count                            );
   CFG_POP      ( uint,   layout.snapsv_tile_count                            );
   CFG_POP      ( uint,   layout.snapsv_io_worker_count                       );
+  CFG_POP      ( uint,   layout.gui_tile_count                               );
 
   CFG_POP      ( cstr,   layout.mode                                         );
 
@@ -132,7 +134,6 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.vote_stakes                                );
     CFG_POP    ( cstr,   paths.txncache                                   );
     CFG_POP    ( cstr,   paths.shredb                                     );
-    CFG_POP    ( cstr,   paths.guidb                                      );
     CFG_POP    ( cstr,   paths.vote_history                               );
 
   CFG_POP_ARRAY( cstr,   gossip.entrypoints                               );
