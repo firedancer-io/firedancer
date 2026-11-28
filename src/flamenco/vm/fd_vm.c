@@ -144,9 +144,9 @@ fd_vm_validate( fd_vm_t const * vm ) {
      validation criteria. */
 
 # define FD_VALID               ((uchar)0)  /* Valid opcode */
-# define FD_CHECK_JMP           ((uchar)1)  /* Validation should check that the instruction is a valid jump */
+# define FD_CHECK_ST            ((uchar)1)  /* Validation should check that the instruction is a valid store */
 # define FD_CHECK_END           ((uchar)2)  /* Validation should check that the instruction is a valid endianness conversion */
-# define FD_CHECK_ST            ((uchar)3)  /* Validation should check that the instruction is a valid store */
+# define FD_CHECK_JMP           ((uchar)3)  /* Validation should check that the instruction is a valid jump */
 # define FD_CHECK_LDQ           ((uchar)4)  /* Validation should check that the instruction is a valid load-quad */
 # define FD_CHECK_DIV           ((uchar)5)  /* Validation should check that the instruction is a valid division by immediate */
 # define FD_CHECK_SH32          ((uchar)6)  /* Validation should check that the immediate is a valid 32-bit shift exponent */
@@ -362,7 +362,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
     fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
 
     uchar validation_code = validation_map[ instr.opcode.raw ];
-    switch( validation_code ) {
+    if( FD_UNLIKELY( validation_code > FD_CHECK_ST ) ) switch( validation_code ) {
 
     case FD_VALID: break;
 

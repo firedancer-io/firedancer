@@ -401,6 +401,79 @@ test_geometric_region_growth( fd_sbpf_syscalls_t *  syscalls,
 }
 
 static void
+test_validate_opcode_classes( fd_sbpf_syscalls_t *  syscalls,
+                              fd_exec_instr_ctx_t * instr_ctx ) {
+  /* Fast-path FD_VALID (0) and FD_CHECK_ST (1): verify r10 write permission
+     distinction and src/dst register bounds across V0 and V3. */
+  ulong valid_alu[] = {
+    fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 1UL,  0UL,  0, 42U ),
+    fd_vm_instr( FD_SBPF_OP_STXDW,    10UL,  1UL, -8,  0U ), /* V0 STXDW (0x7b): dst==r10 allowed */
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL,  0UL,  0,  0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, valid_alu, 3UL, syscalls, instr_ctx )==FD_VM_SUCCESS );
+
+  ulong valid_st_v2[] = {
+    fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 1UL,  0UL,  0, 42U ),
+    fd_vm_instr( 0x9fUL,              10UL,  1UL, -8,  0U ), /* V2 STXDW (0x9f): FD_CHECK_ST allows dst==r10 */
+    fd_vm_instr( FD_SBPF_OP_EXIT,      0UL,  0UL,  0,  0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V2, valid_st_v2, 3UL, syscalls, instr_ctx )==FD_VM_SUCCESS );
+  FD_TEST( test_vm_validate( FD_SBPF_V3, valid_st_v2, 3UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_DST_REG );
+
+  ulong bad_alu_r10[] = {
+    fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 10UL, 0UL, 0, 8U ), /* FD_VALID: dst==r10 rejected in V0/V3 */
+    fd_vm_instr( FD_SBPF_OP_EXIT,       0UL, 0UL, 0, 0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, bad_alu_r10, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_DST_REG );
+  FD_TEST( test_vm_validate( FD_SBPF_V3, bad_alu_r10, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_DST_REG );
+
+  ulong bad_st_dst11[] = {
+    fd_vm_instr( FD_SBPF_OP_STXDW, 11UL, 1UL, -8, 0U ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,   0UL, 0UL,  0, 0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, bad_st_dst11, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_DST_REG );
+
+  ulong bad_st_src11[] = {
+    fd_vm_instr( FD_SBPF_OP_STXDW, 10UL, 11UL, -8, 0U ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,   0UL,  0UL,  0, 0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, bad_st_src11, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_SRC_REG );
+
+  /* Slow-path validation codes (> FD_CHECK_ST): END, JMP, LDQ, DIV, SH32, SH64, INVALID */
+  ulong end_ok[]  = { fd_vm_instr( FD_SBPF_OP_END_BE, 1UL, 0UL, 0, 32U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong end_bad[] = { fd_vm_instr( FD_SBPF_OP_END_BE, 1UL, 0UL, 0, 24U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, end_ok,  2UL, syscalls, instr_ctx )==FD_VM_SUCCESS );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, end_bad, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_END_IMM );
+
+  ulong jmp_oob[] = { fd_vm_instr( FD_SBPF_OP_JA, 0UL, 0UL, 5, 0U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, jmp_oob, 2UL, syscalls, instr_ctx )==FD_VM_ERR_JMP_OUT_OF_BOUNDS );
+
+  ulong jmp_addl[] = {
+    fd_vm_instr( FD_SBPF_OP_JA,       0UL, 0UL, 1, 0U ), /* lands on ADDL_IMM at pc=2 */
+    fd_vm_instr( FD_SBPF_OP_LDDW,     1UL, 0UL, 0, 1U ),
+    fd_vm_instr( FD_SBPF_OP_ADDL_IMM, 0UL, 0UL, 0, 2U ),
+    fd_vm_instr( FD_SBPF_OP_EXIT,     0UL, 0UL, 0, 0U ),
+  };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, jmp_addl, 4UL, syscalls, instr_ctx )==FD_VM_ERR_JMP_TO_ADDL_IMM );
+
+  ulong ldq_inc[]  = { fd_vm_instr( FD_SBPF_OP_LDDW, 1UL, 0UL, 0, 1U ) };
+  ulong ldq_noad[] = { fd_vm_instr( FD_SBPF_OP_LDDW, 1UL, 0UL, 0, 1U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, ldq_inc,  1UL, syscalls, instr_ctx )==FD_VM_ERR_INCOMPLETE_LDQ );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, ldq_noad, 2UL, syscalls, instr_ctx )==FD_VM_ERR_LDQ_NO_ADDL_IMM );
+
+  ulong div0[]   = { fd_vm_instr( FD_SBPF_OP_DIV64_IMM, 1UL, 0UL, 0,  0U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong sh32[]   = { fd_vm_instr( FD_SBPF_OP_LSH_IMM,   1UL, 0UL, 0, 32U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong sh64[]   = { fd_vm_instr( FD_SBPF_OP_LSH64_IMM, 1UL, 0UL, 0, 64U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  ulong inv_op[] = { fd_vm_instr( 0xffUL,               0UL, 0UL, 0,  0U ), fd_vm_instr( FD_SBPF_OP_EXIT, 0UL, 0UL, 0, 0U ) };
+  FD_TEST( test_vm_validate( FD_SBPF_V0, div0,   2UL, syscalls, instr_ctx )==FD_VM_ERR_SIGFPE );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, sh32,   2UL, syscalls, instr_ctx )==FD_VM_SH_OVERFLOW );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, sh64,   2UL, syscalls, instr_ctx )==FD_VM_SH_OVERFLOW );
+  FD_TEST( test_vm_validate( FD_SBPF_V0, inv_op, 2UL, syscalls, instr_ctx )==FD_VM_ERR_INVALID_OPCODE );
+
+  FD_LOG_NOTICE(( "%-20s PASS", "validate-opclasses" ));
+}
+
+static void
 generate_random_alu_instrs( fd_rng_t * rng,
                             ulong *    text,
                             ulong      text_cnt ) {
@@ -2135,6 +2208,7 @@ main( int     argc,
   test_lazy_stack_zeroing( syscalls, instr_ctx );
   test_lazy_heap_zeroing( syscalls, instr_ctx );
   test_geometric_region_growth( syscalls, instr_ctx );
+  test_validate_opcode_classes( syscalls, instr_ctx );
 
   ulong   text_cnt = 1024UL*1024UL;
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
