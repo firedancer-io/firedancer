@@ -3249,35 +3249,75 @@ test_writer_flush( void ) {
 }
 
 static void
-test_writer_full_buffer_flush( void ) {
-  fd_snapin_tile_t * ctx = test_ctx;
-  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_IDLE );
-  test_io_reset();
-
-  ulong data_len = (FD_SNAPIN_WRITE_BUF_MAX-2UL)/2UL-sizeof(fd_accdb_disk_meta_t);
-  uchar * data = aligned_alloc( 64UL, fd_ulong_align_up( data_len, 64UL ) );
+test_writer_flush_threshold( void ) {
+  ulong meta_sz = sizeof(fd_accdb_disk_meta_t);
+  ulong data_sz = fd_ulong_max( FD_SNAPIN_WRITE_FLUSH_SZ, FD_RUNTIME_ACC_SZ_MAX );
+  uchar * data  = aligned_alloc( 64UL, fd_ulong_align_up( data_sz, 64UL ) );
   FD_TEST( data );
-  fd_memset( data, 7, data_len );
+  fd_memset( data, 7, data_sz );
 
   uchar pubkey[ 32UL ] = {1};
   uchar owner [ 32UL ] = {2};
+  fd_snapin_tile_t * ctx = test_ctx;
 
-  FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, data_len, 0 ) );
+  /* The flush check runs before each append, so a buffer one byte
+     short of FD_SNAPIN_WRITE_FLUSH_SZ takes another account. */
+  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_IDLE );
+  test_io_reset();
+  FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, FD_SNAPIN_WRITE_FLUSH_SZ-1UL-meta_sz, 0 ) );
+  FD_TEST( ctx->writer.buf_used==FD_SNAPIN_WRITE_FLUSH_SZ-1UL );
+  pubkey[ 0 ] = 2U;
+  FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, 1UL, 0 ) );
+  FD_TEST( !test_pwrite_call_cnt );
+  FD_TEST( ctx->writer.batch.cnt==2UL );
+  FD_TEST( ctx->writer.buf_used==FD_SNAPIN_WRITE_FLUSH_SZ+meta_sz );
+  FD_TEST( !ctx->metrics.accounts_loaded );
+
+  /* A buffer of exactly FD_SNAPIN_WRITE_FLUSH_SZ is flushed, padded to
+     the direct I/O alignment, before the next account is appended. */
+  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_IDLE );
+  test_io_reset();
+  pubkey[ 0 ] = 3U;
+  FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, FD_SNAPIN_WRITE_FLUSH_SZ-meta_sz, 0 ) );
+  FD_TEST( ctx->writer.buf_used==FD_SNAPIN_WRITE_FLUSH_SZ );
+  FD_TEST( !test_pwrite_call_cnt );
   pubkey[ 0 ] = 4U;
-  FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, data_len, 0 ) );
-  FD_TEST( ctx->writer.buf_used==FD_SNAPIN_WRITE_BUF_MAX-2UL );
-
-  pubkey[ 0 ] = 5U;
   FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, 1UL, 0 ) );
   FD_TEST( test_pwrite_call_cnt==1UL );
-  FD_TEST( test_pwrite_sz[ 0 ]==FD_SNAPIN_WRITE_BUF_SZ ); /* BUF_MAX-2 padded to the full buffer */
-  FD_TEST( ctx->writer.buf_used==sizeof(fd_accdb_disk_meta_t)+1UL );
+  FD_TEST( test_pwrite_off[ 0 ]==0UL && test_pwrite_sz[ 0 ]==test_padded_sz( FD_SNAPIN_WRITE_FLUSH_SZ ) );
+  FD_TEST( ctx->metrics.accounts_loaded==1UL );
+  FD_TEST( ctx->writer.batch.cnt==1UL );
+  FD_TEST( ctx->writer.buf_used==meta_sz+1UL );
 
   FD_TEST( !writer_flush( ctx ) );
   FD_TEST( test_pwrite_call_cnt==2UL );
-  FD_TEST( test_pwrite_off[ 1 ]==FD_SNAPIN_WRITE_BUF_SZ );
-  FD_TEST( test_pwrite_sz [ 1 ]==test_padded_sz( sizeof(fd_accdb_disk_meta_t)+1UL ) );
-  FD_TEST( test_file_off==FD_SNAPIN_WRITE_BUF_SZ+test_padded_sz( sizeof(fd_accdb_disk_meta_t)+1UL ) );
+  FD_TEST( test_pwrite_off[ 1 ]==test_padded_sz( FD_SNAPIN_WRITE_FLUSH_SZ ) );
+  FD_TEST( test_pwrite_sz [ 1 ]==test_padded_sz( meta_sz+1UL ) );
+  FD_TEST( test_file_off==test_padded_sz( FD_SNAPIN_WRITE_FLUSH_SZ )+test_padded_sz( meta_sz+1UL ) );
+  FD_TEST( ctx->metrics.accounts_loaded==2UL );
+
+  /* Largest batch: one byte short of the threshold plus a maximum size
+     account.  A batch can therefore reach FD_SNAPIN_WRITE_FLUSH_SZ plus
+     ~10 MiB, and its padded size must still fit the buffer. */
+  sync_ctx_init( ctx, 1UL, FD_SNAPSHOT_STATE_IDLE );
+  test_io_reset();
+  pubkey[ 0 ] = 5U;
+  FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, FD_SNAPIN_WRITE_FLUSH_SZ-1UL-meta_sz, 0 ) );
+  pubkey[ 0 ] = 6U;
+  FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, FD_RUNTIME_ACC_SZ_MAX, 0 ) );
+  ulong worst = FD_SNAPIN_WRITE_FLUSH_SZ-1UL+meta_sz+FD_RUNTIME_ACC_SZ_MAX;
+  FD_TEST( !test_pwrite_call_cnt );
+  FD_TEST( ctx->writer.buf_used==worst );
+  FD_TEST( test_padded_sz( worst )<=FD_SNAPIN_WRITE_BUF_SZ );
+  pubkey[ 0 ] = 7U;
+  FD_TEST( !test_writer_append( ctx, pubkey, owner, data, 42UL, 3UL, 1UL, 0 ) );
+  FD_TEST( test_pwrite_call_cnt==1UL );
+  FD_TEST( test_pwrite_off[ 0 ]==0UL && test_pwrite_sz[ 0 ]==test_padded_sz( worst ) );
+  FD_TEST( ctx->metrics.accounts_loaded==2UL );
+  FD_TEST( ctx->writer.batch.cnt==1UL );
+  FD_TEST( ctx->writer.buf_used==meta_sz+1UL );
+  FD_TEST( !writer_flush( ctx ) );
+  FD_TEST( ctx->metrics.accounts_loaded==3UL );
   free( data );
 }
 
@@ -3423,7 +3463,7 @@ main( int     argc,
   test_writer_short_write_and_eintr();
   test_writer_disk_error_fatal();
   test_writer_flush();
-  test_writer_full_buffer_flush();
+  test_writer_flush_threshold();
   test_max_account_staging();
   test_scratch_layout_fits();
 

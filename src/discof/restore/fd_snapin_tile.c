@@ -41,11 +41,19 @@
 #define FD_SNAPIN_WRITE_ACCOUNT_MAX (FD_SNAPIN_WRITE_BUF_SZ/sizeof(fd_accdb_disk_meta_t))
 /* Accounts are written with O_DIRECT so that snapin tiles do not
    serialize on the inode lock taken by buffered writes.  Each flush is
-   padded to FD_SNAPIN_DIRECT_ALIGN with a dead record header.  The
-   buffer fills only to FD_SNAPIN_WRITE_BUF_MAX so the header always
-   fits. */
+   padded to FD_SNAPIN_DIRECT_ALIGN with a dead record header.  A
+   record is never appended past FD_SNAPIN_WRITE_BUF_MAX, so the header
+   always fits.  In practice the FD_SNAPIN_WRITE_FLUSH_SZ threshold
+   flushes long before that: the buffer holds at most
+   FD_SNAPIN_WRITE_FLUSH_SZ-1 bytes plus one maximum size account. */
 #define FD_SNAPIN_DIRECT_ALIGN      (4096UL)
 #define FD_SNAPIN_WRITE_BUF_MAX     (FD_SNAPIN_WRITE_BUF_SZ-sizeof(fd_accdb_disk_meta_t))
+
+/* Flush before appending once the buffer holds this much, so the
+   pubkeys indexed after the pwrite are still in cache (16 MiB per tile
+   overflows L3).  A batch can still grow to this plus one account of
+   up to FD_RUNTIME_ACC_SZ_MAX. */
+#define FD_SNAPIN_WRITE_FLUSH_SZ    (2UL<<20)
 
 FD_STATIC_ASSERT( FD_SNAPIN_WRITE_BUF_SZ%FD_SNAPIN_DIRECT_ALIGN==0UL, write_buf_align );
 
@@ -57,6 +65,7 @@ FD_STATIC_ASSERT( FD_SNAPSHOT_STATE_ERROR==FD_METRICS_ENUM_SNAPSHOT_STREAM_STATE
 FD_STATIC_ASSERT( FD_SNAPSHOT_STATE_SHUTDOWN==FD_METRICS_ENUM_SNAPSHOT_STREAM_STATE_V_SHUTDOWN_IDX, metrics_state );
 FD_STATIC_ASSERT( FD_SNAPSHOT_DATA_MTU<FD_SNAPIN_WRITE_BUF_MAX, write_buf );
 FD_STATIC_ASSERT( sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX<=FD_SNAPIN_WRITE_BUF_MAX, max_account );
+FD_STATIC_ASSERT( FD_SNAPIN_WRITE_FLUSH_SZ-1UL+sizeof(fd_accdb_disk_meta_t)+FD_RUNTIME_ACC_SZ_MAX<=FD_SNAPIN_WRITE_BUF_MAX, flush_max_account );
 
 /* The snapin tiles are state machines that parse and load a full and
    optionally an incremental snapshot.  They are responsible for loading
@@ -1513,7 +1522,7 @@ writer_append_account( fd_snapin_tile_t * ctx,
   ulong account_sz = sizeof(fd_accdb_disk_meta_t)+data_len;
   FD_TEST( account_sz<=FD_SNAPIN_WRITE_BUF_MAX );
 
-  if( FD_UNLIKELY( account_sz>FD_SNAPIN_WRITE_BUF_MAX-ctx->writer.buf_used && writer_flush( ctx ) ) ) {
+  if( FD_UNLIKELY( ( account_sz>FD_SNAPIN_WRITE_BUF_MAX-ctx->writer.buf_used || ctx->writer.buf_used>=FD_SNAPIN_WRITE_FLUSH_SZ ) && writer_flush( ctx ) ) ) {
     return 1;
   }
 
