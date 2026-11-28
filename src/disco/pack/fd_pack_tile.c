@@ -250,6 +250,8 @@ typedef struct {
     ulong slot_max_allocated_data_per_block;
     ulong slot_max_data_shreds;
   } limits;
+  ulong max_cost_per_block;         /* config->limits.max_cost_per_block, caps leader's slot_max_cost */
+  ulong max_shreds_per_block;       /* config->limits.max_shreds_per_block, caps leader's slot_max_data_shreds */
   ulong bench_max_shreds_per_block; /* [development.bench], floors the leader's slot_max_data_shreds */
 
   /* If drain_execle is non-zero, then the pack tile must wait until all
@@ -1136,13 +1138,14 @@ after_frag( fd_pack_ctx_t *     ctx,
        the next microblock would not fit in two FEC sets, then pad out
        that batch.  An Alpenglow block has no tick entries besides the
        closing alpentick, which the end of block reserve covers. */
-    ulong shreds            = fd_ulong_max( ctx->_became_leader->limits.slot_max_data_shreds, ctx->bench_max_shreds_per_block );
+    ulong shreds            = fd_ulong_min( fd_ulong_max( ctx->_became_leader->limits.slot_max_data_shreds, ctx->bench_max_shreds_per_block ),
+                                            ctx->max_shreds_per_block );
     ulong max_microblock_sz = sizeof(fd_entry_batch_header_t) + EFFECTIVE_TXN_PER_MICROBLOCK*FD_TPU_MTU;
     ulong base_max_data     = fd_shred_batch_pack_data_max( shreds, max_microblock_sz );
     FD_TEST( base_max_data );
     ctx->slot_max_data        = base_max_data;
 
-    ctx->limits.slot_max_cost                     = ctx->_became_leader->limits.slot_max_cost;
+    ctx->limits.slot_max_cost                     = fd_ulong_min( ctx->_became_leader->limits.slot_max_cost, ctx->max_cost_per_block );
     ctx->limits.slot_max_write_cost_per_acct      = ctx->_became_leader->limits.slot_max_write_cost_per_acct;
     ctx->limits.slot_max_allocated_data_per_block = ctx->_became_leader->limits.slot_max_allocated_data_per_block;
     ctx->limits.slot_max_data_shreds              = shreds;
@@ -1407,6 +1410,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->auction_spacing_tick          = (long)(tick_per_ns*(double)FD_PACK_AUCTION_SPACING_NS);
   ctx->auction_interval_tick         = (long)(tick_per_ns*(double)FD_PACK_AUCTION_INTERVAL_NS);
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
+  ctx->max_cost_per_block            = tile->pack.max_cost_per_block;
+  ctx->max_shreds_per_block          = tile->pack.max_shreds_per_block;
   ctx->bench_max_shreds_per_block    = tile->pack.bench_max_shreds_per_block;
   ctx->crank->enabled                = tile->pack.bundle.enabled;
 
