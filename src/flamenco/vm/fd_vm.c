@@ -136,17 +136,20 @@ fd_vm_strerror( int err ) {
    IDENTICALLY! */
 
 int
-fd_vm_validate( fd_vm_t const * vm ) {
-
-  ulong sbpf_version = vm->sbpf_version;
+fd_vm_validate_prog( uchar const * rodata,
+                     ulong         rodata_sz,
+                     ulong const * text,
+                     ulong         text_cnt,
+                     ulong         text_sz,
+                     ulong         sbpf_version ) {
 
   /* A mapping of all the possible 1-byte sBPF opcodes to their
      validation criteria. */
 
 # define FD_VALID               ((uchar)0)  /* Valid opcode */
-# define FD_CHECK_JMP           ((uchar)1)  /* Validation should check that the instruction is a valid jump */
+# define FD_CHECK_ST            ((uchar)1)  /* Validation should check that the instruction is a valid store */
 # define FD_CHECK_END           ((uchar)2)  /* Validation should check that the instruction is a valid endianness conversion */
-# define FD_CHECK_ST            ((uchar)3)  /* Validation should check that the instruction is a valid store */
+# define FD_CHECK_JMP           ((uchar)3)  /* Validation should check that the instruction is a valid jump */
 # define FD_CHECK_LDQ           ((uchar)4)  /* Validation should check that the instruction is a valid load-quad */
 # define FD_CHECK_DIV           ((uchar)5)  /* Validation should check that the instruction is a valid division by immediate */
 # define FD_CHECK_SH32          ((uchar)6)  /* Validation should check that the immediate is a valid 32-bit shift exponent */
@@ -342,27 +345,24 @@ fd_vm_validate( fd_vm_t const * vm ) {
      generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
      this non-guarantee is (rightfully) exploited by the fuzz harnesses.
      Agave doesn't perform these checks explicitly due to Rust's guarantees  */
-  if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt ||
-                   (const uchar *)vm->text < vm->rodata ||
-                   (ulong)vm->text > (ulong)vm->text + vm->text_sz || /* Overflow chk */
-                   (const uchar *)vm->text + vm->text_sz > vm->rodata + vm->rodata_sz +
-                     ( FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS( sbpf_version ) ? vm->text_sz : 0UL ) ) )
+  if( FD_UNLIKELY( text_sz / 8UL != text_cnt ||
+                   (const uchar *)text < rodata ||
+                   (ulong)text > (ulong)text + text_sz || /* Overflow chk */
+                   (const uchar *)text + text_sz > rodata + rodata_sz +
+                     ( FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS( sbpf_version ) ? text_sz : 0UL ) ) )
     return FD_VM_ERR_BAD_TEXT;
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
     return FD_VM_TEXT_SZ_UNALIGNED;
 
-  if ( FD_UNLIKELY( vm->text_cnt == 0UL ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L112 */
+  if ( FD_UNLIKELY( text_cnt == 0UL ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L112 */
     return FD_VM_ERR_EMPTY;
-
-  ulong const * text     = vm->text;
-  ulong         text_cnt = vm->text_cnt;
 
   for( ulong i=0UL; i<text_cnt; i++ ) {
     fd_sbpf_instr_t instr = fd_sbpf_instr( text[i] );
 
     uchar validation_code = validation_map[ instr.opcode.raw ];
-    switch( validation_code ) {
+    if( FD_UNLIKELY( validation_code > FD_CHECK_ST ) ) switch( validation_code ) {
 
     case FD_VALID: break;
 
@@ -446,19 +446,23 @@ fd_vm_validate( fd_vm_t const * vm ) {
     /* Source register */
     if( FD_UNLIKELY( instr.src_reg>10 ) ) return FD_VM_ERR_INVALID_SRC_REG;
 
-    /* Special R10 register allowed for ADD64_IMM */
-    if( instr.dst_reg==10U
-        && FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( sbpf_version )
-        && instr.opcode.raw == 0x07
-        && ( instr.imm % FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN )==0 )
-        continue;
-
     /* Destination register. */
-    if( FD_UNLIKELY( instr.dst_reg==10U && validation_code != FD_CHECK_ST ) ) return FD_VM_ERR_INVALID_DST_REG;
-    if( FD_UNLIKELY( instr.dst_reg > 10U ) ) return FD_VM_ERR_INVALID_DST_REG;
+    if( FD_UNLIKELY( instr.dst_reg>=10U ) ) {
+      if( instr.dst_reg==10U
+          && FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP( sbpf_version )
+          && instr.opcode.raw == 0x07
+          && ( instr.imm % FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN )==0 )
+        continue;
+      if( instr.dst_reg>10U || validation_code!=FD_CHECK_ST ) return FD_VM_ERR_INVALID_DST_REG;
+    }
   }
 
   return FD_VM_SUCCESS;
+}
+
+int
+fd_vm_validate( fd_vm_t const * vm ) {
+  return fd_vm_validate_prog( vm->rodata, vm->rodata_sz, vm->text, vm->text_cnt, vm->text_sz, vm->sbpf_version );
 }
 
 FD_FN_CONST ulong
@@ -579,7 +583,7 @@ fd_vm_init(
    ulong                     entry_pc,
    ulong const *             calldests,
    ulong                     sbpf_version,
-   fd_sbpf_syscalls_t *      syscalls,
+   fd_sbpf_syscalls_t const * syscalls,
    fd_vm_trace_t *           trace,
    fd_sha256_t *             sha,
    fd_vm_input_region_t *    mem_regions,
@@ -668,4 +672,64 @@ fd_vm_init(
   /* Do NOT reset logs */
 
   return vm;
+}
+
+ulong
+fd_vm_mem_haddr_slow( fd_vm_t *     vm,
+                      ulong         vaddr,
+                      ulong         sz,
+                      ulong const * vm_region_haddr,
+                      uint  const * vm_region_sz,
+                      uchar         write,
+                      ulong         sentinel ) {
+  ulong region = FD_VADDR_TO_REGION( vaddr );
+  ulong offset = vaddr & FD_VM_OFFSET_MASK;
+
+  if( FD_LIKELY( region==FD_VM_INPUT_REGION ) ) {
+    return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
+  }
+
+  ulong region_sz = (ulong)vm_region_sz[ region ];
+  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
+
+  if( FD_LIKELY( sz>sz_max && (region==FD_VM_STACK_REGION || region==FD_VM_HEAP_REGION) ) ) {
+    /* {stack,heap} are lazily initialized.  faults here mean that we
+       need to do some zero initialization work. */
+    ulong need = fd_ulong_sat_add( offset, sz );
+    ulong cap  = fd_ulong_if( region==FD_VM_STACK_REGION, FD_VM_STACK_MAX, vm->heap_max );
+    if( FD_LIKELY( need<=cap ) ) {
+      if( region==FD_VM_STACK_REGION ) fd_vm_stack_grow( vm, need );
+      else                             fd_vm_heap_grow ( vm, need );
+      region_sz = (ulong)vm_region_sz[ region ]; /* republished by grow */
+      sz_max    = region_sz - fd_ulong_min( offset, region_sz );
+    }
+  }
+
+  return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+}
+
+ulong
+fd_vm_mem_haddr_ld_slow( fd_vm_t * vm,
+                         ulong     vaddr,
+                         ulong     sz ) {
+  ulong haddr = fd_vm_mem_haddr_slow( vm, vaddr, sz, vm->region_haddr, vm->region_ld_sz, 0, 0UL );
+  if( FD_UNLIKELY( !haddr ) ) {
+    vm->segv_vaddr       = vaddr;
+    vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+    vm->segv_access_len  = sz;
+  }
+  return haddr;
+}
+
+ulong
+fd_vm_mem_haddr_st_slow( fd_vm_t * vm,
+                         ulong     vaddr,
+                         ulong     sz ) {
+  ulong haddr = fd_vm_mem_haddr_slow( vm, vaddr, sz, vm->region_haddr, vm->region_st_sz, 1, 0UL );
+  if( FD_UNLIKELY( !haddr ) ) {
+    vm->segv_vaddr       = vaddr;
+    vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
+    vm->segv_access_len  = sz;
+  }
+  return haddr;
 }

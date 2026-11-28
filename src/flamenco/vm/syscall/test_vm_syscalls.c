@@ -352,6 +352,59 @@ test_register_slot0( void ) {
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
 }
 
+/* Verify that the startup-constructed fd_vm_syscalls_query_slot tables
+   match fd_vm_syscall_register_slot slot-for-slot across all 32
+   (is_deploy x 4 feature flags) combinations, activation boundaries,
+   and NULL features. */
+
+static void
+assert_syscall_tables_eq( fd_sbpf_syscalls_t const * got,
+                          fd_sbpf_syscalls_t const * exp ) {
+  FD_TEST( got && exp );
+  for( ulong i=0UL; i<(1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT); i++ ) {
+    FD_TEST( got[i].key == exp[i].key );
+    if( fd_sbpf_syscalls_key_inval( exp[i].key ) ) {
+      FD_TEST( got[i].func == NULL );
+    } else {
+      FD_TEST( got[i].func == exp[i].func );
+      FD_TEST( got[i].name && strcmp( got[i].name, exp[i].name )==0 );
+    }
+  }
+}
+
+static void
+test_syscalls_query_slot_all_masks( void ) {
+  uchar ref_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
+  fd_sbpf_syscalls_t * ref = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( ref_mem ) );
+  FD_TEST( ref );
+
+  /* NULL features enables all feature-gated syscalls */
+  for( uint dep=0U; dep<2U; dep++ ) {
+    FD_TEST( fd_vm_syscall_register_slot( ref, 42UL, NULL, (uchar)dep )==FD_VM_SUCCESS );
+    assert_syscall_tables_eq( fd_vm_syscalls_query_slot( 42UL, NULL, (uchar)dep ), ref );
+  }
+
+  /* Exhaustively check all 32 masks across slot boundary (slot 99 vs 100) */
+  for( ulong mask=0UL; mask<32UL; mask++ ) {
+    uchar is_deploy = (uchar)(mask & 1UL);
+    fd_features_t f[1];
+    fd_features_disable_all( f );
+    f->get_sysvar_syscall_enabled     = ((mask>>1) & 1UL) ? 100UL : 101UL;
+    f->enable_get_epoch_stake_syscall = ((mask>>2) & 1UL) ? 100UL : 101UL;
+    f->enable_sha512_syscall          = ((mask>>3) & 1UL) ? 100UL : 101UL;
+    f->enable_big_mod_exp_syscall     = ((mask>>4) & 1UL) ? 100UL : 101UL;
+
+    FD_TEST( fd_vm_syscall_register_slot( ref, 100UL, f, is_deploy )==FD_VM_SUCCESS );
+    assert_syscall_tables_eq( fd_vm_syscalls_query_slot( 100UL, f, is_deploy ), ref );
+
+    /* At slot 99, none of the 4 features (activated at 100/101) are active */
+    FD_TEST( fd_vm_syscall_register_slot( ref, 99UL, f, is_deploy )==FD_VM_SUCCESS );
+    assert_syscall_tables_eq( fd_vm_syscalls_query_slot( 99UL, f, is_deploy ), ref );
+  }
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( ref ) );
+}
+
 #define TEST_VM_U8_SLICE( _vaddr, _sz ) ((fd_vm_haddr_query_t){ .vaddr = (_vaddr), .align = FD_VM_ALIGN_RUST_U8,  .sz = (_sz), .is_slice = 1 })
 #define TEST_VM_U64( _vaddr )           ((fd_vm_haddr_query_t){ .vaddr = (_vaddr), .align = FD_VM_ALIGN_RUST_U64, .sz = 8UL,   .is_slice = 0 })
 
@@ -932,6 +985,7 @@ main( int     argc,
 
   dump_syscall_table();
   test_register_slot0();
+  test_syscalls_query_slot_all_masks();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
