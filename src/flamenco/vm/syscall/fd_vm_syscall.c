@@ -17,30 +17,22 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
 }
 
 int
-fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
-                             ulong                     slot,
-                             fd_features_t const *     features,
-                             uchar                     is_deploy ) {
+fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *  syscalls,
+                             ulong                 slot,
+                             fd_features_t const * features,
+                             uchar                 is_deploy ) {
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
-  int enable_get_sysvar_syscall        = 0;
-  int enable_get_epoch_stake_syscall   = 0;
-  int enable_sha512_syscall            = 0;
-  int enable_big_mod_exp_syscall       = 0;
+  int enable_get_sysvar_syscall      = 1;
+  int enable_get_epoch_stake_syscall = 1;
+  int enable_sha512_syscall          = 1;
+  int enable_big_mod_exp_syscall     = 1;
 
   if( features ) {
-    enable_get_sysvar_syscall        = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
-    enable_get_epoch_stake_syscall   = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
-    enable_sha512_syscall            = FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall );
-    enable_big_mod_exp_syscall       = FD_FEATURE_ACTIVE( slot, features, enable_big_mod_exp_syscall );
-
-  } else { /* enable ALL */
-
-    enable_get_sysvar_syscall        = 1;
-    enable_get_epoch_stake_syscall   = 1;
-    enable_sha512_syscall            = 1;
-    enable_big_mod_exp_syscall       = 1;
-
+    enable_get_sysvar_syscall      = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
+    enable_get_epoch_stake_syscall = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
+    enable_sha512_syscall          = FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall );
+    enable_big_mod_exp_syscall     = FD_FEATURE_ACTIVE( slot, features, enable_big_mod_exp_syscall );
   }
 
   fd_sbpf_syscalls_clear( syscalls );
@@ -133,4 +125,36 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 # undef REGISTER
 
   return FD_VM_SUCCESS;
+}
+
+static uchar fd_vm_syscalls_table[ 32UL ][ FD_SBPF_SYSCALLS_FOOTPRINT ]
+  __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
+
+__attribute__((constructor)) static void
+fd_vm_syscalls_table_init( void ) {
+  for( ulong mask=0UL; mask<32UL; mask++ ) {
+    fd_features_t f;
+    fd_features_disable_all( &f );
+    if( (mask>>1) & 1UL ) f.get_sysvar_syscall_enabled     = 0UL;
+    if( (mask>>2) & 1UL ) f.enable_get_epoch_stake_syscall = 0UL;
+    if( (mask>>3) & 1UL ) f.enable_sha512_syscall          = 0UL;
+    if( (mask>>4) & 1UL ) f.enable_big_mod_exp_syscall     = 0UL;
+    fd_sbpf_syscalls_t * s = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( fd_vm_syscalls_table[ mask ] ) );
+    fd_vm_syscall_register_slot( s, 0UL, &f, (uchar)(mask & 1UL) );
+  }
+}
+
+FD_FN_PURE fd_sbpf_syscalls_t const *
+fd_vm_syscalls_query_slot( ulong                 slot,
+                           fd_features_t const * features,
+                           uchar                 is_deploy ) {
+  ulong mask = (ulong)(!!is_deploy) | 0x1eUL;
+  if( FD_LIKELY( features ) ) {
+    mask = ( (ulong)(!!is_deploy)                                                              )
+         | ( (ulong)(!!FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled     ))<<1 )
+         | ( (ulong)(!!FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall ))<<2 )
+         | ( (ulong)(!!FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall          ))<<3 )
+         | ( (ulong)(!!FD_FEATURE_ACTIVE( slot, features, enable_big_mod_exp_syscall     ))<<4 );
+  }
+  return (fd_sbpf_syscalls_t const *)fd_vm_syscalls_table[ mask ];
 }

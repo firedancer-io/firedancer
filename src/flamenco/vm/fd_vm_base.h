@@ -690,6 +690,14 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *  syscalls,
                              fd_features_t const * features,
                              uchar                 is_deploy );
 
+/* fd_vm_syscalls_query_slot returns an immutable syscall table
+   pre-built at process startup for the active feature set at `slot`. */
+
+FD_FN_PURE fd_sbpf_syscalls_t const *
+fd_vm_syscalls_query_slot( ulong                 slot,
+                           fd_features_t const * features,
+                           uchar                 is_deploy );
+
 /* fd_vm_syscall_register_all is a shorthand for registering all
    syscalls (see register slot). */
 

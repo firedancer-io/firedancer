@@ -310,7 +310,7 @@ fd_vm_init(
    ulong                     entry_pc,
    ulong const *             calldests,
    ulong                     sbpf_version,
-   fd_sbpf_syscalls_t *      syscalls,
+   fd_sbpf_syscalls_t const * syscalls,
    fd_vm_trace_t *           trace,
    fd_sha256_t *             sha,
    fd_vm_input_region_t *    mem_regions,
