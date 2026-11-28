@@ -176,42 +176,50 @@
     reg[10] += vm->stack_frame_sz;                                                                                      \
   } while(0)
 
-/* Memory load/store templates. */
+/* Memory load/store templates.  Regions 0..4 share a unified 5-slot
+   inline TLB (slot 4 caches the active MRU input sub-region via
+   region_voff[4]); non-NULL haddr is guaranteed on the fast path. */
 # define FD_VM_INTERP_LD(opcode, sz, ld_fn)                                                         \
   FD_VM_INTERP_INSTR_BEGIN(opcode) {                                                                \
-    ulong _vaddr = reg[ FD_VM_SRC ] + FD_VM_OFFSET;                                                 \
-    ulong _haddr = fd_vm_mem_haddr( vm, _vaddr, (sz), vm->region_haddr, vm->region_ld_sz, 0, 0UL ); \
-    if( FD_UNLIKELY( !_haddr ) ) {                                                                  \
-      vm->segv_vaddr       = _vaddr;                                                                \
-      vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;                                                  \
-      vm->segv_access_len  = (sz);                                                                  \
-      goto sigsegv;                                                                                 \
+    ulong _vaddr  = reg[ FD_VM_SRC ] + FD_VM_OFFSET;                                                \
+    ulong _region = _vaddr >> 32;                                                                   \
+    ulong _rel;                                                                                     \
+    ulong _haddr;                                                                                   \
+    if( FD_LIKELY( _region<5UL && ((_rel = (ulong)((uint)_vaddr - vm->region_voff[ _region ]))+(sz))<=(ulong)vm->region_ld_sz[ _region ] ) ) { \
+      _haddr = vm->region_haddr[ _region ] + _rel;                                                  \
+    } else {                                                                                        \
+      _haddr = fd_vm_mem_haddr_ld_slow( vm, _vaddr, (sz) );                                         \
+      if( FD_UNLIKELY( !_haddr ) ) goto sigsegv;                                                    \
     }                                                                                               \
     reg[ FD_VM_DST ] = ld_fn( _haddr );                                                             \
   } FD_VM_INTERP_INSTR_END
 
 # define FD_VM_INTERP_ST_IMM(opcode, sz, st_fn, val_expr)                                           \
   FD_VM_INTERP_INSTR_BEGIN(opcode) {                                                                \
-    ulong _vaddr = reg[ FD_VM_DST ] + FD_VM_OFFSET;                                                 \
-    ulong _haddr = fd_vm_mem_haddr( vm, _vaddr, (sz), vm->region_haddr, vm->region_st_sz, 1, 0UL ); \
-    if( FD_UNLIKELY( !_haddr ) ) {                                                                  \
-      vm->segv_vaddr       = _vaddr;                                                                \
-      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;                                                  \
-      vm->segv_access_len  = (sz);                                                                  \
-      goto sigsegv;                                                                                 \
+    ulong _vaddr  = reg[ FD_VM_DST ] + FD_VM_OFFSET;                                                \
+    ulong _region = _vaddr >> 32;                                                                   \
+    ulong _rel;                                                                                     \
+    ulong _haddr;                                                                                   \
+    if( FD_LIKELY( _region<5UL && ((_rel = (ulong)((uint)_vaddr - vm->region_voff[ _region ]))+(sz))<=(ulong)vm->region_st_sz[ _region ] ) ) { \
+      _haddr = vm->region_haddr[ _region ] + _rel;                                                  \
+    } else {                                                                                        \
+      _haddr = fd_vm_mem_haddr_st_slow( vm, _vaddr, (sz) );                                         \
+      if( FD_UNLIKELY( !_haddr ) ) goto sigsegv;                                                    \
     }                                                                                               \
     st_fn( _haddr, (val_expr) );                                                                    \
   } FD_VM_INTERP_INSTR_END
 
 # define FD_VM_INTERP_ST_REG(opcode, sz, st_fn, cast_t)                                             \
   FD_VM_INTERP_INSTR_BEGIN(opcode) {                                                                \
-    ulong _vaddr = reg[ FD_VM_DST ] + FD_VM_OFFSET;                                                 \
-    ulong _haddr = fd_vm_mem_haddr( vm, _vaddr, (sz), vm->region_haddr, vm->region_st_sz, 1, 0UL ); \
-    if( FD_UNLIKELY( !_haddr ) ) {                                                                  \
-      vm->segv_vaddr       = _vaddr;                                                                \
-      vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;                                                  \
-      vm->segv_access_len  = (sz);                                                                  \
-      goto sigsegv;                                                                                 \
+    ulong _vaddr  = reg[ FD_VM_DST ] + FD_VM_OFFSET;                                                \
+    ulong _region = _vaddr >> 32;                                                                   \
+    ulong _rel;                                                                                     \
+    ulong _haddr;                                                                                   \
+    if( FD_LIKELY( _region<5UL && ((_rel = (ulong)((uint)_vaddr - vm->region_voff[ _region ]))+(sz))<=(ulong)vm->region_st_sz[ _region ] ) ) { \
+      _haddr = vm->region_haddr[ _region ] + _rel;                                                  \
+    } else {                                                                                        \
+      _haddr = fd_vm_mem_haddr_st_slow( vm, _vaddr, (sz) );                                         \
+      if( FD_UNLIKELY( !_haddr ) ) goto sigsegv;                                                    \
     }                                                                                               \
     st_fn( _haddr, (cast_t)reg[ FD_VM_SRC ] );                                                      \
   } FD_VM_INTERP_INSTR_END

@@ -227,7 +227,22 @@ fd_vm_mem_cfg( fd_vm_t * vm ) {
   }
   vm->region_haddr[FD_VM_STACK_REGION]   = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)vm->stack_clean; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)vm->stack_clean;
   vm->region_haddr[FD_VM_HEAP_REGION]    = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_clean;  vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_clean;
+  vm->region_haddr[FD_VM_INPUT_REGION]   = 0UL;               vm->region_ld_sz[FD_VM_INPUT_REGION] = (uint)0UL;             vm->region_st_sz[FD_VM_INPUT_REGION] = (uint)0UL;
   vm->region_haddr[5]                    = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
+  for( ulong i=0UL; i<5UL; i++ ) vm->region_voff[i] = 0U;
+  if( FD_LIKELY( vm->input_mem_regions_cnt ) ) {
+    fd_vm_input_region_t const * r0 = &vm->input_mem_regions[0];
+    if( FD_LIKELY( r0->vaddr_offset + (ulong)r0->region_sz <= (1UL<<32) ) ) {
+      vm->region_voff [FD_VM_INPUT_REGION] = (uint)r0->vaddr_offset;
+      vm->region_haddr[FD_VM_INPUT_REGION] = r0->haddr;
+      vm->region_ld_sz[FD_VM_INPUT_REGION] = r0->region_sz;
+      int fast_st = r0->is_writable &&
+        ( vm->acc_region_metas==NULL || r0->acc_region_meta_idx==ULONG_MAX ||
+          !vm->acc_region_metas[ r0->acc_region_meta_idx ].touched ||
+          *vm->acc_region_metas[ r0->acc_region_meta_idx ].touched );
+      vm->region_st_sz[FD_VM_INPUT_REGION] = fast_st ? r0->region_sz : 0U;
+    }
+  }
   return vm;
 }
 
@@ -284,17 +299,17 @@ fd_vm_generate_access_violation( ulong vaddr, ulong sbpf_version ) {
    it. */
 static inline ulong
 fd_vm_get_input_mem_region_idx( fd_vm_t const * vm, ulong offset ) {
+  fd_vm_input_region_t const * regions = vm->input_mem_regions;
   uint left  = 0U;
   uint right = vm->input_mem_regions_cnt - 1U;
-  uint mid   = 0U;
+  if( offset>=regions[ right ].vaddr_offset ) return right;
 
   while( left<right ) {
-    mid = (left+right) / 2U;
-    if( offset>=vm->input_mem_regions[ mid ].vaddr_offset+vm->input_mem_regions[ mid ].address_space_reserved ) {
-      left = mid + 1U;
-    } else {
-      right = mid;
-    }
+    uint  mid = (left+right) >> 1;
+    ulong end = regions[ mid ].vaddr_offset + regions[ mid ].address_space_reserved;
+    int   ge  = (offset>=end);
+    left  = fd_uint_if( ge, mid + 1U, left );
+    right = fd_uint_if( ge, right,    mid  );
   }
   return left;
 }
@@ -367,58 +382,49 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
   }
 }
 
-/* fd_vm_find_input_mem_region returns the translated haddr for a given
-   offset into the input region.  If an offset/sz is invalid or if an
-   illegal write is performed, the sentinel value is returned.  The
-   access must fit within a single input memory region. */
-static inline ulong
-fd_vm_find_input_mem_region( fd_vm_t const * vm,
-                             ulong           offset,
-                             ulong           sz,
-                             uchar           write,
-                             ulong           sentinel ) {
-  if( FD_UNLIKELY( vm->input_mem_regions_cnt==0 ) ) {
-    return sentinel; /* Access is too large */
-  }
+static inline __attribute__((always_inline)) ulong
+fd_vm_find_input_mem_region( fd_vm_t * vm,
+                             ulong     offset,
+                             ulong     sz,
+                             uchar     write,
+                             ulong     sentinel ) {
+  uint cnt = vm->input_mem_regions_cnt;
+  if( FD_UNLIKELY( !cnt ) ) return sentinel;
 
-  /* Binary search to find the correct memory region. */
   ulong region_idx = fd_vm_get_input_mem_region_idx( vm, offset );
-  if( FD_UNLIKELY( region_idx>=vm->input_mem_regions_cnt ) ) {
-    return sentinel; /* Region not found */
-  }
+  if( FD_UNLIKELY( region_idx>=(ulong)cnt ) ) return sentinel;
+  fd_vm_input_region_t * region = &vm->input_mem_regions[ region_idx ];
 
-  ulong bytes_in_region = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
-                                            fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
+  ulong rel_off         = fd_ulong_sat_sub( offset, region->vaddr_offset );
+  ulong bytes_in_region = fd_ulong_sat_sub( (ulong)region->region_sz, rel_off );
 
-  /* If the access is out of bounds, invoke the callback to handle the out of bounds access.
-     This potentially resizes the region if necessary. */
   if( FD_UNLIKELY( sz>bytes_in_region ) ) {
-    fd_vm_handle_input_mem_region_oob( vm, offset, sz, region_idx, write );
+    if( !write ) return sentinel;
+    fd_vm_handle_input_mem_region_oob( vm, offset, sz, region_idx, 1U );
+    bytes_in_region = fd_ulong_sat_sub( (ulong)region->region_sz, rel_off );
+    if( FD_LIKELY( sz>bytes_in_region ) ) return sentinel;
   }
 
-  /* After potentially resizing, re-check the bounds */
-  bytes_in_region = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
-                                      fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
-  /* If the access is still out of bounds, return the sentinel */
-  if( FD_UNLIKELY( sz>bytes_in_region ) ) {
-    return sentinel;
+  if( write ) {
+    if( FD_UNLIKELY( !region->is_writable ) ) return sentinel;
+    if( FD_LIKELY( vm->acc_region_metas!=NULL ) && region->acc_region_meta_idx!=ULONG_MAX ) {
+      uchar * touched = vm->acc_region_metas[ region->acc_region_meta_idx ].touched;
+      if( FD_LIKELY( touched ) ) *touched = 1;
+    }
   }
 
-  if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
-    return sentinel; /* Illegal write */
+  if( FD_LIKELY( region->vaddr_offset + (ulong)region->region_sz <= (1UL<<32) ) ) {
+    vm->region_voff [FD_VM_INPUT_REGION] = (uint)region->vaddr_offset;
+    vm->region_haddr[FD_VM_INPUT_REGION] = region->haddr;
+    vm->region_ld_sz[FD_VM_INPUT_REGION] = region->region_sz;
+    int fast_st = region->is_writable &&
+      ( write || vm->acc_region_metas==NULL || region->acc_region_meta_idx==ULONG_MAX ||
+        !vm->acc_region_metas[ region->acc_region_meta_idx ].touched ||
+        *vm->acc_region_metas[ region->acc_region_meta_idx ].touched );
+    vm->region_st_sz[FD_VM_INPUT_REGION] = fast_st ? region->region_sz : 0U;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.2.0-beta.1/transaction-context/src/transaction.rs#L546 */
-  if( FD_UNLIKELY( write && vm->acc_region_metas &&
-                   vm->input_mem_regions[ region_idx ].acc_region_meta_idx!=ULONG_MAX ) ) {
-    uchar * touched = vm->acc_region_metas[ vm->input_mem_regions[ region_idx ].acc_region_meta_idx ].touched;
-    if( FD_LIKELY( touched ) ) *touched = 1;
-  }
-
-  ulong start_region_idx = region_idx;
-
-  ulong adjusted_haddr = vm->input_mem_regions[ start_region_idx ].haddr + offset - vm->input_mem_regions[ start_region_idx ].vaddr_offset;
-  return adjusted_haddr;
+  return region->haddr + offset - region->vaddr_offset;
 }
 
 /* fd_vm_{stack,heap}_grow lazily grow the stack and heap with geometric
@@ -467,7 +473,26 @@ fd_vm_mem_init_full( fd_vm_t * vm ) {
   fd_vm_heap_grow ( vm, vm->heap_max    );
 }
 
-static inline ulong
+ulong
+fd_vm_mem_haddr_slow( fd_vm_t *     vm,
+                      ulong         vaddr,
+                      ulong         sz,
+                      ulong const * vm_region_haddr, /* indexed [0,6) */
+                      uint  const * vm_region_sz,    /* indexed [0,6) */
+                      uchar         write,           /* 1 if the access is a write, 0 if it is a read */
+                      ulong         sentinel );
+
+ulong
+fd_vm_mem_haddr_ld_slow( fd_vm_t * vm,
+                         ulong     vaddr,
+                         ulong     sz );
+
+ulong
+fd_vm_mem_haddr_st_slow( fd_vm_t * vm,
+                         ulong     vaddr,
+                         ulong     sz );
+
+static inline __attribute__((always_inline)) ulong
 fd_vm_mem_haddr( fd_vm_t *       vm,
                  ulong           vaddr,
                  ulong           sz,
@@ -475,34 +500,15 @@ fd_vm_mem_haddr( fd_vm_t *       vm,
                  uint  const *   vm_region_sz,    /* indexed [0,6) */
                  uchar           write,           /* 1 if the access is a write, 0 if it is a read */
                  ulong           sentinel ) {
-  ulong region = FD_VADDR_TO_REGION( vaddr );
+  ulong region = vaddr >> FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS;
   ulong offset = vaddr & FD_VM_OFFSET_MASK;
-
-  /* If the region is an account, handle the resizing logic. This logic corresponds to
-     solana_transaction_context::TransactionContext::access_violation_handler
-
-     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L510-L581 */
-  if( region==FD_VM_INPUT_REGION ) {
-    return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
-  }
-
-  ulong region_sz = (ulong)vm_region_sz[ region ];
-  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
-
-  if( FD_UNLIKELY( sz>sz_max && (region==FD_VM_STACK_REGION || region==FD_VM_HEAP_REGION) ) ) {
-    /* {stack,heap} are lazily initialized.  faults here mean that we
-       need to do some zero initialization work. */
-    ulong need = fd_ulong_sat_add( offset, sz );
-    ulong cap  = fd_ulong_if( region==FD_VM_STACK_REGION, FD_VM_STACK_MAX, vm->heap_max );
-    if( FD_LIKELY( need<=cap ) ) {
-      if( region==FD_VM_STACK_REGION ) fd_vm_stack_grow( vm, need );
-      else                             fd_vm_heap_grow ( vm, need );
-      region_sz = (ulong)vm_region_sz[ region ]; /* republished by grow */
-      sz_max    = region_sz - fd_ulong_min( offset, region_sz );
+  if( FD_LIKELY( region<4UL ) ) {
+    ulong region_sz = (ulong)vm_region_sz[ region ];
+    if( FD_LIKELY( sz<=region_sz && offset<=region_sz - sz ) ) {
+      return vm_region_haddr[ region ] + offset;
     }
   }
-
-  return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+  return fd_vm_mem_haddr_slow( vm, vaddr, sz, vm_region_haddr, vm_region_sz, write, sentinel );
 }
 
 

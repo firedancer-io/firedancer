@@ -2476,6 +2476,90 @@ test_bpf_exec_frame_reuse_and_isolation( fd_svm_mini_t * mini ) {
   }
 }
 
+/* Verify that CPI caller account updates invalidate the caller VM's
+   inline MRU input TLB (slot 4) so post-CPI loads/stores cannot observe
+   stale pre-CPI region bounds after a callee shrinks an account. */
+static void
+test_cpi_caller_input_tlb_invalidation( fd_svm_mini_t * mini ) {
+  uchar sys_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( sys_mem ) );
+  FD_TEST( fd_vm_syscall_register_all( syscalls, 0 ) == FD_VM_SUCCESS );
+
+  uint cpi_hashes[2] = {
+    fd_murmur3_32( "sol_invoke_signed_rust", 22UL, 0U ),
+    fd_murmur3_32( "sol_invoke_signed_c",    19UL, 0U ),
+  };
+
+  for( int abi=0; abi<2; abi++ ) {
+    for( int oob_after_shrink=0; oob_after_shrink<2; oob_after_shrink++ ) {
+      cpi_test_cfg_t cfg[1]; simple_writable_cfg( cfg );
+      cfg->accts[0].dlen      = 64UL;
+      cfg->accts[0].data_fill = 0x5AU;
+      cfg->text_sz            = build_set_data_len_text( cfg->text_buf, 0UL, 16UL );
+
+      env_build( mini, cfg );
+      fd_vm_t * vm = mini->vm;
+      ulong instr_va, infos_va, n_infos;
+      if( abi==0 ) rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
+      else         c_cpi_build   ( vm, cfg, &instr_va, &infos_va, &n_infos );
+
+      /* Configure realistic direct-mapped caller input regions:
+         region 0 = [0, 88) metadata, region 1 = [88, 152) account 0 data */
+      vm->acc_region_metas[1].region_idx = 0U;
+      input_regs[0] = (fd_vm_input_region_t){
+        .vaddr_offset = 0UL,  .haddr = (ulong)input_buf,        .region_sz = 88U,
+        .address_space_reserved = 88UL, .is_writable = 1U, .acc_region_meta_idx = 1UL,
+      };
+      input_regs[1] = (fd_vm_input_region_t){
+        .vaddr_offset = 88UL, .haddr = (ulong)(input_buf + 88), .region_sz = 64U,
+        .address_space_reserved = 64UL + MAX_PERMITTED_DATA_INCREASE, .is_writable = 1U, .acc_region_meta_idx = 1UL,
+      };
+      vm->input_mem_regions_cnt = 2U;
+
+      short post_off = (short)( 88 + (oob_after_shrink ? 16 : 8) );
+      ulong caller_prog[] = {
+        /* 1. Pre-CPI load at data+32 warms caller TLB slot 4 with region_ld_sz=64 */
+        fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 6UL, 0UL, 0, 4U  ),
+        fd_vm_instr( FD_SBPF_OP_LSH64_IMM, 6UL, 0UL, 0, 32U ),
+        fd_vm_instr( FD_SBPF_OP_LDXDW,     7UL, 6UL, 88 + 32, 0U ),
+        /* 2. Invoke CPI (callee shrinks account 0 data_len from 64 -> 16) */
+        fd_vm_instr( FD_SBPF_OP_CALL_IMM,  0UL, 0UL, 0, cpi_hashes[abi] ),
+        /* 3. Post-CPI load at data+8 (in-bounds) vs data+16 (now out-of-bounds!) */
+        fd_vm_instr( FD_SBPF_OP_LDXDW,     0UL, 6UL, post_off, 0U ),
+        fd_vm_instr( FD_SBPF_OP_EXIT,      0UL, 0UL, 0, 0U ),
+      };
+
+      vm->text         = caller_prog;
+      vm->text_cnt     = sizeof(caller_prog) / sizeof(ulong);
+      vm->text_sz      = sizeof(caller_prog);
+      vm->sbpf_version = FD_SBPF_V3;
+      vm->syscalls     = syscalls;
+      vm->pc           = 0UL;
+      vm->ic           = 0UL;
+      vm->cu           = 200000UL;
+      vm->frame_cnt    = 0UL;
+      vm->reg[1]       = instr_va;
+      vm->reg[2]       = infos_va;
+      vm->reg[3]       = n_infos;
+      vm->reg[4]       = 0UL;
+      vm->reg[5]       = 0UL;
+      fd_vm_mem_cfg( vm );
+      vm->region_ld_sz[ FD_VM_HEAP_REGION ] = (uint)vm->heap_max;
+      vm->region_st_sz[ FD_VM_HEAP_REGION ] = (uint)vm->heap_max;
+
+      int exec_err = fd_vm_exec( vm );
+      if( oob_after_shrink ) {
+        FD_TEST( exec_err == FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+      } else {
+        FD_TEST( exec_err == FD_VM_SUCCESS );
+        FD_TEST( vm->reg[0] == 0x5a5a5a5a5a5a5a5aUL );
+      }
+    }
+  }
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_svm_mini_limits_t limits[1];
@@ -2580,6 +2664,7 @@ main( int argc, char ** argv ) {
   test_cpi_to_authorized_program_restricted( mini );
   test_callee_cu_exhaustion_during         ( mini );
   test_bpf_exec_frame_reuse_and_isolation  ( mini );
+  test_cpi_caller_input_tlb_invalidation   ( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

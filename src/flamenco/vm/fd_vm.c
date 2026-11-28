@@ -669,3 +669,63 @@ fd_vm_init(
 
   return vm;
 }
+
+ulong
+fd_vm_mem_haddr_slow( fd_vm_t *     vm,
+                      ulong         vaddr,
+                      ulong         sz,
+                      ulong const * vm_region_haddr,
+                      uint  const * vm_region_sz,
+                      uchar         write,
+                      ulong         sentinel ) {
+  ulong region = FD_VADDR_TO_REGION( vaddr );
+  ulong offset = vaddr & FD_VM_OFFSET_MASK;
+
+  if( FD_LIKELY( region==FD_VM_INPUT_REGION ) ) {
+    return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
+  }
+
+  ulong region_sz = (ulong)vm_region_sz[ region ];
+  ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
+
+  if( FD_LIKELY( sz>sz_max && (region==FD_VM_STACK_REGION || region==FD_VM_HEAP_REGION) ) ) {
+    /* {stack,heap} are lazily initialized.  faults here mean that we
+       need to do some zero initialization work. */
+    ulong need = fd_ulong_sat_add( offset, sz );
+    ulong cap  = fd_ulong_if( region==FD_VM_STACK_REGION, FD_VM_STACK_MAX, vm->heap_max );
+    if( FD_LIKELY( need<=cap ) ) {
+      if( region==FD_VM_STACK_REGION ) fd_vm_stack_grow( vm, need );
+      else                             fd_vm_heap_grow ( vm, need );
+      region_sz = (ulong)vm_region_sz[ region ]; /* republished by grow */
+      sz_max    = region_sz - fd_ulong_min( offset, region_sz );
+    }
+  }
+
+  return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+}
+
+ulong
+fd_vm_mem_haddr_ld_slow( fd_vm_t * vm,
+                         ulong     vaddr,
+                         ulong     sz ) {
+  ulong haddr = fd_vm_mem_haddr_slow( vm, vaddr, sz, vm->region_haddr, vm->region_ld_sz, 0, 0UL );
+  if( FD_UNLIKELY( !haddr ) ) {
+    vm->segv_vaddr       = vaddr;
+    vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
+    vm->segv_access_len  = sz;
+  }
+  return haddr;
+}
+
+ulong
+fd_vm_mem_haddr_st_slow( fd_vm_t * vm,
+                         ulong     vaddr,
+                         ulong     sz ) {
+  ulong haddr = fd_vm_mem_haddr_slow( vm, vaddr, sz, vm->region_haddr, vm->region_st_sz, 1, 0UL );
+  if( FD_UNLIKELY( !haddr ) ) {
+    vm->segv_vaddr       = vaddr;
+    vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
+    vm->segv_access_len  = sz;
+  }
+  return haddr;
+}

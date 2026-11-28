@@ -202,11 +202,10 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
                                                                 The virtual addresses of each region are contiguous and
                                                                 strictly increasing. */
   uint                      input_mem_regions_cnt;
+  uint                      region_voff[5];                  /* Start vaddr offset of active sub-region for regions 0..4 (0 for 0..3; MRU input vaddr_offset for 4) */
   fd_vm_acc_region_meta_t * acc_region_metas;                /* Represents a mapping from the instruction account indices
                                                                 from the instruction context to the input memory region index
                                                                 of the account's metadata region in the input space. */
-  uchar                     is_deprecated;                   /* The vm requires additional checks in certain CPIs if the
-                                                                vm's current instance was initialized by a deprecated program. */
 
   fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
 
@@ -220,11 +219,12 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
        data access violations. */
   ulong segv_vaddr;
   ulong segv_access_len;
-  uchar segv_access_type;
 
   ulong sbpf_version;     /* SBPF version, SIMD-0161 */
 
-  int dump_syscall_to_pb; /* If true, syscalls will be dumped to the specified output directory */
+  uchar is_deprecated;    /* Additional CPI checks if initialized by a deprecated loader */
+  uchar segv_access_type;
+  int   dump_syscall_to_pb; /* If true, syscalls will be dumped to the specified output directory */
 
   /* fd_vm_new zero-initializes up to this point only */
 
